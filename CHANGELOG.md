@@ -3,6 +3,45 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.6.5] - 2026-07-12
+
+Fixes from the second real Windows run: Lot now passes (v0.4 fix confirmed on
+hardware), which surfaced two more documented-vs-real mismatches downstream.
+
+### Fixed — Godot staged project missing the global class cache (laser_tag + lux)
+- The runner/driver reference class_name TYPES (LT_MapEvalHarness, LT_TestScenario,
+  LuxRoot). Godot can't resolve a class_name without its global script class
+  cache, which only exists after an editor import — the throwaway staged project
+  never had one, so `-s run_map_eval.gd` failed with "Could not find type ...".
+- Fix: `stage_godot_project` now stages the addon's own
+  `.godot/global_script_class_cache.cfg` into the project (merging when several
+  addons are staged). Verified every cached class path lives under
+  res://addons/<name>/ — the same res:// location LF copies the addon to — so
+  the cache is copy-safe. Confirmed against real repos: 32 laser_tag classes
+  (incl. LT_MapEvalHarness/LT_TestScenario) and 24 lux classes (incl. LuxRoot)
+  stage into a well-formed cache.
+
+### Fixed — Patina theme name
+- LF passed `--theme <theme_family>` (e.g. "delco_1997"), but Patina validates
+  against its builtins ("default", "delco_1997_gas_station") and errors hard on
+  unknowns, blocking the art pass. LF now passes the always-present "default"
+  unless the brief sets an explicit `patina_theme` (a builtin name or a theme
+  .json path). Verified real Patina 0.18 runs clean with "default". theme_family
+  still flows to the other tools; it was never a valid Patina theme name.
+
+### Testing
+- Fast suite: 114 passed, 9 skipped. Real-tool smoke: 9 pass, with new
+  assertions that the staged Godot projects carry the class cache (incl. the
+  exact class_name types the runner/driver need). Real Godot execution still
+  needs the user's hardware to confirm the parse errors are gone.
+
+### Note on the run that found these
+- Second Windows run: Lot assembled the site (v0.4 fix held — canonical
+  site.tscn/site_walk.tscn/site.site.*.json), all 3 Deli candidates built through
+  real Blender. The two failures above were the next documented-vs-real gaps, now
+  fixed. Watch for the same class in Zoo's real kit build (--theme) once it runs
+  through Blender.
+
 ## [0.6.4] - 2026-07-12
 
 Fixes found by the first real Windows end-to-end run (deli built through real

@@ -31,6 +31,17 @@ def _project_godot(name: str, addon_plugins: list[str]) -> str:
     )
 
 
+def _class_cache_entries(text: str) -> str:
+    """Return the inner entries of a global_script_class_cache.cfg `list=[...]`
+    (everything between the outermost brackets), so multiple addon caches can be
+    merged into one `list=[ ... ]`. Returns "" if the file has no list."""
+    start = text.find("[")
+    end = text.rfind("]")
+    if start == -1 or end == -1 or end <= start:
+        return ""
+    return text[start + 1:end].strip()
+
+
 def stage_godot_project(
     dest: Path, *, addon_dirs: list[Path], scene_src: Path,
     plugins: list[str], scene_res_name: str = "level.tscn",
@@ -41,12 +52,28 @@ def stage_godot_project(
     """
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "addons").mkdir(exist_ok=True)
+    cache_entries: list[str] = []
     for addon in addon_dirs:
         if addon.exists():
             target = dest / "addons" / addon.name
             if target.exists():
                 shutil.rmtree(target)
             shutil.copytree(addon, target)
+            # A staged throwaway project is never opened in the editor, so it
+            # has no global script class cache — and Godot can't resolve a
+            # class_name TYPE (e.g. LT_MapEvalHarness, LuxRoot) without it,
+            # which makes `-s <runner>.gd` fail with "Could not find type".
+            # The addon's own repo already has that cache and every entry points
+            # under res://addons/<name>/ (verified), so it's copy-safe: pull its
+            # entries in. addon = <repo>/addons/<name>, so repo = addon.parent.parent.
+            src_cache = addon.parent.parent / ".godot" / "global_script_class_cache.cfg"
+            if src_cache.exists():
+                cache_entries.append(_class_cache_entries(src_cache.read_text(encoding="utf-8")))
+    if cache_entries:
+        merged = ", ".join(e for e in cache_entries if e)
+        (dest / ".godot").mkdir(exist_ok=True)
+        (dest / ".godot" / "global_script_class_cache.cfg").write_text(
+            "list=[" + merged + "]\n", encoding="utf-8")
     # Stage the scene + its work-dir siblings (relative-path deps) at res://.
     if scene_src.exists():
         shutil.copy2(scene_src, dest / scene_res_name)

@@ -271,7 +271,12 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                 specs[job.job_id] = {
                     "input_glb": deli_glb,
                     "art_mode": "vertex-color",
-                    "theme": model.theme or batch.get("theme_family", ""),
+                    # Patina validates themes against its builtins ("default",
+                    # "delco_1997_gas_station") and errors hard on unknowns, so
+                    # pass an explicit patina_theme if the brief sets one, else
+                    # the always-present "default". (theme_family is for the
+                    # other tools; it is NOT a valid patina theme name.)
+                    "theme": getattr(model, "patina_theme", "") or "default",
                     "dressing": True,
                     "panel_size": 1.2, "panel_gap": 0.03,
                 }
@@ -279,7 +284,7 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                 specs[job.job_id] = {
                     "input_glb": deli_glb,
                     "art_mode": "vertex-color",
-                    "theme": model.theme or batch.get("theme_family", ""),
+                    "theme": getattr(model, "patina_theme", "") or "default",
                 }
         elif job.adapter_id == "lux":
             zoo_dress_job = job.depends_on[0]

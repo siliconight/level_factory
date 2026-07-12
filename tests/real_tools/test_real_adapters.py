@@ -218,6 +218,12 @@ def test_real_lasertag_runner_and_invocation(tool_root, tmp_path):
     assert (proj / "project.godot").exists()
     assert (proj / "addons" / "laser_tag_tool" / "runners" / "run_map_eval.gd").exists()
     assert (proj / "level.tscn").exists()
+    # The staged project must carry the global class cache, else Godot can't
+    # resolve the runner's class_name types (LT_MapEvalHarness/LT_TestScenario).
+    cache = proj / ".godot" / "global_script_class_cache.cfg"
+    assert cache.exists(), "class cache not staged — Godot would fail to parse the runner"
+    ctext = cache.read_text()
+    assert "LT_MapEvalHarness" in ctext and "LT_TestScenario" in ctext
 
 
 def test_real_lux_addon_and_driver_invocation(tool_root, tmp_path):
@@ -250,3 +256,6 @@ def test_real_lux_addon_and_driver_invocation(tool_root, tmp_path):
     proj = tmp_path / "stage"
     assert (proj / "run_lux_apply.gd").exists()  # driver staged at project root
     assert (proj / "addons" / "lux" / "runtime" / "lux_root.gd").exists()
+    cache = proj / ".godot" / "global_script_class_cache.cfg"
+    assert cache.exists(), "class cache not staged — Godot would fail to resolve LuxRoot"
+    assert "LuxRoot" in cache.read_text()
