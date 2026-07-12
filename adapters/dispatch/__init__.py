@@ -63,7 +63,8 @@ class DispatchAdapter(BaseAdapter):
                 )
         return ToolProbe(
             available=not problems or all("assuming" in p for p in problems),
-            tool_version=(contract or {}).get("tool_version", base.tool_version),
+            tool_version=(contract or {}).get("version",
+                          (contract or {}).get("tool_version", base.tool_version)),
             repository_commit=base.repository_commit,
             executable_versions=base.executable_versions,
             capabilities=base.capabilities,
@@ -112,7 +113,9 @@ class DispatchAdapter(BaseAdapter):
         args = ["-m", "dispatch", "build", str(spec), "--mode", mode, "--out", str(work)]
         if job_spec.get("include_preview"):
             args.append("--include-preview")
-        if job_spec.get("strict_licenses"):
+        # --strict-licenses is the documented Level Factory default (unknown
+        # bundled licenses become blockers), unless explicitly disabled.
+        if job_spec.get("strict_licenses", True):
             args.append("--strict-licenses")
 
         return [
@@ -123,7 +126,8 @@ class DispatchAdapter(BaseAdapter):
                 expected_outputs=(
                     "mission.tscn", "mission_manifest.json", "gameplay_anchors.json",
                     "runtime_ownership_requirements.json", "proposed_beat_graph.json",
-                    "navigation_hints.json", "build.lock.json", "HANDOFF.md",
+                    "navigation_hints.json", "resource_manifest.json",
+                    "build.lock.json", "HANDOFF.md",
                 ),
                 resource_class="python_cpu",
                 timeout_seconds=600,

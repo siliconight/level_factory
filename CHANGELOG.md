@@ -3,6 +3,53 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.6.0] - 2026-07-12
+
+Real-tool grounding: rebind the pure-Python adapters from *documented* contracts
+to the *actual* CLIs of the uploaded tool repos, and add a real-tool smoke suite
+that drives the real tools.
+
+### Changed — adapters rebound to real CLIs
+- **dispatch** (`adapters/dispatch`): reads the real `version` key from the
+  `dispatch contract` probe; passes `--strict-licenses` by default (the tool's
+  documented Level Factory default); expects `resource_manifest.json`. Verified
+  driving real Dispatch 0.3.0 end-to-end: `dispatch build` produced the full
+  handoff (mission.tscn / gameplay_anchors / runtime_ownership_requirements /
+  proposed_beat_graph / HANDOFF.md / build.lock), readiness 100, 0 blockers.
+- **lot** (`adapters/lot`): real positional CLI `lot.py <site_spec> <out>
+  --walkable [--navqa]`; consumes a Level-Factory-written `site.json` referencing
+  the DC shell; stem-named outputs `site.site.gameplay.json / site.tscn /
+  site_walk.tscn / site.site.lights.json`. Pacing is surfaced as a NON-blocking
+  estimate (§24.2). Verified against real Lot 0.18.0.
+- **patina** (`adapters/patina`): real CLI `patina <shell.glb> [--mode] [--theme]
+  [--dressing --panel-fields --frames --gutters --pilasters] --out
+  <dir>/<stem>.patina.glb`; takes the DC shell glb as positional input; outputs
+  `<stem>.patina.glb / .patina.json / .patina.gameplay.json`. Verified against
+  real Patina 0.18.0 (base + dressing); collision preserved ("untouched").
+
+### Added — real-tool smoke suite (TDD 37.5)
+- `tests/real_tools/` — gated on `LF_TOOLS_DIR`. When set, three tests resolve
+  the real repos, build each rebound adapter's planned command, run it against
+  the tool's own bundled example, and assert the adapter's expected outputs.
+  When unset, they skip — the fast suite never needs Blender/Godot/private repos.
+  Run: `LF_TOOLS_DIR=/path/to/tools pytest tests/real_tools -q` (3 pass).
+
+### Changed — stubs + job-spec cascade migrated to real contracts
+- The lot/patina/dispatch stub CLIs now mimic the REAL command shapes and output
+  names, so the fast suite and the real tools share one adapter code path.
+- `_job_specs_for_plan` rewired: writes a real Lot `site.json` (`_write_site_spec`),
+  feeds Patina the DC shell glb (`input_glb`), points Laser Tag at `site_walk.tscn`,
+  points Zoo dressing at Patina's real `shell.patina.json`, and the Dispatch spec +
+  functional-lock/regression read `site.site.gameplay.json`.
+- Not-yet-rebound tools (deli_counter two-step, zoo, pixelcoat, laser_tag, lux)
+  keep their current contracts this release; their real CLIs are captured in
+  REAL_TOOL_RECONCILIATION.md and are the next rebind (Blender/Godot-gated).
+
+### Testing
+- Fast suite: 114 passed, 3 skipped (real_tools). Full CLI pipeline
+  (functional-lock → presentation → export → portability) runs clean end-to-end
+  on the migrated stubs. Real-tool smoke: 3 pass against the actual repos.
+
 ## [0.5.0] - 2026-07-12
 
 Phase 5: Advanced Review & CI (TDD 42, Phase 5). Completes the delivery plan.

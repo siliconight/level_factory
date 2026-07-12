@@ -118,8 +118,8 @@ def plan_mission(
             candidate_id=cand,
             resource_class="python_cpu",
             depends_on=[deli_jid],
-            expected_outputs=["site.tscn", "site.gameplay.json", "site.nav_hints.json",
-                              "site.audit.json", "pacing.json"],
+            expected_outputs=["site.tscn", "site_walk.tscn",
+                              "site.site.gameplay.json", "site.site.lights.json"],
         )
         plan.graph.add(lot)
         lot_job_ids_by_candidate[cand] = lot_jid
@@ -176,7 +176,8 @@ def plan_mission(
             stage_id=_STAGE_PATINA_BASE, adapter_id="patina",
             candidate_id=selected_candidate, resource_class="python_cpu",
             depends_on=[lot_jid],
-            expected_outputs=["patina.atlas.json"],
+            expected_outputs=["shell.patina.glb", "shell.patina.json",
+                              "shell.patina.gameplay.json"],
         ))
         # Patina dressing manifest.
         patina_dress_jid = job_id(brief.mission_id, _STAGE_PATINA_DRESS)
@@ -185,7 +186,8 @@ def plan_mission(
             stage_id=_STAGE_PATINA_DRESS, adapter_id="patina",
             candidate_id=selected_candidate, resource_class="python_cpu",
             depends_on=[patina_base_jid],
-            expected_outputs=["dressing_manifest.json"],
+            expected_outputs=["shell.patina.glb", "shell.patina.json",
+                              "shell.patina.gameplay.json"],
         ))
         # Zoo dressing build from the Patina manifest (collision-free).
         zoo_dress_jid = job_id(brief.mission_id, _STAGE_ZOO_DRESS)

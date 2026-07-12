@@ -213,12 +213,11 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
         elif job.adapter_id == "lot":
             deli_job = job.depends_on[0]
             deli_out = jobs_dir / deli_job
+            site_spec = _write_site_spec(ws, model, deli_out)
             specs[job.job_id] = {
-                "site_shape": model.site_shape,
-                "route_shape": model.route_shape,
-                "target_minutes": list(model.target_minutes),
+                "site_spec_path": str(site_spec),
+                "walkable": True,
                 "building_glbs": [str(_latest_output(deli_out, "shell.glb"))],
-                "lights_jsons": [str(_latest_output(deli_out, "shell.lights.json"))],
             }
         elif job.adapter_id == "laser_tag":
             lot_job = job.depends_on[0]
@@ -226,7 +225,8 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
             specs[job.job_id] = {
                 "seed": int(job.candidate_id.rsplit("_", 1)[-1]),
                 "run_count": 8,
-                "evaluation_scene": str(_latest_output(lot_out, "site.tscn")),
+                # Laser Tag evaluates the walkable candidate scene.
+                "evaluation_scene": str(_latest_output(lot_out, "site_walk.tscn")),
             }
         elif job.adapter_id == "pixelcoat":
             specs[job.job_id] = {
@@ -247,7 +247,7 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                     "seed": int(str(job.candidate_id).rsplit("_", 1)[-1]),
                     "theme": model.theme or batch.get("theme_family", ""),
                     "manifest_path": str(_latest_output(jobs_dir / dress_job,
-                                                        "dressing_manifest.json")),
+                                                        "shell.patina.json")),
                     "slots_path": str(_lot_slots(ws, jobs_dir, job)),
                     "skins_dir": str(_latest_output(jobs_dir / kit_job, ".")),
                     "expected_outputs": ["zoo.manifest.json"],
@@ -264,19 +264,20 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                     "expected_outputs": ["zoo.manifest.json"],
                 }
         elif job.adapter_id == "patina":
+            deli_glb = str(_latest_output(jobs_dir / _deli_for(plan, job), "shell.glb"))
             if job.stage_id == "patina_dressing":
                 specs[job.job_id] = {
-                    "mode": "dress",
+                    "input_glb": deli_glb,
+                    "art_mode": "vertex-color",
                     "theme": model.theme or batch.get("theme_family", ""),
-                    "slots_path": str(_lot_slots(ws, jobs_dir, job)),
+                    "dressing": True,
                     "panel_size": 1.2, "panel_gap": 0.03,
-                    "expected_outputs": ["dressing_manifest.json"],
                 }
             else:
                 specs[job.job_id] = {
-                    "mode": "apply",
+                    "input_glb": deli_glb,
+                    "art_mode": "vertex-color",
                     "theme": model.theme or batch.get("theme_family", ""),
-                    "expected_outputs": ["patina.atlas.json"],
                 }
         elif job.adapter_id == "lux":
             zoo_dress_job = job.depends_on[0]
@@ -346,11 +347,31 @@ def _write_dispatch_spec(ws: Workspace, model: MissionBrief, lot_out: Path) -> P
         "schema": "dispatch.mission.v0.2",
         "mission_id": model.mission_id,
         "site_scene": str(_latest_output(lot_out, "site.tscn")),
-        "gameplay": str(_latest_output(lot_out, "site.gameplay.json")),
-        "nav_hints": str(_latest_output(lot_out, "site.nav_hints.json")),
+        "gameplay": str(_latest_output(lot_out, "site.site.gameplay.json")),
+        "lights": str(_latest_output(lot_out, "site.site.lights.json")),
         "mode": "shell-handoff",
     }
     dest = ws.internal_dir / "temp" / f"{model.mission_id}.dispatch.mission.json"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(pretty_dumps(spec), encoding="utf-8")
+    return dest
+
+
+def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path) -> Path:
+    """Write a Lot site spec (named 'site.json' so Lot's stem-based outputs are
+    canonical: site.tscn / site_walk.tscn / site.site.gameplay.json). References
+    the Deli Counter building shell for this candidate."""
+    spec = {
+        "schema": "lot.site.v0.18",
+        "site_id": model.mission_id,
+        "site_shape": model.site_shape,
+        "route_shape": model.route_shape,
+        "target_minutes": list(model.target_minutes),
+        "buildings": [{"id": "b0", "glb": str(_latest_output(deli_out, "shell.glb")),
+                       "gameplay": str(_latest_output(deli_out, "shell.gameplay.json"))}],
+    }
+    dest = ws.internal_dir / "temp" / model.mission_id / "site.json"
+    dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(pretty_dumps(spec), encoding="utf-8")
     return dest
 
@@ -755,7 +776,7 @@ def _store_functional_lock(ws: Workspace, mission_id: str) -> None:
     deli_out = ws.jobs_dir / f"{mission_id}.deli_generate.candidate.seed_{seed}" / "out"
     lock = compute_lock(
         mission_id=mission_id, candidate_id=cand, seed=seed,
-        site_gameplay_path=lot_out / "site.gameplay.json",
+        site_gameplay_path=lot_out / "site.site.gameplay.json",
         deli_gameplay_path=deli_out / "shell.gameplay.json",
     )
     p = _lock_path(ws, mission_id)
@@ -857,7 +878,7 @@ def cmd_export(args) -> int:
         seed = lock.seed
         deli_out = ws.jobs_dir / f"{mission_id}.deli_generate.candidate.seed_{seed}" / "out"
         regression = verify_no_drift(
-            lock, lot_out / "site.gameplay.json", deli_out / "shell.gameplay.json")
+            lock, lot_out / "site.site.gameplay.json", deli_out / "shell.gameplay.json")
         if not regression.passed:
             print("export blocked by functional regression:", file=sys.stderr)
             for d in regression.drift:

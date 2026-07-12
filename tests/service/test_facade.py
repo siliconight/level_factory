@@ -146,7 +146,7 @@ def test_regression_blocks_export_via_service(tmp_path):
     svc.approve("m1", "functional_shell_locked")
     svc.run("m1", "presentation")
     # Inject functional drift after the art pass.
-    site = (ws.jobs_dir / "m1.lot_assemble.candidate.seed_1997" / "out" / "site.gameplay.json")
+    site = (ws.jobs_dir / "m1.lot_assemble.candidate.seed_1997" / "out" / "site.site.gameplay.json")
     data = json.loads(site.read_text())
     data["stair_systems"] = [{"id": "INJECTED"}]
     site.write_text(json.dumps(data))

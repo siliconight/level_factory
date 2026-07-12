@@ -1,12 +1,22 @@
-"""Lot adapter (TDD 24.2).
+"""Lot adapter (TDD 24.2) — bound to the REAL Lot 0.18.0 CLI.
 
-Bound to Lot v0.17.x: composes Deli Counter buildings into a site, runs the
-site audit + pacing in JSON mode, and produces a walkable Godot scene. In the
-light-anchor pipeline, Lot merges DC ``.lights.json`` before Lux bakes; the
-adapter passes the DC lights sidecar through as a Lot input.
+Real invocation (verified against the uploaded repo):
+
+    python lot.py <site_spec.json> <out_dir> [--walkable] [--navqa] [--preview]
+
+Lot is a positional script, not ``python -m lot``. The site spec references the
+Deli Counter building GLBs; Lot assembles them, runs the audit + pacing inline,
+and writes stem-named outputs into <out_dir>:
+
+    <stem>.site.gameplay.json   (pacing folded in, an ESTIMATE — never blocks)
+    <stem>.tscn                 (site scene)
+    <stem>_walk.tscn            (walkable candidate scene, with --walkable)
+    <stem>.site.lights.json     (merged light anchors)
+    <stem>_navqa.tscn           (with --navqa)
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
@@ -16,7 +26,7 @@ from packages.core.hashing import hash_file
 
 class LotAdapter(BaseAdapter):
     adapter_id = "lot"
-    adapter_version = "0.1.0"
+    adapter_version = "0.2.0"
     capabilities = frozenset(
         {
             "assemble_site",
@@ -27,37 +37,41 @@ class LotAdapter(BaseAdapter):
             "encounter_intel",
         }
     )
-    output_contract_version = "lot.site.0.17"
+    output_contract_version = "lot.site.0.18"
+
+    def _stem(self, job_spec: Mapping[str, object]) -> str:
+        spec = job_spec.get("site_spec_path")
+        return Path(str(spec)).stem if spec else "site"
 
     def validate_configuration(
         self, job_spec: Mapping[str, object], context: Mapping[str, object]
     ) -> Sequence[str]:
         problems: list[str] = []
-        buildings = job_spec.get("building_glbs", [])
-        if not buildings:
-            problems.append("lot job requires at least one building GLB")
-        for b in buildings:
-            if not Path(str(b)).exists():
-                problems.append(f"building artifact missing: {b}")
+        spec = job_spec.get("site_spec_path")
+        if not spec:
+            problems.append("lot job requires a site_spec_path (site_spec.json)")
+        elif not Path(str(spec)).exists():
+            problems.append(f"lot site spec missing: {spec}")
         return problems
 
     def fingerprint_inputs(
         self, job_spec: Mapping[str, object], context: Mapping[str, object]
     ) -> Mapping[str, object]:
+        fp: dict[str, object] = {
+            "walkable": bool(job_spec.get("walkable", True)),
+            "navqa": bool(job_spec.get("navqa", False)),
+        }
+        spec = job_spec.get("site_spec_path")
+        if spec and Path(str(spec)).exists():
+            fp["site_spec_hash"] = hash_file(Path(str(spec)))
+        # The site spec references building GLBs; fold their hashes in too.
         building_hashes = {}
         for b in job_spec.get("building_glbs", []):
             p = Path(str(b))
             if p.exists():
                 building_hashes[p.name] = hash_file(p)
-        fp: dict[str, object] = {
-            "site_shape": job_spec.get("site_shape"),
-            "route_shape": job_spec.get("route_shape"),
-            "target_minutes": job_spec.get("target_minutes"),
-            "building_hashes": building_hashes,
-        }
-        site_spec = job_spec.get("site_spec_path")
-        if site_spec and Path(str(site_spec)).exists():
-            fp["site_spec_hash"] = hash_file(Path(str(site_spec)))
+        if building_hashes:
+            fp["building_hashes"] = building_hashes
         return fp
 
     def plan_commands(
@@ -66,34 +80,26 @@ class LotAdapter(BaseAdapter):
         repo = Path(str(context["repository"]))
         work = Path(str(context["work_dir"]))
         py = context.get("python_executable") or "python"
+        spec = str(job_spec.get("site_spec_path", ""))
+        stem = self._stem(job_spec)
 
-        args = [
-            "-m", "lot", "assemble",
-            "--out", str(work),
-            "--audit", "json",
-            "--walkable",
-            "--nav-qa",
-        ]
-        for b in job_spec.get("building_glbs", []):
-            args += ["--building", str(b)]
-        for lights in job_spec.get("lights_jsons", []):
-            args += ["--lights", str(lights)]
-        site_spec = job_spec.get("site_spec_path")
-        if site_spec:
-            args += ["--spec", str(site_spec)]
-        tm = job_spec.get("target_minutes")
-        if tm:
-            args += ["--target-minutes", f"{tm[0]}-{tm[1]}"]
+        args = [str(repo / "lot.py"), spec, str(work)]
+        if job_spec.get("walkable", True):
+            args.append("--walkable")
+        if job_spec.get("navqa"):
+            args.append("--navqa")
+
+        expected = [f"{stem}.site.gameplay.json", f"{stem}.tscn",
+                    f"{stem}.site.lights.json"]
+        if job_spec.get("walkable", True):
+            expected.append(f"{stem}_walk.tscn")
 
         return [
             PlannedCommand(
                 executable=Path(str(py)),
                 arguments=tuple(args),
                 working_directory=repo,
-                expected_outputs=(
-                    "site.tscn", "site.gameplay.json", "site.nav_hints.json",
-                    "site.audit.json", "pacing.json",
-                ),
+                expected_outputs=tuple(expected),
                 resource_class="python_cpu",
                 timeout_seconds=600,
             )
@@ -109,29 +115,42 @@ class LotAdapter(BaseAdapter):
     def normalize_validation(
         self, output_paths: Sequence[Path]
     ) -> Sequence[Mapping[str, object]]:
-        import json
-
         issues: list[dict] = []
-        for p in output_paths:
-            if not p.name.lower().endswith("audit.json"):
-                continue
-            try:
-                data = json.loads(p.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                continue
-            findings = data.get("findings", []) if isinstance(data, dict) else []
-            for raw in findings:
-                sev = raw.get("severity", "moderate")
-                issues.append(
-                    {
-                        "code": raw.get("code", "LOT_FINDING"),
-                        "severity": sev,
-                        "category": raw.get("category", "combat_structure"),
-                        "message": raw.get("message", ""),
-                        "suggested_fix": raw.get("suggested_fix", ""),
-                        # Pacing results are estimates, never blocking (24.2).
-                        "blocking": sev == "blocker" and raw.get("category") != "pacing",
-                        "raw_source_path": str(p),
-                    }
-                )
+        gameplay = next(
+            (p for p in output_paths if p.name.endswith(".site.gameplay.json")), None)
+        if gameplay is None:
+            return issues
+        try:
+            data = json.loads(gameplay.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return issues
+
+        # Pacing is an ESTIMATE and never blocks (24.2). Surface an outside-target
+        # window as an informational note the operator can weigh.
+        pacing = data.get("pacing") or {}
+        status = str(pacing.get("status", ""))
+        if "outside target" in status:
+            issues.append({
+                "code": "LOT_PACING_OUTSIDE_TARGET",
+                "severity": "moderate",
+                "category": "pacing",
+                "message": (f"pacing estimate {pacing.get('estimate_expected_min','?')} min "
+                            f"({pacing.get('range_min','?')}) vs target "
+                            f"{pacing.get('target_min','?')}: {status}"),
+                "blocking": False,  # pacing never blocks
+                "raw_source_path": str(gameplay),
+            })
+
+        # Structured tactical findings, if Lot emitted any.
+        tactical = data.get("tactical") or {}
+        for raw in (tactical.get("findings", []) if isinstance(tactical, dict) else []):
+            sev = raw.get("severity", "moderate")
+            issues.append({
+                "code": raw.get("code", "LOT_TACTICAL_FINDING"),
+                "severity": sev,
+                "category": raw.get("category", "combat_structure"),
+                "message": raw.get("message", ""),
+                "blocking": sev == "blocker",
+                "raw_source_path": str(gameplay),
+            })
         return issues

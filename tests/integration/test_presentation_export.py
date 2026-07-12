@@ -125,7 +125,7 @@ def test_functional_regression_blocks_export(workspace):
 
     # Illegally move collision AFTER the art pass.
     site = (root / ".level_factory" / "jobs"
-            / "bank_block_001.lot_assemble.candidate.seed_1997" / "out" / "site.gameplay.json")
+            / "bank_block_001.lot_assemble.candidate.seed_1997" / "out" / "site.site.gameplay.json")
     data = json.loads(site.read_text())
     data["stair_systems"] = [{"id": "INJECTED", "role": "primary"}]
     site.write_text(json.dumps(data))
