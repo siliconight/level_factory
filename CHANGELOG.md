@@ -3,6 +3,46 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.3.0] - 2026-07-12
+
+Phase 3: Desktop MVP (TDD 42, Phase 3).
+
+### Added
+- Application service layer (`packages/service/facade.py`, `FactoryService`)
+  enforcing TDD 9.1: the UI calls services and never executes tool processes
+  itself. Query methods (dashboard, pipeline + node detail, candidates, art
+  pass, validation, job console, handoff) read canonical on-disk state plus the
+  SQLite index and return plain, asdict-able view-models. Action methods
+  (run/approve/select/export/portability) reuse the already-tested CLI command
+  implementations through a captured-args shim, so each side effect has exactly
+  one code path. The dashboard enumerates missions from the canonical batches
+  tree, not the index, so a deleted index never loses missions.
+- PySide6 desktop shell (`apps/desktop/`) over the service, with the TDD 10
+  layout (`main.py`, `windows/`, `views/`, `models/`, `dialogs/`) and all eight
+  screens (TDD 27): setup wizard, factory dashboard, pipeline view, candidate
+  gallery, art pass screen, validation center, job console, handoff screen. A
+  generic `DataclassTableModel` is the only place Qt touches service data.
+  Entry points: `python -m apps.desktop [workspace]` and the
+  `level-factory-desktop` gui-script.
+- The handoff screen renders the exact readiness table from TDD 27.9 (functional
+  geometry / collision / anchors / shell IDs / beat graph / ownership / nav /
+  presentation Ready; runtime / networking / enemy AI Not Implemented by Design)
+  and offers export-mode selection, folder/ZIP export, and the portability test.
+
+### Testing
+- 12 headless service tests (`tests/service/`) covering every query + action,
+  including the export regression block, with no Qt import.
+- 2 offscreen PySide6 smoke tests (`tests/desktop/`) that construct the real
+  main window under `QT_QPA_PLATFORM=offscreen`, drive all eight screens, and
+  fire the handoff export button. They `importorskip` PySide6, so they skip
+  cleanly where the desktop extra isn't installed.
+
+### Notes
+- PySide6 is an optional extra (`pip install -e '.[desktop]'`); the core, CLI,
+  and service layer never import Qt (verified with PySide6 blocked).
+- Same tool-contract stubs as Phases 1-2 (private repos 403 from the network);
+  the scheduler still runs sequentially (parallelism is Phase 4).
+
 ## [0.2.0] - 2026-07-12
 
 Phase 2: Presentation Pipeline + Portable Export (TDD 42, Phase 2).

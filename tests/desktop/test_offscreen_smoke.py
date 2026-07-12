@@ -1,0 +1,103 @@
+"""Offscreen PySide6 smoke test (TDD 27, Phase 3).
+
+Constructs the real main window against a prepared workspace under the Qt
+'offscreen' platform and drives every screen's refresh, asserting the screens
+populate from the service. Skips cleanly when PySide6 isn't installed, since the
+desktop is an optional Phase 3 dependency (the core + CLI never import Qt).
+"""
+import io
+import json
+import os
+import sys
+from contextlib import redirect_stdout
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+ROOT = Path(__file__).resolve().parents[2]
+FIXTURES = ROOT / "tests" / "fixtures"
+sys.path.insert(0, str(ROOT))
+
+pytest.importorskip("PySide6", reason="desktop is an optional Phase 3 dependency")
+
+from packages.project_store.workspace import init_workspace  # noqa: E402
+from packages.service.facade import FactoryService  # noqa: E402
+
+_REPOS = ("deli_counter", "lot", "laser_tag", "pixelcoat", "zoo", "patina", "lux", "dispatch")
+
+
+@pytest.fixture(scope="module")
+def prepared_ws(tmp_path_factory):
+    root = tmp_path_factory.mktemp("desk") / "ws"
+    ws = init_workspace(root, project_id="t", name="Desk")
+    ws.write_json(ws.tools_local, {
+        "python_executable": sys.executable,
+        "godot_executable": str(FIXTURES / "bin" / "godot"),
+        "blender_executable": str(FIXTURES / "bin" / "godot"),
+        "repositories": {r: str(FIXTURES / "repos" / r) for r in _REPOS},
+    })
+    (ws.shared_dir / "pixelcoat" / "recipes").mkdir(parents=True)
+    (ws.shared_dir / "pixelcoat" / "recipes" / "b.json").write_text('{"recipe":"b"}')
+    src = root.parent / "src"
+    (src / "briefs").mkdir(parents=True)
+    (src / "batch.json").write_text(json.dumps({
+        "schema": "level_factory.batch.v0.1", "batch_id": "b1", "name": "B",
+        "seed_base": 1997, "theme_family": "delco_1997", "missions": ["m1"]}))
+    (src / "briefs" / "m1.json").write_text(json.dumps({
+        "schema": "level_factory.mission_brief.v0.1", "mission_id": "m1",
+        "display_name": "M1", "archetype": "urban_bank", "building_count": 1,
+        "site_shape": "street_block", "route_shape": "push_then_backtrack",
+        "candidate_count": 3, "target_minutes": [25, 35], "theme": "delco_1997",
+        "time_of_day": "afternoon"}))
+    from apps.cli.commands import cmd_batch_create
+    with redirect_stdout(io.StringIO()):
+        cmd_batch_create(SimpleNamespace(chdir=str(ws.root), batch_json=str(src / "batch.json")))
+    svc = FactoryService(ws)
+    svc.run("m1", "functional-lock")
+    svc.approve("m1", "brief_approved")
+    svc.select_candidate("m1", "m1.candidate.seed_1997")
+    svc.approve("m1", "functional_shell_locked")
+    svc.run("m1", "presentation")
+    return ws
+
+
+@pytest.fixture(scope="module")
+def app():
+    from PySide6.QtWidgets import QApplication
+    return QApplication.instance() or QApplication([])
+
+
+def test_window_constructs_and_screens_populate(app, prepared_ws):
+    from packages.service.facade import FactoryService
+    from apps.desktop.main import build_window
+
+    win = build_window(FactoryService(prepared_ws))
+    win.resize(1100, 720)
+    win._on_mission_selected("m1")
+
+    # Drive every screen.
+    for i in range(len(win._screens)):
+        win.nav.setCurrentRow(i)
+
+    assert win.dashboard.model.rowCount() == 1
+    assert win.pipeline.model.rowCount() == 16
+    assert win.gallery.model.rowCount() == 3
+    assert win.art.list.count() == 5
+    assert win.handoff.list.count() == 11
+    assert win.console.picker.count() == 16
+
+
+def test_handoff_export_button_runs(app, prepared_ws):
+    from packages.service.facade import FactoryService
+    from apps.desktop.main import build_window
+
+    win = build_window(FactoryService(prepared_ws))
+    win._on_mission_selected("m1")
+    win.handoff.refresh()
+    win.handoff.mode.setCurrentText("portable-godot")
+    win.handoff._export()  # should not raise; export succeeds
+    export_dir = (prepared_ws.internal_dir / "exports" / "m1.portable-godot")
+    assert export_dir.exists()
