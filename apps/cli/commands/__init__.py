@@ -225,11 +225,15 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
         elif job.adapter_id == "laser_tag":
             lot_job = job.depends_on[0]
             lot_out = jobs_dir / lot_job
+            repos = ws.load_tools_local().get("repositories", {})
+            lt_repo = Path(str(repos.get("laser_tag", "")))
             specs[job.job_id] = {
                 "seed": int(job.candidate_id.rsplit("_", 1)[-1]),
-                "run_count": 8,
+                "run_count": 25,
                 # Laser Tag evaluates the walkable candidate scene.
                 "evaluation_scene": str(_latest_output(lot_out, "site_walk.tscn")),
+                "addon_dir": str(lt_repo / "addons" / "laser_tag_tool"),
+                "staging_dir": str(ws.internal_dir / "staging" / job.job_id),
             }
         elif job.adapter_id == "pixelcoat":
             recipe_path, source_path = _write_pixelcoat_recipe(ws, batch, model)
@@ -282,15 +286,17 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
             lot_job = next((j.job_id for j in plan.graph.jobs()
                             if j.stage_id == "lot_assemble"
                             and j.candidate_id == job.candidate_id), None)
-            lights = (str(_latest_output(jobs_dir / _deli_for(plan, job), "shell.lights.json"))
-                      if _deli_for(plan, job) else "")
+            repos = ws.load_tools_local().get("repositories", {})
+            lux_repo = Path(str(repos.get("lux", "")))
+            driver = Path(__file__).resolve().parents[2] / "assets" / "godot" / "run_lux_apply.gd"
             specs[job.job_id] = {
                 "preset": _preset_for(model),
                 "quality_tier": "standard",
                 "composed_scene": str(_latest_output(jobs_dir / (lot_job or zoo_dress_job),
                                                      "site.tscn")),
-                "lights_json": lights,
-                "preview_states": ["calm", "alarm"],
+                "addon_dir": str(lux_repo / "addons" / "lux"),
+                "driver_src": str(driver),
+                "staging_dir": str(ws.internal_dir / "staging" / job.job_id),
             }
         elif job.adapter_id == "dispatch":
             dep = job.depends_on[0]
@@ -357,16 +363,37 @@ def _write_dispatch_spec(ws: Workspace, model: MissionBrief, lot_out: Path) -> P
 
 def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path) -> Path:
     """Write a Lot site spec (named 'site.json' so Lot's stem-based outputs are
-    canonical: site.tscn / site_walk.tscn / site.site.gameplay.json). References
-    the Deli Counter building shell for this candidate."""
+    canonical: site.tscn / site_walk.tscn / site.site.gameplay.json).
+
+    Matches the REAL Lot 0.18 schema: a top-level ``name`` (Lot reads
+    site_spec["name"]) and per-building placement ``at`` [x, y] + ``rot`` (yaw
+    degrees). Buildings are spaced along a row so multi-building sites don't
+    overlap; a single building sits at the origin. Extra keys Lot ignores
+    (site_shape/route_shape/target_minutes) are kept for LF's own readers.
+    """
+    count = max(1, int(getattr(model, "building_count", 1) or 1))
+    spacing = 45  # metres between building origins (matches Lot's example scale)
+    glb = str(_latest_output(deli_out, "shell.glb"))
+    gameplay = str(_latest_output(deli_out, "shell.gameplay.json"))
+    buildings = [
+        {"id": f"b{i}", "glb": glb, "gameplay": gameplay,
+         "at": [i * spacing, 0], "rot": 0}
+        for i in range(count)
+    ]
+    span_x = max(spacing * count, 60)
     spec = {
+        # Lot names its outputs from this field (site.tscn / site_walk.tscn /
+        # site.site.gameplay.json), so it must be the canonical LF stem "site",
+        # NOT the mission id — mission identity lives in the job/candidate ids.
+        "name": "site",
+        "ground": {"size_x": span_x + 40, "size_y": 80},
+        "buildings": buildings,
+        # LF-only metadata (ignored by Lot, read by LF's own tooling):
         "schema": "lot.site.v0.18",
         "site_id": model.mission_id,
         "site_shape": model.site_shape,
         "route_shape": model.route_shape,
         "target_minutes": list(model.target_minutes),
-        "buildings": [{"id": "b0", "glb": str(_latest_output(deli_out, "shell.glb")),
-                       "gameplay": str(_latest_output(deli_out, "shell.gameplay.json"))}],
     }
     dest = ws.internal_dir / "temp" / model.mission_id / "site.json"
     dest.parent.mkdir(parents=True, exist_ok=True)

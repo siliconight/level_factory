@@ -25,8 +25,8 @@ def ws(tmp_path):
     w = init_workspace(tmp_path / "ws", project_id="t", name="P5")
     w.write_json(w.tools_local, {
         "python_executable": sys.executable,
-        "godot_executable": str(FIXTURES / "bin" / "godot"),
-        "blender_executable": str(FIXTURES / "bin" / "godot"),
+        "godot_executable": str(FIXTURES / "bin" / ("godot.cmd" if sys.platform.startswith("win") else "godot")),
+        "blender_executable": str(FIXTURES / "bin" / ("godot.cmd" if sys.platform.startswith("win") else "godot")),
         "repositories": {r: str(FIXTURES / "repos" / r) for r in _REPOS},
     })
     (w.shared_dir / "pixelcoat" / "recipes").mkdir(parents=True)

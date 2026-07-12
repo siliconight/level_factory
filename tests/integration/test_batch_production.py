@@ -28,8 +28,8 @@ def batch_ws(tmp_path):
     ws = init_workspace(tmp_path / "ws", project_id="t", name="Batch")
     ws.write_json(ws.tools_local, {
         "python_executable": sys.executable,
-        "godot_executable": str(FIXTURES / "bin" / "godot"),
-        "blender_executable": str(FIXTURES / "bin" / "godot"),
+        "godot_executable": str(FIXTURES / "bin" / ("godot.cmd" if sys.platform.startswith("win") else "godot")),
+        "blender_executable": str(FIXTURES / "bin" / ("godot.cmd" if sys.platform.startswith("win") else "godot")),
         "repositories": {r: str(FIXTURES / "repos" / r) for r in _REPOS},
     })
     (ws.shared_dir / "pixelcoat" / "recipes").mkdir(parents=True)

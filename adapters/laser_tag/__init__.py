@@ -14,7 +14,7 @@ from packages.adapters.sdk import BaseAdapter, PlannedCommand
 
 class LaserTagAdapter(BaseAdapter):
     adapter_id = "laser_tag"
-    adapter_version = "0.1.0"
+    adapter_version = "0.2.0"
     capabilities = frozenset(
         {
             "manual_firefight_preview",
@@ -57,30 +57,52 @@ class LaserTagAdapter(BaseAdapter):
     def plan_commands(
         self, job_spec: Mapping[str, object], context: Mapping[str, object]
     ) -> Sequence[PlannedCommand]:
-        repo = Path(str(context["repository"]))
         work = Path(str(context["work_dir"]))
         godot = Path(str(context.get("godot_executable") or "godot"))
-        scene = job_spec.get("evaluation_scene", "")
         seed = job_spec.get("seed", 0)
-        runs = job_spec.get("run_count", 8)
+        runs = job_spec.get("run_count", 25)
+        out_json = work / "lasertag.report.json"
 
+        # Stage a throwaway project (Laser Tag addon + the walkable scene at
+        # res://) so `--map res://...` resolves. Runs at execution time, after
+        # Lot has produced the walkable scene.
+        project = job_spec.get("godot_project") or context.get("godot_project") or str(work)
+        map_res = str(job_spec.get("map_res", "res://level.tscn"))
+        addon = job_spec.get("addon_dir")
+        scene_src = job_spec.get("evaluation_scene")
+        if addon and scene_src and job_spec.get("staging_dir"):
+            from packages.staging.godot_project import stage_godot_project
+            proj, map_res = stage_godot_project(
+                Path(str(job_spec["staging_dir"])),
+                addon_dirs=[Path(str(addon))], scene_src=Path(str(scene_src)),
+                plugins=["laser_tag_tool"])
+            project = str(proj)
+
+        scenario = str(job_spec.get(
+            "scenario_res",
+            "res://addons/laser_tag_tool/resources/default_laser_tag_scenario.tres"))
+
+        # Real headless runner (SceneTree script). Everything after `--` is a
+        # user arg. The harness writes <out>.json + <out>.csv (same basename)
+        # and accepts an absolute --output via ProjectSettings.globalize_path.
         args = [
-            "--headless", "--path", str(context["godot_project"]),
-            "--", "--lasertag-eval",
-            "--scene", str(scene),
-            "--seed", str(seed),
+            "--headless", "--path", str(project),
+            "-s", "res://addons/laser_tag_tool/runners/run_map_eval.gd",
+            "--",
+            "--map", map_res,
+            "--scenario", scenario,
             "--runs", str(runs),
-            "--json", str(work / "lasertag.report.json"),
-            "--csv", str(work / "lasertag.report.csv"),
+            "--seed", str(seed),
+            "--output", str(out_json),
         ]
         return [
             PlannedCommand(
                 executable=godot,
                 arguments=tuple(args),
-                working_directory=repo,
+                working_directory=Path(str(project)),
                 expected_outputs=("lasertag.report.json", "lasertag.report.csv"),
                 resource_class="godot_headless",
-                timeout_seconds=600,
+                timeout_seconds=900,
             )
         ]
 

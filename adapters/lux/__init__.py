@@ -27,7 +27,7 @@ _GAMEPLAY_NODES = {"Collision", "GameplayAnchors", "NavRegion", "Interactives"}
 
 class LuxAdapter(BaseAdapter):
     adapter_id = "lux"
-    adapter_version = "0.1.0"
+    adapter_version = "0.2.0"
     capabilities = frozenset(
         {"apply_preset", "apply_roles", "level_override", "validate_scene",
          "preview_states", "quality_tiers"}
@@ -62,26 +62,39 @@ class LuxAdapter(BaseAdapter):
         return fp
 
     def plan_commands(self, job_spec, context) -> Sequence[PlannedCommand]:
-        repo = Path(str(context["repository"]))
         work = Path(str(context["work_dir"]))
         godot = Path(str(context.get("godot_executable") or "godot"))
-        scene = job_spec.get("composed_scene", "")
 
-        args = ["--headless", "--path", str(context["godot_project"]),
-                "--", "--lux-apply",
-                "--scene", str(scene),
+        # Stage a throwaway project: Lux addon + LF's headless driver at the
+        # project root + the composed presentation scene at res://.
+        project = job_spec.get("godot_project") or context.get("godot_project") or str(work)
+        scene_res = str(job_spec.get("scene_res", "res://level.tscn"))
+        addon = job_spec.get("addon_dir")
+        driver_src = job_spec.get("driver_src")
+        scene_src = job_spec.get("composed_scene")
+        if addon and scene_src and job_spec.get("staging_dir"):
+            import shutil
+            from packages.staging.godot_project import stage_godot_project
+            proj, scene_res = stage_godot_project(
+                Path(str(job_spec["staging_dir"])),
+                addon_dirs=[Path(str(addon))], scene_src=Path(str(scene_src)),
+                plugins=["lux"])
+            if driver_src and Path(str(driver_src)).exists():
+                shutil.copy2(str(driver_src), proj / "run_lux_apply.gd")
+            project = str(proj)
+
+        # Lux is in-engine only (no --lux-apply flag). LF ships a headless
+        # driver, run_lux_apply.gd, staged at the project root; it uses the real
+        # LuxRoot API to apply a preset by name and save the applied scene + JSON.
+        args = ["--headless", "--path", str(project),
+                "-s", "res://run_lux_apply.gd", "--",
+                "--scene", scene_res,
                 "--preset", str(job_spec.get("preset", "")),
-                "--quality", str(job_spec.get("quality_tier", "standard")),
                 "--out", str(work)]
-        lights = job_spec.get("lights_json")
-        if lights:
-            args += ["--lights", str(lights)]
-        for state in job_spec.get("preview_states", []):
-            args += ["--capture", str(state)]
 
         return [PlannedCommand(
             executable=godot, arguments=tuple(args),
-            working_directory=repo,
+            working_directory=Path(str(project)),
             expected_outputs=("lux.applied.tscn", "lux.quality.json",
                               "lux.validation.json"),
             resource_class="godot_headless", timeout_seconds=900,

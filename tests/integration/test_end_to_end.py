@@ -23,8 +23,8 @@ from packages.project_store.workspace import init_workspace  # noqa: E402
 def _installation() -> dict:
     return {
         "python_executable": sys.executable,
-        "godot_executable": str(FIXTURES / "bin" / "godot"),
-        "blender_executable": str(FIXTURES / "bin" / "godot"),  # stub answers --version
+        "godot_executable": str(FIXTURES / "bin" / ("godot.cmd" if sys.platform.startswith("win") else "godot")),
+        "blender_executable": str(FIXTURES / "bin" / ("godot.cmd" if sys.platform.startswith("win") else "godot")),  # stub answers --version
         "repositories": {
             "deli_counter": str(FIXTURES / "repos" / "deli_counter"),
             "lot": str(FIXTURES / "repos" / "lot"),

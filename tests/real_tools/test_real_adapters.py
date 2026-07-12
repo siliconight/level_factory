@@ -128,8 +128,9 @@ def test_real_pixelcoat(tool_root, tmp_path):
     work = tmp_path / "out"; work.mkdir()
     proc, cmd, outs, names = _run_adapter(adapter, job, repo, work)
     assert proc.returncode == 0, (proc.stdout + proc.stderr)[-800:]
-    rel = {str(p.relative_to(work)) for p in outs}
-    assert set(cmd.expected_outputs) <= rel, set(cmd.expected_outputs) - rel
+    rel = {p.relative_to(work).as_posix() for p in outs}
+    expected = {e.replace("\\", "/") for e in cmd.expected_outputs}
+    assert expected <= rel, expected - rel
 
 
 def test_real_zoo_plan(tool_root, tools_base, tmp_path):
@@ -182,3 +183,70 @@ def test_real_deli_new_level(tool_root):
         assert cmds[1].resource_class == "blender"
     finally:
         spec.unlink(missing_ok=True)
+
+
+def test_real_lasertag_runner_and_invocation(tool_root, tmp_path):
+    """Laser Tag needs Godot to execute; in-container we verify the real runner
+    exists and the adapter stages a project + emits the real `-s run_map_eval.gd`
+    invocation pointing at it. Execution is on the user's Godot hardware."""
+    from adapters.laser_tag import LaserTagAdapter
+    repo = tool_root("addons/laser_tag_tool/runners/run_map_eval.gd")
+    runner = repo / "addons" / "laser_tag_tool" / "runners" / "run_map_eval.gd"
+    scenario = repo / "addons" / "laser_tag_tool" / "resources" / "default_laser_tag_scenario.tres"
+    assert runner.exists(), "real run_map_eval.gd runner missing"
+    assert scenario.exists(), "default scenario resource missing"
+
+    # A stand-in walkable scene (Lot output) to stage.
+    scene = tmp_path / "site_walk.tscn"
+    scene.write_text('[gd_scene format=3]\n[node name="SiteWalk" type="Node3D"]\n')
+    adapter = LaserTagAdapter()
+    job = {"seed": 1997, "run_count": 25,
+           "evaluation_scene": str(scene),
+           "addon_dir": str(repo / "addons" / "laser_tag_tool"),
+           "staging_dir": str(tmp_path / "stage")}
+    ctx = {"work_dir": str(tmp_path / "out"), "godot_executable": "godot",
+           "repository": str(repo)}
+    (tmp_path / "out").mkdir()
+    cmd = adapter.plan_commands(job, ctx)[0]
+    argv = cmd.argv()
+    # Real invocation shape.
+    assert "-s" in argv
+    assert "res://addons/laser_tag_tool/runners/run_map_eval.gd" in argv
+    assert "--map" in argv and "--scenario" in argv and "--output" in argv
+    # Staging assembled the addon + scene into the project.
+    proj = tmp_path / "stage"
+    assert (proj / "project.godot").exists()
+    assert (proj / "addons" / "laser_tag_tool" / "runners" / "run_map_eval.gd").exists()
+    assert (proj / "level.tscn").exists()
+
+
+def test_real_lux_addon_and_driver_invocation(tool_root, tmp_path):
+    """Lux is in-engine only; in-container we verify the real addon exists, LF's
+    headless driver is staged, and the adapter emits the real `-s run_lux_apply.gd`
+    invocation. Execution + preview capture are on the user's Godot hardware."""
+    from adapters.lux import LuxAdapter
+    repo = tool_root("addons/lux/plugin.cfg")
+    addon = repo / "addons" / "lux"
+    assert (addon / "runtime" / "lux_root.gd").exists(), "real LuxRoot missing"
+    driver = Path(ROOT) / "assets" / "godot" / "run_lux_apply.gd"
+    assert driver.exists(), "LF Lux driver run_lux_apply.gd missing"
+    # The driver uses the real LuxRoot API.
+    driver_text = driver.read_text()
+    assert "LuxRoot" in driver_text and "blend_to_preset" in driver_text
+
+    scene = tmp_path / "site.tscn"
+    scene.write_text('[gd_scene format=3]\n[node name="Site" type="Node3D"]\n')
+    adapter = LuxAdapter()
+    job = {"preset": "gothic_street_night", "composed_scene": str(scene),
+           "addon_dir": str(addon), "driver_src": str(driver),
+           "staging_dir": str(tmp_path / "stage")}
+    ctx = {"work_dir": str(tmp_path / "out"), "godot_executable": "godot",
+           "repository": str(repo)}
+    (tmp_path / "out").mkdir()
+    cmd = adapter.plan_commands(job, ctx)[0]
+    argv = cmd.argv()
+    assert "-s" in argv and "res://run_lux_apply.gd" in argv
+    assert "--scene" in argv and "--preset" in argv
+    proj = tmp_path / "stage"
+    assert (proj / "run_lux_apply.gd").exists()  # driver staged at project root
+    assert (proj / "addons" / "lux" / "runtime" / "lux_root.gd").exists()

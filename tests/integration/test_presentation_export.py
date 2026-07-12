@@ -27,8 +27,8 @@ _PRES_REPOS = ("deli_counter", "lot", "laser_tag",
 def _installation() -> dict:
     return {
         "python_executable": sys.executable,
-        "godot_executable": str(FIXTURES / "bin" / "godot"),
-        "blender_executable": str(FIXTURES / "bin" / "godot"),
+        "godot_executable": str(FIXTURES / "bin" / ("godot.cmd" if sys.platform.startswith("win") else "godot")),
+        "blender_executable": str(FIXTURES / "bin" / ("godot.cmd" if sys.platform.startswith("win") else "godot")),
         "repositories": {r: str(FIXTURES / "repos" / r) for r in _PRES_REPOS},
     }
 

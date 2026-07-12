@@ -3,6 +3,92 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.6.4] - 2026-07-12
+
+Fixes found by the first real Windows end-to-end run (deli built through real
+Blender; Lot then blocked). One real product bug + two Windows test-harness bugs.
+
+### Fixed — Lot site-spec schema (the pipeline blocker)
+- `_write_site_spec` was written against the documented Lot schema, not the real
+  one. Real Lot 0.18 reads `site_spec["name"]` (LF wrote `site_id`) and requires
+  per-building placement `at` [x, y] + `rot` (LF omitted both), so Lot died with
+  `KeyError: 'name'` the instant it read the spec. LF now emits `name`, per-
+  building `at`/`rot` (row-spaced by building_count), and a `ground` plane.
+- Lot names its OUTPUTS from the `name` field, not the input filename — so `name`
+  is set to the canonical stem `"site"` to keep `site.tscn` / `site_walk.tscn` /
+  `site.site.gameplay.json` / `site.site.lights.json`, matching the planner's
+  expected_outputs and every downstream adapter. Verified against real Lot 0.18
+  (exit 0, all four canonical outputs produced). This was missed originally
+  because Lot's real-tool smoke ran against its bundled example spec, not an
+  LF-generated one.
+
+### Fixed — Windows test harness (not product bugs)
+- Stub godot/blender `WinError 193`: the stub was an extensionless shebang script
+  Windows can't launch. Split into `godot.py` (logic) + `godot` (POSIX launcher)
+  + `godot.cmd` (Windows launcher, which subprocess can exec from a list); the
+  six tests that use it now pick the right one by platform.
+- `test_real_pixelcoat` compared `theme/theme.pack.json` against Windows'
+  backslash `relative_to`; both sides are now normalized to posix separators.
+
+### Testing
+- Fast suite: 114 passed, 9 skipped. Real-tool smoke: 9 pass. Full CLI pipeline
+  (functional-lock -> presentation -> export -> portability) runs clean, and the
+  fixed site spec drives REAL Lot 0.18 to exit 0 with the canonical outputs.
+
+## [0.6.3] - 2026-07-12
+
+Real-tool grounding, part 4 (final): rebind the two Godot addons, laser_tag and
+lux. All eight adapters now speak real contracts.
+
+### Changed — Godot adapters rebound to real invocations
+- **laser_tag** (`adapters/laser_tag`, 0.2.0): dropped the fake `--lasertag-eval`
+  engine flag for the REAL runner —
+  `godot --headless --path <proj> -s res://addons/laser_tag_tool/runners/
+  run_map_eval.gd -- --map res://level.tscn --scenario <.tres> --runs N --seed S
+  --output <abs>.json`. The harness writes JSON + a same-basename CSV and accepts
+  an absolute `--output` via `ProjectSettings.globalize_path`.
+- **lux** (`adapters/lux`, 0.2.0): Lux is in-engine only (no `--lux-apply` flag,
+  open decision #10). LF now ships a headless driver, `assets/godot/run_lux_apply
+  .gd`, that uses the REAL `LuxRoot` API (auto-loaded preset library +
+  `blend_to_preset(name, 0.0)`) to apply a look and save the applied scene +
+  quality/validation JSON. Invocation:
+  `godot --headless --path <proj> -s res://run_lux_apply.gd -- --scene res://
+  level.tscn --preset <name> --out <abs>`.
+
+### Added — Godot project staging
+- `packages/staging/godot_project.py`: assembles a throwaway project (project
+  .godot enabling the addon, the addon copied under `addons/`, and the scene +
+  its work-dir siblings staged at `res://`) so `--map`/`--scene res://...`
+  resolves. Both adapters stage at execution time (the scene comes from a prior
+  job). A full res:// resource-closure packer (reusing exporting/closure) is the
+  documented follow-up.
+
+### Added — real-tool smoke coverage (shape-based for Godot)
+- Godot can't run in the sandbox, so two shape tests verify against the real
+  repos: the real `run_map_eval.gd` runner + default scenario exist and the
+  adapter stages a project + emits the real `-s run_map_eval.gd` invocation; the
+  real Lux addon + `LuxRoot` exist, LF's driver uses the real API, and the
+  adapter emits the real `-s run_lux_apply.gd` invocation. Nine real-tool smokes
+  now pass against the actual repos; all skip without `LF_TOOLS_DIR`.
+
+### Known limitations (Godot hardware, honest)
+- Execution of both tools needs your Godot 4.7 — they are not run in CI here.
+- Preview PNG capture (calm/alarm/extraction) needs a rendering context, which
+  `--headless` does not provide; the Lux driver applies + saves headlessly and
+  leaves preview capture as a windowed/offscreen follow-up (decision #10).
+- The staging helper copies the scene + its directory siblings; deep res://
+  closure across referenced glbs is the next integration step.
+
+### Testing
+- Fast suite: 114 passed, 9 skipped. Full CLI pipeline runs clean; laser_tag
+  emits report.json+csv and lux emits applied.tscn + quality/validation JSON via
+  the staged project. Real-tool smoke: 9 pass against the actual repos.
+
+### Milestone
+- ALL EIGHT adapters (dispatch, lot, patina, pixelcoat, zoo, deli_counter,
+  laser_tag, lux) are now bound to their real CLIs/invocations, verified against
+  the uploaded repos (six executed in-container; two shape-verified, Godot-gated).
+
 ## [0.6.2] - 2026-07-12
 
 Real-tool grounding, part 3: rebind Deli Counter to its real two-step CLI.
