@@ -153,3 +153,18 @@ def test_regression_blocks_export_via_service(tmp_path):
     result = svc.export("m1", "portable-godot", "folder")
     assert result.blocked
     assert result.exit_code == 2
+
+
+def test_batch_run_and_report_via_service(tmp_path):
+    ws, _ = _make_ws(tmp_path / "ws")
+    svc = FactoryService(ws)
+    svc.run("m1", "functional-lock")
+    svc.approve("m1", "brief_approved")
+    svc.select_candidate("m1", "m1.candidate.seed_1997")
+    svc.approve("m1", "functional_shell_locked")
+    r = svc.run_batch("b1", "presentation")
+    assert r.exit_code == 0, r.output
+    assert "1 shared job(s)" in r.output
+    rep = svc.batch_report("b1")
+    assert rep.exit_code == 0
+    assert "theme.pack.json" in rep.output

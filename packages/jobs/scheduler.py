@@ -1,8 +1,8 @@
 """Job scheduler and executor (TDD 15-21 wired together).
 
 Executes a planned DAG in topological order, honoring resource-class
-concurrency limits (this Phase-1 core runs jobs sequentially but respects the
-ordering and the per-class caps for later parallelism). For each job it:
+concurrency limits. Independent jobs run in parallel up to the per-class
+caps (TDD 19.2); dependent jobs wait for their inputs. For each job it:
 
 1. builds the adapter context and validates configuration (no silent fixes)
 2. computes the build fingerprint and checks the content-addressed cache
@@ -102,38 +102,84 @@ class Scheduler:
         mission_id: str,
         cancel: Cancellation | None = None,
     ) -> RunSummary:
+        """Execute the DAG with real parallelism, honoring per-resource-class
+        concurrency caps (TDD 19.2). Independent jobs run concurrently; a job
+        starts only once all its dependencies have succeeded. On the first
+        failure the scheduler stops dispatching new work and drains in-flight
+        jobs (fail-fast, matching the sequential contract). Resumes by honoring
+        already-terminal successes recorded in the index."""
+        from collections import Counter, deque
+        from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+
         summary = RunSummary(mission_id=mission_id)
+        order = graph.topological_order()
+        jobs_by_id = {j.job_id: j for j in order}
+        remaining: dict[str, set[str]] = {
+            jid: set(j.depends_on) for jid, j in jobs_by_id.items()
+        }
         completed: set[str] = set()
 
-        for job in graph.topological_order():
-            # Resume: honor an already-terminal success recorded in the index.
-            existing = self.index.get_job(job.job_id)
+        # Resume: pre-mark already-succeeded jobs and drop them from deps.
+        for jid, job in jobs_by_id.items():
+            existing = self.index.get_job(jid)
             if existing and states.job_succeeded(existing.status):
-                completed.add(job.job_id)
-                summary.outcomes.append(JobOutcome(job=existing,
-                                                   cache_hit=existing.status == states.SKIPPED_CACHE_HIT))
-                continue
+                completed.add(jid)
+                summary.outcomes.append(JobOutcome(
+                    job=existing,
+                    cache_hit=existing.status == states.SKIPPED_CACHE_HIT))
+        for deps in remaining.values():
+            deps -= completed
 
-            # Dependency gate.
-            if not all(dep in completed for dep in job.depends_on):
-                job.status = states.BLOCKED
-                job.failure = Failure(
-                    VALIDATION_BLOCKER, "upstream dependency did not complete"
-                ).as_dict()
-                self.index.upsert_job(job)
-                summary.blocked_job = job.job_id
-                summary.outcomes.append(JobOutcome(job=job))
-                break
+        ready: deque[str] = deque(
+            jid for jid in jobs_by_id
+            if jid not in completed and not remaining[jid]
+        )
+        running: Counter = Counter()
+        stop = False
+        max_workers = max(1, sum(self.concurrency.values()))
 
-            outcome = self._execute_job(job, job_specs.get(job.job_id, {}), cancel)
-            summary.outcomes.append(outcome)
-            summary.all_issues.extend(outcome.issues)
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            futures: dict = {}
+            while (ready or futures):
+                # Dispatch every ready job that fits under its class cap.
+                if not stop:
+                    deferred: deque[str] = deque()
+                    while ready:
+                        jid = ready.popleft()
+                        cls = jobs_by_id[jid].resource_class
+                        cap = self.concurrency.get(cls, 1)
+                        if running[cls] < cap:
+                            running[cls] += 1
+                            fut = ex.submit(self._execute_job, jobs_by_id[jid],
+                                            job_specs.get(jid, {}), cancel)
+                            futures[fut] = jid
+                        else:
+                            deferred.append(jid)
+                    ready = deferred
 
-            if states.job_succeeded(outcome.job.status):
-                completed.add(job.job_id)
-            else:
-                summary.blocked_job = job.job_id
-                break
+                if not futures:
+                    break  # nothing running and nothing dispatchable
+
+                done, _ = wait(futures, return_when=FIRST_COMPLETED)
+                for fut in done:
+                    jid = futures.pop(fut)
+                    cls = jobs_by_id[jid].resource_class
+                    running[cls] -= 1
+                    outcome = fut.result()
+                    summary.outcomes.append(outcome)
+                    summary.all_issues.extend(outcome.issues)
+                    if states.job_succeeded(outcome.job.status):
+                        completed.add(jid)
+                        for other, deps in remaining.items():
+                            if jid in deps:
+                                deps.discard(jid)
+                                if (other not in completed and not deps
+                                        and other not in ready
+                                        and other not in futures.values()):
+                                    ready.append(other)
+                    else:
+                        summary.blocked_job = summary.blocked_job or jid
+                        stop = True  # fail-fast; drain remaining in-flight jobs
 
         return summary
 

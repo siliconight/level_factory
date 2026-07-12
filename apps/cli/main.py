@@ -16,9 +16,9 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from apps.cli.commands import (  # noqa: E402
-    cmd_approve, cmd_batch_create, cmd_cache, cmd_diagnostics, cmd_doctor,
-    cmd_export, cmd_init, cmd_plan, cmd_portability_test, cmd_reject, cmd_run,
-    cmd_status, cmd_validate,
+    cmd_approve, cmd_batch_create, cmd_batch_report, cmd_batch_run, cmd_cache,
+    cmd_diagnostics, cmd_doctor, cmd_export, cmd_init, cmd_plan,
+    cmd_portability_test, cmd_reject, cmd_run, cmd_status, cmd_validate,
 )
 
 EXIT_OK = 0
@@ -51,6 +51,17 @@ def build_parser() -> argparse.ArgumentParser:
     bc = bsub.add_parser("create", help="create a batch from batch.json")
     bc.add_argument("batch_json")
     bc.set_defaults(func=cmd_batch_create)
+
+    br = bsub.add_parser("run", help="run a whole batch as one parallel DAG")
+    br.add_argument("batch_id")
+    br.add_argument("--target", default="presentation",
+                    choices=["functional-lock", "dispatch-handoff", "presentation"])
+    br.set_defaults(func=cmd_batch_run)
+
+    brp = bsub.add_parser("report", help="write mission + batch summary reports")
+    brp.add_argument("batch_id")
+    brp.add_argument("--json", action="store_true")
+    brp.set_defaults(func=cmd_batch_report)
 
     sp = sub.add_parser("plan", help="plan a mission pipeline")
     sp.add_argument("mission_id")

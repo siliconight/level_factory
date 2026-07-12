@@ -7,6 +7,7 @@ here because they are high-churn local state, not shareable project inputs.
 from __future__ import annotations
 
 import sqlite3
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
@@ -55,26 +56,38 @@ class Index:
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(db_path))
+        # check_same_thread=False lets the parallel scheduler's worker threads
+        # share one connection; every access is serialized by self._lock, and
+        # WAL keeps readers from blocking on the writer.
+        self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
-        self._conn.executescript(_SCHEMA)
-        self._conn.execute(
-            "INSERT OR IGNORE INTO meta(key, value) VALUES('schema_version', ?)",
-            (SCHEMA_VERSION,),
-        )
-        self._conn.commit()
+        self._lock = threading.RLock()
+        with self._lock:
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.executescript(_SCHEMA)
+            self._conn.execute(
+                "INSERT OR IGNORE INTO meta(key, value) VALUES('schema_version', ?)",
+                (SCHEMA_VERSION,),
+            )
+            self._conn.commit()
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
     @contextmanager
     def tx(self) -> Iterator[sqlite3.Connection]:
-        try:
-            yield self._conn
-            self._conn.commit()
-        except Exception:
-            self._conn.rollback()
-            raise
+        with self._lock:
+            try:
+                yield self._conn
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def _query(self, sql: str, params: tuple = ()):  # serialized read helper
+        with self._lock:
+            return self._conn.execute(sql, params).fetchall()
 
     # ---- missions --------------------------------------------------------
     def upsert_mission(self, mission_id: str, batch_id: str, state: str, updated_at: str) -> None:
@@ -87,15 +100,12 @@ class Index:
             )
 
     def mission_state(self, mission_id: str) -> str | None:
-        row = self._conn.execute(
-            "SELECT state FROM missions WHERE mission_id=?", (mission_id,)
-        ).fetchone()
-        return row["state"] if row else None
+        rows = self._query("SELECT state FROM missions WHERE mission_id=?", (mission_id,))
+        return rows[0]["state"] if rows else None
 
     def list_missions(self) -> list[dict]:
-        rows = self._conn.execute(
-            "SELECT mission_id, batch_id, state, updated_at FROM missions ORDER BY mission_id"
-        ).fetchall()
+        rows = self._query(
+            "SELECT mission_id, batch_id, state, updated_at FROM missions ORDER BY mission_id")
         return [dict(r) for r in rows]
 
     # ---- jobs ------------------------------------------------------------
@@ -123,29 +133,25 @@ class Index:
             )
 
     def get_job(self, job_id: str) -> Job | None:
-        row = self._conn.execute(
-            "SELECT payload FROM jobs WHERE job_id=?", (job_id,)
-        ).fetchone()
-        if not row:
+        rows = self._query("SELECT payload FROM jobs WHERE job_id=?", (job_id,))
+        if not rows:
             return None
         import json
 
-        return Job(**json.loads(row["payload"]))
+        return Job(**json.loads(rows[0]["payload"]))
 
     def jobs_for_mission(self, mission_id: str) -> list[Job]:
-        rows = self._conn.execute(
-            "SELECT payload FROM jobs WHERE mission_id=? ORDER BY job_id", (mission_id,)
-        ).fetchall()
+        rows = self._query(
+            "SELECT payload FROM jobs WHERE mission_id=? ORDER BY job_id", (mission_id,))
         import json
 
         return [Job(**json.loads(r["payload"])) for r in rows]
 
     def unfinished_jobs(self, mission_id: str, resumable: frozenset[str]) -> list[Job]:
         placeholders = ",".join("?" for _ in resumable)
-        rows = self._conn.execute(
+        rows = self._query(
             f"SELECT payload FROM jobs WHERE mission_id=? AND status IN ({placeholders})",
-            (mission_id, *sorted(resumable)),
-        ).fetchall()
+            (mission_id, *sorted(resumable)))
         import json
 
         return [Job(**json.loads(r["payload"])) for r in rows]

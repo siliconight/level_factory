@@ -16,11 +16,12 @@ from packages.approvals import gates
 from packages.artifacts.cache import ContentCache
 from packages.core import states
 from packages.core.canonical import pretty_dumps
+from packages.core.hashing import hash_json
 from packages.core.ids import slugify
 from packages.core.models import MissionBrief
 from packages.jobs.scheduler import Scheduler
 from packages.pipeline.planner import (
-    TARGET_FUNCTIONAL_LOCK, TARGET_SHELL_HANDOFF, plan_mission,
+    TARGET_FUNCTIONAL_LOCK, TARGET_PRESENTATION, TARGET_SHELL_HANDOFF, plan_mission,
 )
 from packages.project_store.index import Index
 from packages.project_store.workspace import Workspace, find_workspace, init_workspace
@@ -389,6 +390,165 @@ def cmd_run(args) -> int:
         return EXIT_BLOCKED
     if agg["total"] > 0:
         return EXIT_FINDINGS
+    return EXIT_OK
+
+
+def _batch_briefs(ws: Workspace, batch_id: str, batch: dict):
+    briefs = []
+    for mission_id in batch.get("missions", []):
+        bf = ws.mission_subdir(batch_id, mission_id, "brief") / "brief.json"
+        if bf.exists():
+            briefs.append(_brief_model(ws.read_json(bf)))
+    return briefs
+
+
+def _batch_job_specs(ws: Workspace, batch: dict, batch_plan) -> dict:
+    """Specs for the combined batch graph: the shared Pixelcoat node plus every
+    mission's jobs (with Zoo kit repointed at the shared pack output)."""
+    from packages.pipeline.batch_planner import shared_pixelcoat_id, SHARED_PIXELCOAT_STAGE
+    jobs_dir = ws.jobs_dir
+    specs: dict = {}
+    shared_id = shared_pixelcoat_id(batch["batch_id"])
+    shared_out = str(_latest_output(jobs_dir / shared_id, "."))
+
+    for brief in _batch_briefs(ws, batch["batch_id"], batch):
+        _, _, _, mplan = _plan_for(ws, brief.mission_id, batch_plan.target)
+        mission_specs = _job_specs_for_plan(ws, batch, brief, mplan)
+        for job in batch_plan.graph.jobs():
+            if job.mission_id != brief.mission_id:
+                continue
+            spec = mission_specs.get(job.job_id, {})
+            # Repoint the (batch-merged) Zoo kit at the shared Pixelcoat packs.
+            if job.stage_id == "zoo_kit_build" and shared_id in job.depends_on:
+                spec = {**spec, "skins_dir": shared_out}
+            specs[job.job_id] = spec
+
+    # The shared Pixelcoat node.
+    specs[shared_id] = {
+        "recipes_dir": str(ws.shared_dir / "pixelcoat" / "recipes"),
+        "theme": batch.get("theme_family", ""),
+        "output_size": 128, "dither": "bayer4",
+        "expected_packs": ["theme.pack.json"],
+    }
+    return specs
+
+
+def cmd_batch_run(args) -> int:
+    from packages.pipeline.batch_planner import plan_batch
+    ws = _ws(args)
+    index = _open_index(ws)
+    batch = _load_batch(ws, args.batch_id)
+    briefs = _batch_briefs(ws, args.batch_id, batch)
+    selected = {b.mission_id: _resolve_selected_candidate(ws, b.mission_id) for b in briefs}
+
+    target_map = {"functional-lock": TARGET_FUNCTIONAL_LOCK,
+                  "dispatch-handoff": TARGET_SHELL_HANDOFF,
+                  "presentation": TARGET_PRESENTATION}
+    batch_plan = plan_batch(briefs, batch=batch,
+                            selected_by_mission=selected,
+                            target=target_map.get(args.target, TARGET_PRESENTATION))
+    if not batch_plan.mission_ids:
+        print("no missions ready to run (each needs a selected candidate)",
+              file=sys.stderr)
+        return EXIT_BLOCKED
+
+    specs = _batch_job_specs(ws, batch, batch_plan)
+    scheduler = _build_scheduler(ws, index)
+    summary = scheduler.run(batch_plan.graph, job_specs=specs,
+                            mission_id=f"batch:{args.batch_id}")
+
+    # Persist per-mission validation for `validate` / reports.
+    vdir = ws.internal_dir / "validation"; vdir.mkdir(parents=True, exist_ok=True)
+    by_mission: dict[str, list] = {}
+    for issue in summary.all_issues:
+        by_mission.setdefault(getattr(issue, "mission_id", "") or "", []).append(issue.as_dict())
+    for mid in batch_plan.mission_ids:
+        (vdir / f"{mid}.json").write_text(
+            pretty_dumps({"mission_id": mid, "issues": by_mission.get(mid, [])}),
+            encoding="utf-8")
+
+    print(f"batch {args.batch_id}: {len(batch_plan.mission_ids)} mission(s), "
+          f"{len(batch_plan.shared_job_ids)} shared job(s)")
+    cache_hits = sum(1 for o in summary.outcomes if o.cache_hit)
+    print(f"  jobs: {len(summary.outcomes)}  (cache reuse: {cache_hits})")
+    if batch_plan.skipped_missions:
+        print(f"  skipped (no selection): {', '.join(batch_plan.skipped_missions)}")
+    if summary.blocked_job:
+        print(f"blocked at: {summary.blocked_job}", file=sys.stderr)
+        return EXIT_BLOCKED
+    return EXIT_OK
+
+
+def _mission_report(ws: Workspace, batch: dict, mission_id: str):
+    from packages.reporting.summaries import MissionSummary
+    from packages.pipeline.planner import derive_seeds
+    selected = _resolve_selected_candidate(ws, mission_id)
+    seeds = derive_seeds(int(batch.get("seed_base", 0)),
+                         int(next((b.candidate_count for b in
+                                   _batch_briefs(ws, batch["batch_id"], batch)
+                                   if b.mission_id == mission_id), 3)))
+    lux = _latest_output(ws.jobs_dir / f"{mission_id}.lux_apply", "lux.applied.tscn")
+    handoff = _latest_output(ws.jobs_dir / f"{mission_id}.dispatch_handoff", "mission.tscn")
+    lock = _lock_path(ws, mission_id)
+    vfile = ws.internal_dir / "validation" / f"{mission_id}.json"
+    vsummary = "no validation"
+    if vfile.exists():
+        issues = json.loads(vfile.read_text(encoding="utf-8")).get("issues", [])
+        vsummary = f"{len(issues)} findings, {sum(1 for i in issues if i.get('blocking'))} blocking"
+    return MissionSummary(
+        mission_id=mission_id, selected_candidate=selected, seeds=seeds,
+        tool_versions=_adapter_versions(), validation=vsummary,
+        functional_lock=("locked" if lock.exists() else "unlocked"),
+        handoff_ready=handoff.exists(), presentation_ready=lux.exists())
+
+
+def cmd_batch_report(args) -> int:
+    from packages.reporting.summaries import BatchSummary
+    from packages.pipeline.batch_planner import shared_pixelcoat_id
+    ws = _ws(args)
+    batch = _load_batch(ws, args.batch_id)
+    briefs = _batch_briefs(ws, args.batch_id, batch)
+
+    rows = []
+    for b in briefs:
+        mid = b.mission_id
+        mrep = _mission_report(ws, batch, mid)
+        state = _open_index(ws).mission_state(mid) or "draft"
+        rows.append({
+            "mission_id": mid, "state": state,
+            "presentation": "ready" if mrep.presentation_ready else "pending",
+            "handoff": "ready" if mrep.handoff_ready else "pending",
+            "selected": mrep.selected_candidate,
+            "validation": mrep.validation,
+        })
+
+    shared_out = ws.jobs_dir / shared_pixelcoat_id(args.batch_id) / "out"
+    shared_packs = ([p.name for p in shared_out.glob("*.pack.json")]
+                    if shared_out.exists() else [])
+    versions = _adapter_versions()
+    summary = BatchSummary(
+        batch_id=args.batch_id, mission_rows=rows, shared_packs=shared_packs,
+        tool_versions=versions, tool_version_consistent=True,
+        build_lock=hash_json({"batch": args.batch_id, "missions": rows,
+                              "tools": versions}))
+
+    reports_dir = ws.batch_dir(args.batch_id) / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    (reports_dir / "batch_summary.json").write_text(
+        pretty_dumps(summary.as_dict()), encoding="utf-8")
+    (reports_dir / "batch_summary.md").write_text(
+        summary.to_markdown(), encoding="utf-8")
+    for b in briefs:
+        mrep = _mission_report(ws, batch, b.mission_id)
+        (reports_dir / f"{b.mission_id}.summary.json").write_text(
+            pretty_dumps(mrep.as_dict()), encoding="utf-8")
+        (reports_dir / f"{b.mission_id}.summary.md").write_text(
+            mrep.to_markdown(), encoding="utf-8")
+
+    if args.json:
+        print(pretty_dumps(summary.as_dict()))
+    else:
+        print(summary.to_markdown())
     return EXIT_OK
 
 

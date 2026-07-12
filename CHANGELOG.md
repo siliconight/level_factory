@@ -3,6 +3,52 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.4.0] - 2026-07-12
+
+Phase 4: Batch Production + parallel scheduling (TDD 42, Phase 4).
+
+### Added
+- Parallel scheduler (`packages/jobs/scheduler.py`): a ready-queue dispatcher
+  runs independent jobs concurrently up to the per-resource-class caps (TDD 19.2
+  — python_cpu 4, blender 1, godot_headless 2, godot_interactive 1, io_heavy 2,
+  lightweight 8), while dependent jobs wait for their inputs. Fail-fast on the
+  first failure, draining in-flight jobs. Drop-in: same `run()` contract, resume
+  behavior preserved.
+- Thread-safe SQLite index (`packages/project_store/index.py`): connection
+  opened `check_same_thread=False`, WAL journal, all reads/writes serialized by a
+  lock, so the parallel scheduler's worker threads share one index safely
+  (stress-tested at 8 threads x 50 upserts/reads).
+- Cross-mission batch planning (`packages/pipeline/batch_planner.py`,
+  `plan_batch`): composes every mission's presentation plan into ONE combined DAG
+  and deduplicates shared work — the shared Pixelcoat surface packs are built
+  once as a batch asset and every mission's Zoo kit depends on that single node.
+  Missions without a selected candidate are skipped.
+- Reporting package (`packages/reporting/summaries.py`, TDD 32): mission summary
+  (32.1) and batch summary (32.2 — mission-status matrix, shared asset packs,
+  tool-version consistency, failed/stale + handoff-ready buckets, batch build
+  lock), each as deterministic Markdown + JSON.
+- CLI `batch run <batch_id> [--target ...]` (whole batch as one parallel DAG,
+  reporting shared-job count and cache reuse) and `batch report <batch_id>`
+  (writes `batch_summary.{md,json}` + per-mission summaries under the batch
+  reports dir). Service methods `run_batch` / `batch_report`.
+
+### Testing
+- 4 parallel-scheduler unit tests (real concurrency reaches the cap, caps are
+  respected, dependencies stay ordered, failure fails-fast without running
+  downstream).
+- 3 batch-planner unit tests (shared Pixelcoat dedup, skip-without-selection,
+  topological ordering) and 2 batch integration tests (3 missions run as one
+  batch with one shared pack + full report; skip-without-selection).
+- 2 service tests for `run_batch` / `batch_report`.
+- Desktop offscreen smoke moved to a subprocess (`apps.desktop --self-check`) so
+  Qt never loads into the pytest process — removes a Qt-at-exit teardown crash
+  when scheduler threads are present. 101 tests pass in one process.
+
+### Notes
+- Same tool-contract stubs as earlier phases (private repos 403 from the
+  network). The content-addressed cache still covers incidental cross-mission
+  dedup beyond the explicit shared node.
+
 ## [0.3.0] - 2026-07-12
 
 Phase 3: Desktop MVP (TDD 42, Phase 3).

@@ -6,15 +6,23 @@ mission briefs into reproducible, validated mission-shell handoffs. It does not
 duplicate the tools; it orchestrates them (TDD 5.1, "orchestrate, do not
 absorb").
 
-**This package is Phases 1-3: the headless orchestration core, the presentation
-pipeline and portable export, and the PySide6 desktop MVP.** It runs the
-*functional* pipeline (Deli x N -> Lot -> Laser Tag) and the Dispatch
+**This package is Phases 1-4: the headless orchestration core, the presentation
+pipeline and portable export, the PySide6 desktop MVP, and batch production.**
+It runs the *functional* pipeline (Deli x N -> Lot -> Laser Tag) and the Dispatch
 `shell-handoff` tail, plus the PS2 art pass (Pixelcoat -> Zoo -> Patina -> Lux),
-from a CLI and a desktop app, with caching, provenance, human gates, resume, a
-functional lock with post-art regression, portable `export` + a clean-project
-`portability-test`, and an application-service layer the UI binds to (the UI
-never runs tools itself). Batch production (Phase 4) and advanced review/CI
-(Phase 5) come later.
+from a CLI and a desktop app, with a parallel scheduler (per-resource-class
+caps), caching, provenance, human gates, resume, a functional lock with post-art
+regression, portable `export` + a clean-project `portability-test`, an
+application-service layer the UI binds to (the UI never runs tools itself), and
+cross-mission batch runs that build shared assets once and produce batch
+reports. Advanced review/CI (Phase 5) comes later.
+
+Run a whole batch as one parallel DAG (shared Pixelcoat packs built once):
+
+```
+level-factory batch run <batch-id> --target presentation
+level-factory batch report <batch-id>
+```
 
 The desktop app is an optional extra:
 

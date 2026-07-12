@@ -457,6 +457,15 @@ class FactoryService:
         return self._invoke(cmd_run, mission_id=mission_id,
                             target=self._target_name(target))
 
+    def run_batch(self, batch_id: str, target: str = "presentation") -> ActionResult:
+        from apps.cli.commands import cmd_batch_run
+        return self._invoke(cmd_batch_run, batch_id=batch_id,
+                            target=self._target_name(target))
+
+    def batch_report(self, batch_id: str) -> ActionResult:
+        from apps.cli.commands import cmd_batch_report
+        return self._invoke(cmd_batch_report, batch_id=batch_id, json=True)
+
     def approve(self, mission_id: str, gate: str, *, by: str = "desktop",
                 candidate: str | None = None, note: str = "") -> ActionResult:
         from apps.cli.commands import cmd_approve
