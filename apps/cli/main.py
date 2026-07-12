@@ -17,7 +17,8 @@ if str(_REPO_ROOT) not in sys.path:
 
 from apps.cli.commands import (  # noqa: E402
     cmd_approve, cmd_batch_create, cmd_cache, cmd_diagnostics, cmd_doctor,
-    cmd_init, cmd_plan, cmd_reject, cmd_run, cmd_status, cmd_validate,
+    cmd_export, cmd_init, cmd_plan, cmd_portability_test, cmd_reject, cmd_run,
+    cmd_status, cmd_validate,
 )
 
 EXIT_OK = 0
@@ -54,14 +55,14 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("plan", help="plan a mission pipeline")
     sp.add_argument("mission_id")
     sp.add_argument("--target", default="dispatch-handoff",
-                    choices=["functional-lock", "dispatch-handoff"])
+                    choices=["functional-lock", "dispatch-handoff", "presentation"])
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(func=cmd_plan)
 
     sp = sub.add_parser("run", help="run a mission pipeline")
     sp.add_argument("mission_id")
     sp.add_argument("--target", default="dispatch-handoff",
-                    choices=["functional-lock", "dispatch-handoff"])
+                    choices=["functional-lock", "dispatch-handoff", "presentation"])
     sp.set_defaults(func=cmd_run)
 
     sp = sub.add_parser("status", help="show mission/job status")
@@ -86,6 +87,19 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--reason", default="")
     sp.add_argument("--by", default="cli-user")
     sp.set_defaults(func=cmd_reject)
+
+    sp = sub.add_parser("export", help="export a portable mission package")
+    sp.add_argument("mission_id")
+    sp.add_argument("--mode", default="portable-godot",
+                    choices=["portable-godot", "pure-shell", "source-authoring"])
+    sp.add_argument("--format", default="folder", choices=["folder", "zip"])
+    sp.set_defaults(func=cmd_export)
+
+    sp = sub.add_parser("portability-test", help="clean-project portability test")
+    sp.add_argument("mission_id")
+    sp.add_argument("--mode", default="portable-godot",
+                    choices=["portable-godot", "pure-shell", "source-authoring"])
+    sp.set_defaults(func=cmd_portability_test)
 
     sp = sub.add_parser("cache", help="cache maintenance")
     sp.add_argument("action", choices=["inspect", "prune"])

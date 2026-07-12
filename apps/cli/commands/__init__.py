@@ -162,14 +162,20 @@ def _resolve_selected_candidate(ws: Workspace, mission_id: str) -> str | None:
 
 
 def _plan_for(ws: Workspace, mission_id: str, target: str):
+    from packages.pipeline.planner import TARGET_PRESENTATION
     batch_id, brief = _find_mission(ws, mission_id)
     batch = _load_batch(ws, batch_id)
     model = _brief_model(brief)
     selected = _resolve_selected_candidate(ws, mission_id)
+    target_map = {
+        "functional-lock": TARGET_FUNCTIONAL_LOCK,
+        "dispatch-handoff": TARGET_SHELL_HANDOFF,
+        "presentation": TARGET_PRESENTATION,
+    }
     plan = plan_mission(
         model,
         seed_base=int(batch.get("seed_base", 0)),
-        target=(TARGET_FUNCTIONAL_LOCK if target == "functional-lock" else TARGET_SHELL_HANDOFF),
+        target=target_map.get(target, TARGET_SHELL_HANDOFF),
         selected_candidate=selected,
     )
     return batch_id, batch, model, plan
@@ -221,8 +227,78 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                 "run_count": 8,
                 "evaluation_scene": str(_latest_output(lot_out, "site.tscn")),
             }
+        elif job.adapter_id == "pixelcoat":
+            specs[job.job_id] = {
+                "recipes_dir": str(ws.shared_dir / "pixelcoat" / "recipes"),
+                "theme": model.theme or batch.get("theme_family", ""),
+                "output_size": 128,
+                "dither": "bayer4",
+                "expected_packs": ["theme.pack.json"],
+            }
+        elif job.adapter_id == "zoo":
+            # Kit build depends on Lot(+Pixelcoat); dressing build depends on
+            # Patina dressing(+Zoo kit). Distinguish by stage id.
+            if job.stage_id == "zoo_dressing_build":
+                dress_job = next(d for d in job.depends_on if "patina_dressing" in d)
+                kit_job = next(d for d in job.depends_on if "zoo_kit" in d)
+                specs[job.job_id] = {
+                    "mode": "dress",
+                    "seed": int(str(job.candidate_id).rsplit("_", 1)[-1]),
+                    "theme": model.theme or batch.get("theme_family", ""),
+                    "manifest_path": str(_latest_output(jobs_dir / dress_job,
+                                                        "dressing_manifest.json")),
+                    "slots_path": str(_lot_slots(ws, jobs_dir, job)),
+                    "skins_dir": str(_latest_output(jobs_dir / kit_job, ".")),
+                    "expected_outputs": ["zoo.manifest.json"],
+                }
+            else:
+                pix_job = next((d for d in job.depends_on if "pixelcoat" in d), None)
+                specs[job.job_id] = {
+                    "mode": "kit",
+                    "seed": int(str(job.candidate_id).rsplit("_", 1)[-1]),
+                    "theme": model.theme or batch.get("theme_family", ""),
+                    "slots_path": str(_lot_slots(ws, jobs_dir, job)),
+                    "skins_dir": (str(_latest_output(jobs_dir / pix_job, "."))
+                                  if pix_job else ""),
+                    "expected_outputs": ["zoo.manifest.json"],
+                }
+        elif job.adapter_id == "patina":
+            if job.stage_id == "patina_dressing":
+                specs[job.job_id] = {
+                    "mode": "dress",
+                    "theme": model.theme or batch.get("theme_family", ""),
+                    "slots_path": str(_lot_slots(ws, jobs_dir, job)),
+                    "panel_size": 1.2, "panel_gap": 0.03,
+                    "expected_outputs": ["dressing_manifest.json"],
+                }
+            else:
+                specs[job.job_id] = {
+                    "mode": "apply",
+                    "theme": model.theme or batch.get("theme_family", ""),
+                    "expected_outputs": ["patina.atlas.json"],
+                }
+        elif job.adapter_id == "lux":
+            zoo_dress_job = job.depends_on[0]
+            lot_job = next((j.job_id for j in plan.graph.jobs()
+                            if j.stage_id == "lot_assemble"
+                            and j.candidate_id == job.candidate_id), None)
+            lights = (str(_latest_output(jobs_dir / _deli_for(plan, job), "shell.lights.json"))
+                      if _deli_for(plan, job) else "")
+            specs[job.job_id] = {
+                "preset": _preset_for(model),
+                "quality_tier": "standard",
+                "composed_scene": str(_latest_output(jobs_dir / (lot_job or zoo_dress_job),
+                                                     "site.tscn")),
+                "lights_json": lights,
+                "preview_states": ["calm", "alarm"],
+            }
         elif job.adapter_id == "dispatch":
-            lot_job = job.depends_on[0]
+            dep = job.depends_on[0]
+            # Prefer the Lot site for the dispatch spec inputs regardless of
+            # whether dispatch depends on Lot (functional) or Lux (presentation).
+            lot_job = next((j.job_id for j in plan.graph.jobs()
+                            if j.stage_id == "lot_assemble"
+                            and j.candidate_id == job.candidate_id), dep)
             lot_out = jobs_dir / lot_job
             spec_path = _write_dispatch_spec(ws, model, lot_out)
             specs[job.job_id] = {
@@ -231,6 +307,27 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                 "inputs": {"site": str(_latest_output(lot_out, "site.tscn"))},
             }
     return specs
+
+
+def _lot_slots(ws: Workspace, jobs_dir: Path, job) -> Path:
+    """Slots.json for a presentation job's selected candidate (from the DC job)."""
+    seed = str(job.candidate_id).rsplit("_", 1)[-1]
+    deli_job = f"{job.mission_id}.deli_generate.candidate.seed_{seed}"
+    return _latest_output(jobs_dir / deli_job, "shell.slots.json")
+
+
+def _deli_for(plan, job):
+    seed = str(job.candidate_id).rsplit("_", 1)[-1]
+    return f"{job.mission_id}.deli_generate.candidate.seed_{seed}"
+
+
+def _preset_for(model: MissionBrief) -> str:
+    tod = (model.time_of_day or "").lower()
+    if tod in ("night", "evening"):
+        return "gothic_street_night"
+    if tod == "afternoon":
+        return "delco_summer_afternoon"
+    return "blue_hour"
 
 
 def _latest_output(job_root: Path, name: str) -> Path:
@@ -340,6 +437,36 @@ def _protected_inputs_for_gate(ws: Workspace, mission_id: str, gate: str) -> dic
     return {"functional_signature": model.functional_signature()}
 
 
+def _lock_path(ws: Workspace, mission_id: str) -> Path:
+    return ws.internal_dir / "locks" / f"{mission_id}.json"
+
+
+def _selected_lot_out(ws: Workspace, mission_id: str) -> Path | None:
+    cand = _resolve_selected_candidate(ws, mission_id)
+    if not cand:
+        return None
+    seed = cand.rsplit("_", 1)[-1]
+    return ws.jobs_dir / f"{mission_id}.lot_assemble.candidate.seed_{seed}" / "out"
+
+
+def _store_functional_lock(ws: Workspace, mission_id: str) -> None:
+    from packages.approvals.lock import compute_lock
+    cand = _resolve_selected_candidate(ws, mission_id)
+    lot_out = _selected_lot_out(ws, mission_id)
+    if not cand or lot_out is None:
+        return
+    seed = int(cand.rsplit("_", 1)[-1])
+    deli_out = ws.jobs_dir / f"{mission_id}.deli_generate.candidate.seed_{seed}" / "out"
+    lock = compute_lock(
+        mission_id=mission_id, candidate_id=cand, seed=seed,
+        site_gameplay_path=lot_out / "site.gameplay.json",
+        deli_gameplay_path=deli_out / "shell.gameplay.json",
+    )
+    p = _lock_path(ws, mission_id)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(pretty_dumps(lock.as_dict()), encoding="utf-8")
+
+
 def cmd_approve(args) -> int:
     ws = _ws(args)
     store = gates.ApprovalStore(ws.internal_dir / "approvals")
@@ -353,6 +480,8 @@ def cmd_approve(args) -> int:
         (ws.internal_dir / "approvals" / f"{args.mission_id}.selected").write_text(
             args.candidate, encoding="utf-8"
         )
+    if args.gate == gates.FUNCTIONAL_SHELL_LOCKED:
+        _store_functional_lock(ws, args.mission_id)
     print(f"approved {args.gate} for {args.mission_id}")
     return EXIT_OK
 
@@ -393,3 +522,87 @@ def cmd_diagnostics(args) -> int:
         ).splitlines()[-40:]
     print(pretty_dumps(bundle))
     return EXIT_OK
+
+
+def _adapter_versions() -> dict:
+    from packages.adapters.registry import AdapterRegistry
+    reg = AdapterRegistry()
+    return {aid: reg.get(aid).adapter_version for aid in reg.ids()}
+
+
+def cmd_export(args) -> int:
+    from packages.exporting.export import (
+        ExportProfile, MODE_PORTABLE, MODE_PURE_SHELL, MODE_SOURCE,
+        export_mission, zip_export,
+    )
+    ws = _ws(args)
+    mission_id = args.mission_id
+    jobs_dir = ws.jobs_dir
+    handoff_dir = jobs_dir / f"{mission_id}.dispatch_handoff" / "out"
+    if not handoff_dir.exists():
+        print(f"no dispatch handoff for {mission_id}; run --target dispatch-handoff first",
+              file=sys.stderr)
+        return EXIT_BLOCKED
+
+    lux_dir = jobs_dir / f"{mission_id}.lux_apply" / "out"
+    presentation_dir = lux_dir if lux_dir.exists() else None
+    source_dir = None  # source-authoring would gather briefs/specs; omitted in MVP folder
+
+    mode_map = {"portable-godot": MODE_PORTABLE, "pure-shell": MODE_PURE_SHELL,
+                "source-authoring": MODE_SOURCE}
+    profile = ExportProfile(mode=mode_map[args.mode])
+
+    # Post-art regression: a functional drift after the art pass blocks export.
+    lock_file = _lock_path(ws, mission_id)
+    lot_out = _selected_lot_out(ws, mission_id)
+    if lock_file.exists() and lot_out is not None:
+        from packages.approvals.lock import FunctionalLock, verify_no_drift
+        lock = FunctionalLock.from_dict(json.loads(lock_file.read_text(encoding="utf-8")))
+        seed = lock.seed
+        deli_out = ws.jobs_dir / f"{mission_id}.deli_generate.candidate.seed_{seed}" / "out"
+        regression = verify_no_drift(
+            lock, lot_out / "site.gameplay.json", deli_out / "shell.gameplay.json")
+        if not regression.passed:
+            print("export blocked by functional regression:", file=sys.stderr)
+            for d in regression.drift:
+                print(f"  - {d}", file=sys.stderr)
+            return EXIT_BLOCKED
+
+    out_root = ws.internal_dir / "exports"
+    result = export_mission(
+        mission_id=mission_id, handoff_dir=handoff_dir,
+        presentation_dir=presentation_dir, source_dir=source_dir,
+        profile=profile, tool_versions=_adapter_versions(), out_root=out_root,
+    )
+    if args.format == "zip":
+        zip_export(result)
+        print(f"exported {mission_id} [{args.mode}] -> {result.zip_path}")
+    else:
+        print(f"exported {mission_id} [{args.mode}] -> {result.export_dir}")
+    return EXIT_OK
+
+
+def cmd_portability_test(args) -> int:
+    from packages.exporting.portability import run_portability_test
+    ws = _ws(args)
+    mission_id = args.mission_id
+    tools_local = ws.load_tools_local()
+    export_root = ws.internal_dir / "exports"
+    # Default to the portable-godot export if a mode isn't given.
+    mode = args.mode
+    export_dir = export_root / f"{mission_id}.{mode}"
+    if not export_dir.exists():
+        print(f"no export at {export_dir}; run 'export --mode {mode}' first",
+              file=sys.stderr)
+        return EXIT_BLOCKED
+
+    report = run_portability_test(
+        mission_id=mission_id, export_dir=export_dir, export_mode=mode,
+        godot_executable=tools_local.get("godot_executable") or None,
+        work_root=ws.temp_dir,
+    )
+    # Persist the report next to the export.
+    (export_root / f"{mission_id}.{mode}.portability.json").write_text(
+        pretty_dumps(report.as_dict()), encoding="utf-8")
+    print(pretty_dumps(report.as_dict()))
+    return EXIT_OK if report.status == "PASS" else EXIT_BLOCKED

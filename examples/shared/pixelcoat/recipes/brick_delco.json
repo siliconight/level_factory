@@ -1,0 +1,17 @@
+{
+  "schema": "pixelcoat.recipe/0.2",
+  "id": "brick_delco",
+  "source": "refs/brick_wall.jpg",
+  "theme": "delco_1997",
+  "output_size": 128,
+  "dither": "bayer4",
+  "palette": { "mode": "extract", "colors": 16 },
+  "maps": {
+    "normal": { "strength": 0.8, "flip_g": false },
+    "roughness": { "levels": 4, "invert": false },
+    "emissive": null,
+    "height": { "smooth": true }
+  },
+  "tileable_axes": ["u", "v"],
+  "meters_per_tile": 2.0
+}

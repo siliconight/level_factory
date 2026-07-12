@@ -24,6 +24,10 @@ ADAPTER_REPO_KEYS = {
     "deli_counter": "deli_counter",
     "lot": "lot",
     "laser_tag": "laser_tag",
+    "pixelcoat": "pixelcoat",
+    "zoo": "zoo",
+    "patina": "patina",
+    "lux": "lux",
     "dispatch": "dispatch",
 }
 

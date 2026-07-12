@@ -40,6 +40,10 @@ DEFAULT_TOOLS_LOCAL = {
         "deli_counter": "",
         "lot": "",
         "laser_tag": "",
+        "pixelcoat": "",
+        "zoo": "",
+        "patina": "",
+        "lux": "",
         "dispatch": "",
     },
 }

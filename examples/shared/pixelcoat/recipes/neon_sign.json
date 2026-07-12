@@ -1,0 +1,17 @@
+{
+  "schema": "pixelcoat.recipe/0.2",
+  "id": "neon_sign",
+  "source": "refs/bar_sign.jpg",
+  "theme": "gothic_street_night",
+  "output_size": 256,
+  "dither": "none",
+  "palette": { "mode": "extract", "colors": 24 },
+  "maps": {
+    "normal": { "strength": 0.3 },
+    "roughness": { "levels": 3 },
+    "emissive": { "mode": "luma_threshold", "threshold": 0.72, "energy": 2.5 }
+  },
+  "tileable_axes": [],
+  "meters_per_tile": 1.0,
+  "notes": "Sign faces: emissive drives the Lux emission path so neon survives darkness."
+}

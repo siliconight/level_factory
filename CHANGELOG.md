@@ -3,6 +3,51 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.2.0] - 2026-07-12
+
+Phase 2: Presentation Pipeline + Portable Export (TDD 42, Phase 2).
+
+### Added
+- Four presentation adapters bound to current tool contracts: Pixelcoat v0.2.0
+  (`pixelcoat-pack/1` shared surface packs), Zoo v0.27.0 (structural kit +
+  collision-free dressing, `--skins` consumer), Patina v0.18.0 (base cohesion +
+  spec-space dressing manifest), and Lux v0.13.0. Lux is an in-engine Godot 4.7
+  addon, not a headless CLI, so its adapter stages the addon and drives a
+  headless `godot ... --lux-apply` entry (TDD 24.7).
+- Presentation DAG in the planner (`--target presentation`, TDD 15.2): Pixelcoat
+  packs + Patina base fan out from the locked shell; Zoo kit waits on Pixelcoat;
+  dressing chains Patina -> Zoo; Lux applies last; Dispatch consumes the
+  Lux-applied presentation.
+- Functional lock (TDD 23.4, 31): a fingerprint of collision, gameplay-anchor
+  registry, route graph, and clearance metrics, computed and stored when the
+  `functional_shell_locked` gate is approved. Post-art regression recomputes the
+  same signatures with identical extraction and diffs them.
+- Selective rebuild classification (TDD 30): functional / presentation /
+  ambiguous, with ambiguous treated conservatively as functional.
+- Portable export (TDD 33): `export` in `portable-godot`, `pure-shell`, and
+  `source-authoring` modes; `--format folder|zip` (deterministic ZIP). Writes an
+  autoload-free / plugin-free `project.godot`, the required HANDOFF.md language,
+  a portable resource manifest, and a license/attribution manifest. Lux
+  portability policy: localized runtime (default) or baked presentation (33.6).
+- Resource closure scan (TDD 33.5): rejects absolute paths, `user://`,
+  unresolved `res://`, required autoloads/plugins, and authoring-repo path
+  references; LF's own metadata files are excluded.
+- Clean-project portability test (TDD 33.8, 12.12): copies the export into a
+  fresh Godot 4.7 project and instantiates the mission scene headlessly, then
+  reports a `PortabilityReport` (PASS iff closure clean and engine not failed).
+- **Functional regressions block export**: a collision / anchor / route change
+  after the art pass fails `export` with exit 2 (Phase 2 exit criterion).
+- Example shared Pixelcoat recipes (`examples/shared/pixelcoat/recipes/`).
+
+### Deviations from spec (dev environment)
+- The private tool repos 403 from the network, so all four presentation adapters
+  are bound to their documented contracts and exercised via stub CLIs (TDD 37.3),
+  as in Phase 1. Real-tool smoke (37.5) is dev-only and unrun here.
+- Lux is in-engine; its apply + the clean-project instantiate run against a stub
+  `godot` that answers `--version`, `--lux-apply`, and `--lf-portability-check`.
+- The scheduler still runs sequentially (parallelism is Phase 4); it already
+  respects resource-class caps.
+
 ## [0.1.0] - 2026-07-12
 
 First package. Phase 1: Headless Orchestration Core (TDD 42, Phase 1).

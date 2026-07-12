@@ -14,11 +14,19 @@ def build_default_registry() -> dict[str, ToolAdapter]:
     from adapters.dispatch import DispatchAdapter
     from adapters.laser_tag import LaserTagAdapter
     from adapters.lot import LotAdapter
+    from adapters.lux import LuxAdapter
+    from adapters.patina import PatinaAdapter
+    from adapters.pixelcoat import PixelcoatAdapter
+    from adapters.zoo import ZooAdapter
 
     instances: list[ToolAdapter] = [
         DeliCounterAdapter(),
         LotAdapter(),
         LaserTagAdapter(),
+        PixelcoatAdapter(),
+        ZooAdapter(),
+        PatinaAdapter(),
+        LuxAdapter(),
         DispatchAdapter(),
     ]
     return {a.adapter_id: a for a in instances}

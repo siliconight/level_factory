@@ -19,11 +19,21 @@ from packages.pipeline.graph import JobGraph
 # Pipeline targets a caller can request.
 TARGET_FUNCTIONAL_LOCK = "functional-lock"
 TARGET_SHELL_HANDOFF = "dispatch-handoff"
+TARGET_PRESENTATION = "presentation"
 
 _STAGE_DELI = "deli_generate"
 _STAGE_LOT = "lot_assemble"
 _STAGE_LASER = "laser_tag_evaluate"
 _STAGE_DISPATCH = "dispatch_handoff"
+
+# Presentation pipeline stages (TDD 15.2).
+_STAGE_PIXELCOAT = "pixelcoat_build"
+_STAGE_ZOO_KIT = "zoo_kit_build"
+_STAGE_PATINA_BASE = "patina_apply"
+_STAGE_PATINA_DRESS = "patina_dressing"
+_STAGE_ZOO_DRESS = "zoo_dressing_build"
+_STAGE_LUX = "lux_apply"
+_STAGE_REGRESSION = "regression"
 
 
 def derive_seeds(seed_base: int, count: int) -> list[int]:
@@ -131,23 +141,88 @@ def plan_mission(
     if target == TARGET_FUNCTIONAL_LOCK:
         return plan
 
-    # Handoff tail requires a selected+locked candidate.
+    # Handoff / presentation tail requires a selected+locked candidate.
     plan.selected_candidate = selected_candidate
-    if selected_candidate is not None:
-        dispatch_jid = job_id(brief.mission_id, _STAGE_DISPATCH)
-        dispatch = Job(
-            job_id=dispatch_jid,
-            mission_id=brief.mission_id,
-            stage_id=_STAGE_DISPATCH,
-            adapter_id="dispatch",
-            candidate_id=selected_candidate,
-            resource_class="python_cpu",
-            depends_on=[lot_job_ids_by_candidate[selected_candidate]],
-            expected_outputs=["mission.tscn", "mission_manifest.json",
-                              "gameplay_anchors.json", "runtime_ownership_requirements.json",
-                              "proposed_beat_graph.json", "navigation_hints.json",
-                              "build.lock.json", "HANDOFF.md"],
-        )
-        plan.graph.add(dispatch)
+    if selected_candidate is None:
+        return plan
+
+    lot_jid = lot_job_ids_by_candidate[selected_candidate]
+    dispatch_dep = lot_jid
+
+    if target == TARGET_PRESENTATION:
+        # Presentation DAG (TDD 15.2), rooted at the locked functional shell.
+        # Pixelcoat shared packs.
+        pixelcoat_jid = job_id(brief.mission_id, _STAGE_PIXELCOAT)
+        plan.graph.add(Job(
+            job_id=pixelcoat_jid, mission_id=brief.mission_id,
+            stage_id=_STAGE_PIXELCOAT, adapter_id="pixelcoat",
+            candidate_id=selected_candidate, resource_class="python_cpu",
+            depends_on=[lot_jid],
+            expected_outputs=["theme.pack.json"],
+        ))
+        # Zoo structural kit from DC slots, skinned by Pixelcoat packs.
+        zoo_kit_jid = job_id(brief.mission_id, _STAGE_ZOO_KIT)
+        plan.graph.add(Job(
+            job_id=zoo_kit_jid, mission_id=brief.mission_id,
+            stage_id=_STAGE_ZOO_KIT, adapter_id="zoo",
+            candidate_id=selected_candidate, resource_class="blender",
+            depends_on=[lot_jid, pixelcoat_jid],
+            expected_outputs=["zoo.manifest.json"],
+        ))
+        # Patina base cohesion pass.
+        patina_base_jid = job_id(brief.mission_id, _STAGE_PATINA_BASE)
+        plan.graph.add(Job(
+            job_id=patina_base_jid, mission_id=brief.mission_id,
+            stage_id=_STAGE_PATINA_BASE, adapter_id="patina",
+            candidate_id=selected_candidate, resource_class="python_cpu",
+            depends_on=[lot_jid],
+            expected_outputs=["patina.atlas.json"],
+        ))
+        # Patina dressing manifest.
+        patina_dress_jid = job_id(brief.mission_id, _STAGE_PATINA_DRESS)
+        plan.graph.add(Job(
+            job_id=patina_dress_jid, mission_id=brief.mission_id,
+            stage_id=_STAGE_PATINA_DRESS, adapter_id="patina",
+            candidate_id=selected_candidate, resource_class="python_cpu",
+            depends_on=[patina_base_jid],
+            expected_outputs=["dressing_manifest.json"],
+        ))
+        # Zoo dressing build from the Patina manifest (collision-free).
+        zoo_dress_jid = job_id(brief.mission_id, _STAGE_ZOO_DRESS)
+        plan.graph.add(Job(
+            job_id=zoo_dress_jid, mission_id=brief.mission_id,
+            stage_id=_STAGE_ZOO_DRESS, adapter_id="zoo",
+            candidate_id=selected_candidate, resource_class="blender",
+            depends_on=[patina_dress_jid, zoo_kit_jid],
+            expected_outputs=["zoo.manifest.json"],
+        ))
+        # Lux apply (final PS2 look) over the composed presentation scene.
+        lux_jid = job_id(brief.mission_id, _STAGE_LUX)
+        plan.graph.add(Job(
+            job_id=lux_jid, mission_id=brief.mission_id,
+            stage_id=_STAGE_LUX, adapter_id="lux",
+            candidate_id=selected_candidate, resource_class="godot_headless",
+            depends_on=[zoo_dress_jid],
+            expected_outputs=["lux.applied.tscn", "lux.quality.json",
+                              "lux.validation.json"],
+        ))
+        # Dispatch depends on the Lux-applied presentation, not just the Lot site.
+        dispatch_dep = lux_jid
+
+    dispatch_jid = job_id(brief.mission_id, _STAGE_DISPATCH)
+    dispatch = Job(
+        job_id=dispatch_jid,
+        mission_id=brief.mission_id,
+        stage_id=_STAGE_DISPATCH,
+        adapter_id="dispatch",
+        candidate_id=selected_candidate,
+        resource_class="python_cpu",
+        depends_on=[dispatch_dep],
+        expected_outputs=["mission.tscn", "mission_manifest.json",
+                          "gameplay_anchors.json", "runtime_ownership_requirements.json",
+                          "proposed_beat_graph.json", "navigation_hints.json",
+                          "build.lock.json", "HANDOFF.md"],
+    )
+    plan.graph.add(dispatch)
 
     return plan
