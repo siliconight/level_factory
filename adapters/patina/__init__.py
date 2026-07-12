@@ -87,9 +87,12 @@ class PatinaAdapter(BaseAdapter):
             args += ["--theme", str(job_spec["theme"])]
         if job_spec.get("seed") is not None:
             args += ["--seed", str(job_spec["seed"])]
-        # Dressing pass adds the facade-kit order flags.
+        # Dressing pass adds the facade-kit order flags and --anchors, which is
+        # what makes Patina emit <stem>.patina.dressing.json (schema
+        # patina-dressing/1) — the manifest Zoo's --dress consumes.
         if job_spec.get("dressing"):
-            args += ["--dressing", "--panel-fields", "--frames", "--gutters", "--pilasters"]
+            args += ["--dressing", "--anchors", "--panel-fields",
+                     "--frames", "--gutters", "--pilasters"]
             if job_spec.get("panel_size"):
                 args += ["--panel-size", str(job_spec["panel_size"])]
             if job_spec.get("panel_gap"):
@@ -101,11 +104,16 @@ class PatinaAdapter(BaseAdapter):
         if job_spec.get("family_path"):
             args += ["--family", str(job_spec["family_path"])]
 
+        expected = [f"{stem}.patina.glb", f"{stem}.patina.json",
+                    f"{stem}.patina.gameplay.json"]
+        if job_spec.get("dressing"):
+            # --anchors makes Patina emit the dressing manifest Zoo consumes.
+            expected.append(f"{stem}.patina.dressing.json")
+
         return [PlannedCommand(
             executable=Path(str(py)), arguments=tuple(args),
             working_directory=repo,
-            expected_outputs=(f"{stem}.patina.glb", f"{stem}.patina.json",
-                              f"{stem}.patina.gameplay.json"),
+            expected_outputs=tuple(expected),
             resource_class="python_cpu", timeout_seconds=600,
         )]
 

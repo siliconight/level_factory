@@ -158,7 +158,7 @@ def plan_mission(
             stage_id=_STAGE_PIXELCOAT, adapter_id="pixelcoat",
             candidate_id=selected_candidate, resource_class="python_cpu",
             depends_on=[lot_jid],
-            expected_outputs=["theme.pack.json"],
+            expected_outputs=["theme/theme.pack.json"],
         ))
         # Zoo structural kit from DC slots, skinned by Pixelcoat packs.
         zoo_kit_jid = job_id(brief.mission_id, _STAGE_ZOO_KIT)
@@ -187,7 +187,8 @@ def plan_mission(
             candidate_id=selected_candidate, resource_class="python_cpu",
             depends_on=[patina_base_jid],
             expected_outputs=["shell.patina.glb", "shell.patina.json",
-                              "shell.patina.gameplay.json"],
+                              "shell.patina.gameplay.json",
+                              "shell.patina.dressing.json"],
         ))
         # Zoo dressing build from the Patina manifest (collision-free).
         zoo_dress_jid = job_id(brief.mission_id, _STAGE_ZOO_DRESS)

@@ -74,7 +74,7 @@ def test_batch_run_and_report(batch_ws):
 
     # Shared Pixelcoat pack built exactly once.
     shared = root / ".level_factory" / "jobs" / "batch.b1.pixelcoat_shared" / "out"
-    assert (shared / "theme.pack.json").exists()
+    assert (shared / "theme" / "theme.pack.json").exists()
 
     # Every mission produced a handoff + presentation.
     for m in _MISSIONS:

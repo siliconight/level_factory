@@ -229,28 +229,24 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                 "evaluation_scene": str(_latest_output(lot_out, "site_walk.tscn")),
             }
         elif job.adapter_id == "pixelcoat":
+            recipe_path, source_path = _write_pixelcoat_recipe(ws, batch, model)
             specs[job.job_id] = {
-                "recipes_dir": str(ws.shared_dir / "pixelcoat" / "recipes"),
-                "theme": model.theme or batch.get("theme_family", ""),
-                "output_size": 128,
-                "dither": "bayer4",
-                "expected_packs": ["theme.pack.json"],
+                "recipe_path": str(recipe_path),
+                "source_path": str(source_path),
+                "asset_id": "theme",
             }
         elif job.adapter_id == "zoo":
             # Kit build depends on Lot(+Pixelcoat); dressing build depends on
             # Patina dressing(+Zoo kit). Distinguish by stage id.
             if job.stage_id == "zoo_dressing_build":
                 dress_job = next(d for d in job.depends_on if "patina_dressing" in d)
-                kit_job = next(d for d in job.depends_on if "zoo_kit" in d)
                 specs[job.job_id] = {
                     "mode": "dress",
                     "seed": int(str(job.candidate_id).rsplit("_", 1)[-1]),
                     "theme": model.theme or batch.get("theme_family", ""),
+                    # Zoo --dress consumes Patina's <stem>.patina.dressing.json.
                     "manifest_path": str(_latest_output(jobs_dir / dress_job,
-                                                        "shell.patina.json")),
-                    "slots_path": str(_lot_slots(ws, jobs_dir, job)),
-                    "skins_dir": str(_latest_output(jobs_dir / kit_job, ".")),
-                    "expected_outputs": ["zoo.manifest.json"],
+                                                        "shell.patina.dressing.json")),
                 }
             else:
                 pix_job = next((d for d in job.depends_on if "pixelcoat" in d), None)
@@ -261,7 +257,6 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                     "slots_path": str(_lot_slots(ws, jobs_dir, job)),
                     "skins_dir": (str(_latest_output(jobs_dir / pix_job, "."))
                                   if pix_job else ""),
-                    "expected_outputs": ["zoo.manifest.json"],
                 }
         elif job.adapter_id == "patina":
             deli_glb = str(_latest_output(jobs_dir / _deli_for(plan, job), "shell.glb"))
@@ -376,6 +371,48 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path) -> Path
     return dest
 
 
+# A known-valid 1x1 opaque PNG, so a recipe always resolves a source even when
+# the shared texture library has none (the real tool needs a readable image).
+_ONE_PX_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108020000009077"
+    "53de0000000c4944415478da63f8cfc0f01f0005000155a2b4e10000000049454e44ae426082")
+
+
+def _write_pixelcoat_recipe(ws: Workspace, batch: dict, model: MissionBrief):
+    """Write a Pixelcoat recipe (+ resolvable source) for the shared theme pack.
+
+    Prefers a real recipe from the shared library if present; otherwise writes a
+    minimal recipe with a placeholder source so the real tool can still run.
+    Returns (recipe_path, source_path)."""
+    theme = model.theme or batch.get("theme_family", "delco_1997")
+    shared = ws.shared_dir / "pixelcoat" / "recipes"
+    existing = sorted(shared.glob("*.json")) if shared.exists() else []
+    for cand in existing:
+        try:
+            raw = json.loads(cand.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if "asset_id" in raw and "source" in raw:  # a full recipe, not a palette
+            src = raw["source"].get("path", "")
+            src_path = (cand.parent / src) if src and not Path(src).is_absolute() else Path(src)
+            return cand, src_path
+
+    dest_dir = ws.internal_dir / "temp" / "pixelcoat"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    source = dest_dir / "theme_src.png"
+    source.write_bytes(_ONE_PX_PNG)
+    recipe = {
+        "schema_version": "1",
+        "asset_id": "theme",
+        "source": {"path": "theme_src.png"},
+        "palette": {"colors": ["#0b1020", "#233a52", "#88b0ac", "#f2f6ec"]},
+        "meta": {"theme": theme},
+    }
+    recipe_path = dest_dir / "theme.recipe.json"
+    recipe_path.write_text(pretty_dumps(recipe), encoding="utf-8")
+    return recipe_path, source
+
+
 def cmd_run(args) -> int:
     ws = _ws(args)
     index = _open_index(ws)
@@ -444,12 +481,13 @@ def _batch_job_specs(ws: Workspace, batch: dict, batch_plan) -> dict:
                 spec = {**spec, "skins_dir": shared_out}
             specs[job.job_id] = spec
 
-    # The shared Pixelcoat node.
+    # The shared Pixelcoat node (batch-level surface pack).
+    _briefs = _batch_briefs(ws, batch["batch_id"], batch)
+    recipe_path, source_path = _write_pixelcoat_recipe(ws, batch, _briefs[0])
     specs[shared_id] = {
-        "recipes_dir": str(ws.shared_dir / "pixelcoat" / "recipes"),
-        "theme": batch.get("theme_family", ""),
-        "output_size": 128, "dither": "bayer4",
-        "expected_packs": ["theme.pack.json"],
+        "recipe_path": str(recipe_path),
+        "source_path": str(source_path),
+        "asset_id": "theme",
     }
     return specs
 
@@ -544,7 +582,7 @@ def cmd_batch_report(args) -> int:
         })
 
     shared_out = ws.jobs_dir / shared_pixelcoat_id(args.batch_id) / "out"
-    shared_packs = ([p.name for p in shared_out.glob("*.pack.json")]
+    shared_packs = ([p.name for p in shared_out.rglob("*.pack.json")]
                     if shared_out.exists() else [])
     versions = _adapter_versions()
     summary = BatchSummary(

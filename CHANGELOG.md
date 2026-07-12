@@ -3,6 +3,54 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.6.1] - 2026-07-12
+
+Real-tool grounding, part 2: rebind Pixelcoat and Zoo to their actual CLIs, and
+fix the Patina->Zoo dressing handoff.
+
+### Changed — adapters rebound to real CLIs
+- **pixelcoat** (`adapters/pixelcoat`): real `python -m pixelcoat.cli.main build
+  <recipe.json> --output <dir> --json --force` (positional, self-describing
+  recipe). Output is nested per asset: `<output>/<asset_id>/<asset_id>.pack.json`
+  plus albedo/normal/roughness PNGs and `build_report.json`. Verified against
+  real Pixelcoat 0.2.0 with a synthesized recipe+source.
+- **zoo** (`adapters/zoo`): real `python tools/zoo_cli.py`. Kit build
+  `--build-kit <slots.json> --skins <dir> --theme --seed --out` and dressing
+  `--dress <patina.dressing.json> --out` are Blender-gated; a new `plan_only`
+  mode emits the headless `--kit <slots.json> --plan` pre-build gate. Verified
+  `--plan` against real Zoo 0.27.0 (no Blender needed).
+- **patina dressing** (`adapters/patina`): the dressing pass now passes
+  `--anchors`, which is what makes Patina emit `<stem>.patina.dressing.json`
+  (schema `patina-dressing/1`) — the exact manifest Zoo's `--dress` validates and
+  consumes. Added to the adapter's expected outputs. Fixes the v0.6.0 wiring that
+  pointed Zoo at `.patina.json`.
+
+### Added — real-tool smoke coverage
+- `tests/real_tools` now covers six tools/paths: dispatch, lot, patina base,
+  patina dressing (asserts the `patina-dressing/` manifest for Zoo), pixelcoat
+  (real nested-pack build), and zoo (`--plan`). All 6 pass against the real
+  repos; all skip without `LF_TOOLS_DIR`.
+
+### Changed — stubs + job-spec cascade
+- Pixelcoat/Zoo stub CLIs mimic the real shapes and the nested pack layout; the
+  Patina stub emits a `patina-dressing/1` manifest under `--anchors`.
+- `_job_specs_for_plan` + `_batch_job_specs`: Pixelcoat is fed a real recipe
+  (`_write_pixelcoat_recipe`, with a resolvable source), the shared batch pack
+  uses the same, Zoo dressing consumes `shell.patina.dressing.json`, and Zoo kit
+  points `--skins` at the shared pack dir. Batch report finds packs recursively.
+- Planner `expected_outputs`: pixelcoat -> `theme/theme.pack.json` (nested);
+  patina dressing adds `shell.patina.dressing.json`.
+
+### Testing
+- Fast suite: 114 passed, 6 skipped. Full CLI pipeline runs clean end-to-end;
+  Pixelcoat produces the nested pack, Patina dressing emits the Zoo manifest.
+  Real-tool smoke: 6 pass against the actual repos.
+
+### Still on old contracts (next rebind, hardware-gated)
+- deli_counter (two-step new_level + Blender build), and laser_tag + lux (Godot
+  addons needing a runner/driver scene). Zoo kit/dress geometry builds also need
+  Blender; only their command shapes ship here, with `--plan` runnable.
+
 ## [0.6.0] - 2026-07-12
 
 Real-tool grounding: rebind the pure-Python adapters from *documented* contracts

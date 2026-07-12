@@ -20,6 +20,13 @@ def main():
     Path(base + ".json").write_text(json.dumps(manifest, sort_keys=True))
     Path(base + ".gameplay.json").write_text(json.dumps(
         {"collision": "untouched", "anchors": []}, sort_keys=True))
+    if dressing and "--anchors" in args:
+        Path(base + ".dressing.json").write_text(json.dumps(
+            {"schema": "patina-dressing/1", "building_id": inp,
+             "orders": [{"kind": "curb", "count": 4}]}, sort_keys=True))
+        Path(base + ".anchors.json").write_text(json.dumps(
+            {"schema": "patina-anchors/1", "anchors": []}, sort_keys=True))
+        print(f"[patina] dressing -> {base}.dressing.json")
     print(f"[patina] {'dressing' if dressing else 'base'} -> {out_path}")
     print("[patina] visual 2096 tris; collision 12 tris (untouched)")
     return 0

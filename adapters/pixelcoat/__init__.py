@@ -1,10 +1,20 @@
-"""Pixelcoat adapter (TDD 24.4).
+"""Pixelcoat adapter (TDD 24.4) — bound to the REAL Pixelcoat 0.2.0 CLI.
 
-Bound to Pixelcoat v0.2.0: deterministic, recipe-driven low-res material packs.
-Emits the ``pixelcoat-pack/1`` contract (``<id>.pack.json`` naming albedo /
-normal[OpenGL Y+] / roughness / optional emissive+height, tileable axes,
-meters_per_tile) that Zoo consumes via ``--skins``. Shared surface packs are a
-batch-level asset, so this stage's outputs live under ``shared/pixelcoat``.
+Real invocation (verified against the uploaded repo):
+
+    python -m pixelcoat.cli.main build <recipe.json> --output <dir> [--json] [--force]
+
+The recipe is POSITIONAL and self-describing (asset_id + source.path + palette).
+A build writes into ``<output>/<asset_id>/``:
+
+    <asset_id>.pack.json      (the pixelcoat-pack/1 manifest Zoo reads via --skins)
+    <asset_id>_albedo.png     (+ _normal.png, _roughness.png)
+    <asset_id>.pixelcoat.json (recipe record)
+    build_report.json
+
+``--json`` prints a machine-readable report (tool_version, files, maps) to stdout.
+Shared surface packs are a batch-level asset (this stage's output dir is reused
+by every mission's Zoo kit).
 """
 from __future__ import annotations
 
@@ -17,56 +27,51 @@ from packages.core.hashing import hash_file
 
 class PixelcoatAdapter(BaseAdapter):
     adapter_id = "pixelcoat"
-    adapter_version = "0.1.0"
+    adapter_version = "0.2.0"
     capabilities = frozenset(
         {"process_texture", "build_recipe", "validate_recipes",
          "material_pack", "deterministic_build"}
     )
     output_contract_version = "pixelcoat-pack/1"
 
+    def _asset_id(self, job_spec) -> str:
+        return str(job_spec.get("asset_id", "theme"))
+
     def validate_configuration(self, job_spec, context) -> Sequence[str]:
         problems: list[str] = []
-        recipes = job_spec.get("recipes_dir")
-        if not recipes:
-            problems.append("pixelcoat job requires a recipes directory")
-        elif not Path(str(recipes)).exists():
-            problems.append(f"recipes directory missing: {recipes}")
+        recipe = job_spec.get("recipe_path")
+        if not recipe:
+            problems.append("pixelcoat job requires a recipe_path (a recipe JSON)")
+        elif not Path(str(recipe)).exists():
+            problems.append(f"pixelcoat recipe missing: {recipe}")
         return problems
 
     def fingerprint_inputs(self, job_spec, context) -> Mapping[str, object]:
-        fp: dict[str, object] = {
-            "theme": job_spec.get("theme"),
-            "output_size": job_spec.get("output_size"),
-            "dither": job_spec.get("dither"),
-        }
-        recipes = job_spec.get("recipes_dir")
-        if recipes and Path(str(recipes)).exists():
-            fp["recipe_hashes"] = {
-                p.name: hash_file(p)
-                for p in sorted(Path(str(recipes)).rglob("*.json"))
-            }
-        palette = job_spec.get("shared_palette")
-        if palette and Path(str(palette)).exists():
-            fp["palette_hash"] = hash_file(Path(str(palette)))
+        fp: dict[str, object] = {"asset_id": self._asset_id(job_spec)}
+        recipe = job_spec.get("recipe_path")
+        if recipe and Path(str(recipe)).exists():
+            fp["recipe_hash"] = hash_file(Path(str(recipe)))
+            # The source image is referenced (relative) inside the recipe; fold
+            # its hash in when resolvable so a source edit invalidates the pack.
+            src = job_spec.get("source_path")
+            if src and Path(str(src)).exists():
+                fp["source_hash"] = hash_file(Path(str(src)))
         return fp
 
     def plan_commands(self, job_spec, context) -> Sequence[PlannedCommand]:
         repo = Path(str(context["repository"]))
         work = Path(str(context["work_dir"]))
         py = context.get("python_executable") or "python"
-        args = ["-m", "pixelcoat", "build",
-                "--recipes", str(job_spec.get("recipes_dir", "")),
-                "--out", str(work)]
-        if job_spec.get("theme"):
-            args += ["--theme", str(job_spec["theme"])]
-        if job_spec.get("shared_palette"):
-            args += ["--palette", str(job_spec["shared_palette"])]
-        if job_spec.get("force"):
-            args.append("--force")
+        recipe = str(job_spec.get("recipe_path", ""))
+        asset_id = self._asset_id(job_spec)
+
+        args = ["-m", "pixelcoat.cli.main", "build", recipe,
+                "--output", str(work), "--json", "--force"]
+
         return [PlannedCommand(
             executable=Path(str(py)), arguments=tuple(args),
             working_directory=repo,
-            expected_outputs=tuple(job_spec.get("expected_packs", [])),
+            expected_outputs=(f"{asset_id}/{asset_id}.pack.json",),
             resource_class="python_cpu", timeout_seconds=600,
         )]
 
@@ -85,21 +90,15 @@ class PixelcoatAdapter(BaseAdapter):
                 pack = json.loads(p.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 continue
-            # A pack manifest must resolve its files (TDD 24.4 required check).
-            for role in ("albedo",):
-                fname = pack.get("maps", {}).get(role) or pack.get(role)
-                if fname and not (p.parent / fname).exists():
+            # A pack manifest must resolve its map files (TDD 24.4 required check).
+            maps = pack.get("maps", {})
+            names = maps.values() if isinstance(maps, dict) else []
+            for fname in list(names) + [pack.get("albedo")]:
+                if fname and not (p.parent / str(fname)).exists():
                     issues.append({
                         "code": "PIXELCOAT_PACK_UNRESOLVED",
                         "severity": "major", "category": "presentation",
-                        "message": f"pack {p.name} references missing {role} '{fname}'",
+                        "message": f"pack {p.name} references missing map '{fname}'",
                         "blocking": True, "raw_source_path": str(p),
                     })
-            if "meters_per_tile" not in pack:
-                issues.append({
-                    "code": "PIXELCOAT_NO_PHYSICAL_SCALE",
-                    "severity": "moderate", "category": "presentation",
-                    "message": f"pack {p.name} missing meters_per_tile",
-                    "blocking": False, "raw_source_path": str(p),
-                })
         return issues

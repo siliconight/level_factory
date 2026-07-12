@@ -85,3 +85,65 @@ def test_real_patina(tool_root, tmp_path):
     assert set(cmd.expected_outputs) <= names, set(cmd.expected_outputs) - names
     # Patina must preserve collision (prints "collision N tris (untouched)").
     assert "untouched" in (proc.stdout + proc.stderr)
+
+
+def test_real_patina_dressing_emits_manifest_for_zoo(tool_root, tmp_path):
+    """The patina --dressing --anchors pass must emit the <stem>.patina.dressing.json
+    (schema patina-dressing/1) that Zoo's --dress consumes."""
+    import json
+    from adapters.patina import PatinaAdapter
+    repo = tool_root("patina/cli.py")
+    glb = repo / "examples" / "shell.glb"
+    if not glb.exists():
+        pytest.skip("patina example shell.glb not present")
+    adapter = PatinaAdapter()
+    job = {"input_glb": str(glb), "art_mode": "vertex-color", "theme": "default",
+           "dressing": True, "panel_size": 1.2, "panel_gap": 0.03}
+    work = tmp_path / "out"; work.mkdir()
+    proc, cmd, outs, names = _run_adapter(adapter, job, repo, work)
+    assert proc.returncode == 0, (proc.stdout + proc.stderr)[-800:]
+    dressing = next((p for p in outs if p.name.endswith(".patina.dressing.json")), None)
+    assert dressing is not None, "patina dressing did not emit a dressing manifest"
+    schema = json.loads(dressing.read_text()).get("schema", "")
+    assert schema.startswith("patina-dressing/"), schema
+
+
+def test_real_pixelcoat(tool_root, tmp_path):
+    import json
+    from adapters.pixelcoat import PixelcoatAdapter
+    repo = tool_root("pixelcoat/cli/main.py")
+    # A recipe needs a source image; synthesize a minimal one.
+    try:
+        from PIL import Image
+    except ImportError:
+        pytest.skip("PIL not available to synthesize a pixelcoat source image")
+    src = tmp_path / "src.png"
+    Image.new("RGB", (32, 32), (90, 120, 140)).save(src)
+    recipe = tmp_path / "theme.recipe.json"
+    recipe.write_text(json.dumps({
+        "asset_id": "theme", "source": {"path": "src.png"},
+        "palette": {"colors": ["#0b1020", "#233a52", "#88b0ac", "#f2f6ec"]}}))
+    adapter = PixelcoatAdapter()
+    job = {"recipe_path": str(recipe), "source_path": str(src), "asset_id": "theme"}
+    work = tmp_path / "out"; work.mkdir()
+    proc, cmd, outs, names = _run_adapter(adapter, job, repo, work)
+    assert proc.returncode == 0, (proc.stdout + proc.stderr)[-800:]
+    rel = {str(p.relative_to(work)) for p in outs}
+    assert set(cmd.expected_outputs) <= rel, set(cmd.expected_outputs) - rel
+
+
+def test_real_zoo_plan(tool_root, tools_base, tmp_path):
+    """Zoo geometry builds need Blender; the headless --kit --plan path is the
+    runnable pre-build gate and is what the adapter emits in plan_only mode."""
+    from adapters.zoo import ZooAdapter
+    repo = tool_root("tools/zoo_cli.py")
+    slots = next((p for p in tools_base.rglob("*.slots.json")), None)
+    if slots is None:
+        pytest.skip("no slots.json available for a zoo plan")
+    adapter = ZooAdapter()
+    job = {"mode": "kit", "plan_only": True, "slots_path": str(slots),
+           "theme": "delco", "seed": 3}
+    work = tmp_path / "out"; work.mkdir()
+    proc, cmd, outs, names = _run_adapter(adapter, job, repo, work)
+    assert proc.returncode == 0, (proc.stdout + proc.stderr)[-800:]
+    assert cmd.resource_class == "python_cpu"  # plan is headless
