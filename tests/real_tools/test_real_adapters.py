@@ -147,3 +147,38 @@ def test_real_zoo_plan(tool_root, tools_base, tmp_path):
     proc, cmd, outs, names = _run_adapter(adapter, job, repo, work)
     assert proc.returncode == 0, (proc.stdout + proc.stderr)[-800:]
     assert cmd.resource_class == "python_cpu"  # plan is headless
+
+
+def test_real_deli_new_level(tool_root):
+    """Deli's build.py needs Blender; new_level.py (spec generation) is headless
+    and is the container-runnable half of the two-step. This drives the real
+    new_level via the adapter's first planned command and asserts the spec is
+    written, then confirms the build command targets the work dir + Blender."""
+    from adapters.deli_counter import DeliCounterAdapter, _preset_for
+    repo = tool_root("new_level.py")
+    adapter = DeliCounterAdapter()
+    # Archetype -> real preset mapping resolves to a valid DC preset.
+    preset = _preset_for("urban_bank")
+    assert preset == "bank"
+
+    work = repo / "_lf_smoke_work"
+    ctx = {"repository": str(repo), "work_dir": str(work),
+           "python_executable": sys.executable, "blender_executable": "/usr/bin/blender"}
+    job = {"archetype": "urban_bank", "mode": "heist", "seed": 4242,
+           "level_name": "lf_realsmoke"}
+    cmds = adapter.plan_commands(job, ctx)
+    # Step 1: real new_level.
+    env = {**os.environ, "PYTHONPATH": str(repo)}
+    r1 = subprocess.run(cmds[0].argv(), cwd=str(cmds[0].working_directory), env=env,
+                        capture_output=True, text=True, timeout=90)
+    spec = repo / "specs" / "lf_realsmoke_4242.json"
+    try:
+        assert r1.returncode == 0, (r1.stdout + r1.stderr)[-800:]
+        assert spec.exists(), "new_level did not write the spec"
+        # Step 2 (build) is Blender-gated: assert its shape, don't run it.
+        build_argv = cmds[1].argv()
+        assert str(spec) in build_argv
+        assert "--out" in build_argv and "--blender" in build_argv
+        assert cmds[1].resource_class == "blender"
+    finally:
+        spec.unlink(missing_ok=True)

@@ -205,10 +205,13 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
     for job in plan.graph.topological_order():
         if job.adapter_id == "deli_counter":
             specs[job.job_id] = {
-                "seed": int(job.candidate_id.rsplit("_", 1)[-1]),
                 "archetype": model.archetype,
+                "mode": getattr(model, "mode", None) or "heist",
                 "theme": model.theme or batch.get("theme_family", ""),
-                "output_formats": ["glb"],
+                "seed": int(job.candidate_id.rsplit("_", 1)[-1]),
+                # Unique spec name per mission so parallel builds don't clash in
+                # the DC repo's specs/ dir (DC writes specs there, not to work).
+                "level_name": f"lf_{model.mission_id}",
             }
         elif job.adapter_id == "lot":
             deli_job = job.depends_on[0]

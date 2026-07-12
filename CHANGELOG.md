@@ -3,6 +3,50 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.6.2] - 2026-07-12
+
+Real-tool grounding, part 3: rebind Deli Counter to its real two-step CLI.
+
+### Changed — deli_counter rebound to the real two-step CLI
+- **deli_counter** (`adapters/deli_counter`, adapter_version 0.2.0): the real
+  flow is two commands, not one. Step 1 `new_level.py --preset <preset> --name
+  <level> --mode <mode> --force` writes `specs/<level>.json` (headless, runs
+  in-container). Step 2 `build.py specs/<level>.json --out <work>/shell.glb
+  --blender <exe>` writes `shell.glb` + `shell.{gameplay,slots,lights,manifest}
+  .json` next to `--out` (Blender-gated). The adapter emits both as one job.
+- Archetype -> preset mapping: LF briefs use archetype strings (e.g.
+  `urban_bank`); the adapter maps them to DC's 17 real presets (bank, office,
+  warehouse, gas_station, ...), with passthrough for exact names, a prefix strip,
+  a keyword fallback, and a `bank` default.
+- **Determinism note baked in:** `new_level` has NO seed flag — DC is
+  deterministic per preset, so the seed does not affect the building. Candidate
+  variation genuinely comes from Lot's site assembly downstream. The deli
+  fingerprint therefore excludes the seed (identical configs dedupe in the
+  cache); the seed is used only to keep per-job spec names unique in the repo's
+  `specs/` dir.
+
+### Added — real-tool smoke coverage
+- `test_real_deli_new_level`: drives the real `new_level.py` through the adapter,
+  asserts the spec is written and the archetype->preset mapping resolves, and
+  confirms the Blender-gated build command's shape (out path + `--blender`).
+  Seven real-tool smokes now pass against the actual repos; all skip without
+  `LF_TOOLS_DIR`.
+
+### Changed — stubs + job-spec cascade
+- Deli stub is now two files (`new_level.py` + `build.py`) mirroring the real
+  contract; `build.py` writes the same sidecars without Blender. `_job_specs_for
+  _plan` passes archetype/mode/level_name; the DC repo's `specs/` is gitignored.
+
+### Testing
+- Fast suite: 114 passed, 7 skipped. Full CLI pipeline runs clean; the deli
+  two-step produces shell.glb + all four sidecars per candidate. Real-tool
+  smoke: 7 pass against the actual repos.
+
+### Still on old contracts (final rebind, Godot hardware-gated)
+- laser_tag (Godot `run_map_eval.gd` runner) and lux (in-engine addon needing a
+  headless driver scene, open decision #10). These need your Godot to smoke-test;
+  next up is scaffolding their driver/runner invocation.
+
 ## [0.6.1] - 2026-07-12
 
 Real-tool grounding, part 2: rebind Pixelcoat and Zoo to their actual CLIs, and
