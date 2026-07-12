@@ -1,0 +1,8 @@
+{
+  "schema": "level_factory.batch.v0.1",
+  "batch_id": "batch_001",
+  "name": "Delco Heist Shells",
+  "seed_base": 1997,
+  "theme_family": "delco_1997",
+  "missions": ["bank_block_001", "warehouse_yard_001", "restaurant_row_001"]
+}

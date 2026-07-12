@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "level-factory"
+version = "0.1.0"
+description = "Production/orchestration layer over the Siliconight level-building toolchain."
+requires-python = ">=3.11"
+authors = [{ name = "Siliconight" }]
+readme = "README.md"
+license = { text = "Proprietary" }
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+desktop = ["PySide6>=6.6"]  # Phase 3
+
+[project.scripts]
+level-factory = "apps.cli.main:main"
+
+[tool.setuptools]
+packages = ["packages", "adapters", "apps"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

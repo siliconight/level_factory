@@ -1,0 +1,18 @@
+{
+  "schema": "level_factory.mission_brief.v0.1",
+  "mission_id": "warehouse_yard_001",
+  "display_name": "Warehouse Yard",
+  "archetype": "industrial_warehouse",
+  "building_count": 2,
+  "site_shape": "yard",
+  "route_shape": "loop",
+  "objective_hypotheses": ["breach_yard", "locate_cargo", "load_cargo", "extract"],
+  "extraction_relationship": "vehicle_at_dock",
+  "verticality": "high",
+  "landmark": "gantry_crane",
+  "time_of_day": "night",
+  "weather": "rain",
+  "theme": "delco_1997",
+  "candidate_count": 3,
+  "target_minutes": [25, 35]
+}

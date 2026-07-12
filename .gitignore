@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.level_factory/
+tools.local.json
+*.egg-info/
+build/
+dist/

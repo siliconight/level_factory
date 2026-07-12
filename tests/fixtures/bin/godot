@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+"""Stub 'godot' executable: handles --version and the laser_tag headless eval."""
+import argparse, json, sys
+from pathlib import Path
+
+def main():
+    argv = [x for x in sys.argv[1:] if x != "--"]
+    if "--version" in argv:
+        print("4.7.stable.official"); return 0
+    p = argparse.ArgumentParser()
+    p.add_argument("--headless", action="store_true")
+    p.add_argument("--path", default="")
+    p.add_argument("--lasertag-eval", action="store_true")
+    p.add_argument("--scene", default="")
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--runs", type=int, default=8)
+    p.add_argument("--json", default="")
+    p.add_argument("--csv", default="")
+    a, _ = p.parse_known_args(argv)
+    if a.json:
+        jp = Path(a.json); jp.parent.mkdir(parents=True, exist_ok=True)
+        score = 70 + (a.seed % 20)
+        jp.write_text(json.dumps({
+            "score": score, "grade": "B", "runs": a.runs,
+            "overexposed_zones": [], "blind_zones": []}, sort_keys=True))
+    if a.csv:
+        cp = Path(a.csv); cp.parent.mkdir(parents=True, exist_ok=True)
+        cp.write_text("run,score\n0,70\n")
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())

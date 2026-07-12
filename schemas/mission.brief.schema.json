@@ -1,0 +1,22 @@
+{
+  "schema": "level_factory.mission_brief.v0.1",
+  "required": ["mission_id", "display_name", "archetype", "candidate_count"],
+  "fields": {
+    "mission_id": "string",
+    "display_name": "string",
+    "archetype": "string",
+    "building_count": "int",
+    "site_shape": "string",
+    "route_shape": "string",
+    "objective_hypotheses": "list[string]",
+    "extraction_relationship": "string",
+    "verticality": "string",
+    "landmark": "string",
+    "time_of_day": "string",
+    "weather": "string",
+    "theme": "string",
+    "candidate_count": "int",
+    "target_minutes": "list[int]",
+    "notes": "string"
+  }
+}
