@@ -6,23 +6,34 @@ mission briefs into reproducible, validated mission-shell handoffs. It does not
 duplicate the tools; it orchestrates them (TDD 5.1, "orchestrate, do not
 absorb").
 
-**This package is Phases 1-4: the headless orchestration core, the presentation
-pipeline and portable export, the PySide6 desktop MVP, and batch production.**
-It runs the *functional* pipeline (Deli x N -> Lot -> Laser Tag) and the Dispatch
+**This package implements the full TDD delivery plan (Phases 1-5).** It runs the
+*functional* pipeline (Deli x N -> Lot -> Laser Tag) and the Dispatch
 `shell-handoff` tail, plus the PS2 art pass (Pixelcoat -> Zoo -> Patina -> Lux),
-from a CLI and a desktop app, with a parallel scheduler (per-resource-class
-caps), caching, provenance, human gates, resume, a functional lock with post-art
-regression, portable `export` + a clean-project `portability-test`, an
-application-service layer the UI binds to (the UI never runs tools itself), and
-cross-mission batch runs that build shared assets once and produce batch
-reports. Advanced review/CI (Phase 5) comes later.
+from a CLI and a PySide6 desktop app, with a parallel scheduler (per-resource-
+class caps), caching, provenance, human gates, resume, a functional lock with
+post-art regression, portable `export` + a clean-project `portability-test`, an
+application-service layer the UI binds to, cross-mission batch runs with shared
+assets built once and batch reports, and the advanced-review layer: team
+approvals with quorum, accepted exceptions with stale detection, visual
+before/after comparison reports, CI templates, and a source-control release
+helper.
 
-Run a whole batch as one parallel DAG (shared Pixelcoat packs built once):
+Run a whole batch as one parallel DAG, then review, gate, and release it:
 
 ```
 level-factory batch run <batch-id> --target presentation
+level-factory review <mission-id>
+level-factory team-sign <mission-id> handoff_approved --by <you>
 level-factory batch report <batch-id>
+level-factory ci-init
+level-factory release <batch-id> --tag <tag>   # local tag; you push it
 ```
+
+### Deferred by design (TDD 41.3)
+
+Cloud/distributed workers (the worker seam ships; the network transport does
+not), an embedded 3D viewport, multi-user web review, and PR automation are out
+of scope for this build.
 
 The desktop app is an optional extra:
 

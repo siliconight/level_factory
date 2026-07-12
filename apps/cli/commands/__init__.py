@@ -597,6 +597,142 @@ def _protected_inputs_for_gate(ws: Workspace, mission_id: str, gate: str) -> dic
     return {"functional_signature": model.functional_signature()}
 
 
+# --------------------------------------------------------------------------
+# Phase 5: team approvals, exceptions, review, CI, release
+# --------------------------------------------------------------------------
+def _team_store(ws: Workspace):
+    from packages.approvals.team import TeamApprovalStore
+    return TeamApprovalStore(ws.internal_dir / "team_approvals")
+
+
+def cmd_team_sign(args) -> int:
+    ws = _ws(args)
+    protected = _protected_inputs_for_gate(ws, args.mission_id, args.gate)
+    store = _team_store(ws)
+    store.sign(mission_id=args.mission_id, gate=args.gate, approver=args.by,
+               protected_inputs=protected, note=args.note or "")
+    status = store.status(args.mission_id, args.gate, protected)
+    print(f"{args.by} signed {args.gate} for {args.mission_id} "
+          f"({len(status.current_signoffs)}/{status.quorum}, "
+          f"{'satisfied' if status.satisfied else f'{status.remaining} more needed'})")
+    return EXIT_OK
+
+
+def cmd_team_status(args) -> int:
+    ws = _ws(args)
+    protected = _protected_inputs_for_gate(ws, args.mission_id, args.gate)
+    status = _team_store(ws).status(args.mission_id, args.gate, protected)
+    print(pretty_dumps(status.as_dict()))
+    return EXIT_OK if status.satisfied else EXIT_FINDINGS
+
+
+def cmd_accept_exception(args) -> int:
+    from packages.approvals.exceptions import ExceptionStore, ExceptionError
+    ws = _ws(args)
+    vfile = ws.internal_dir / "validation" / f"{args.mission_id}.json"
+    if not vfile.exists():
+        print(f"no validation for {args.mission_id}; run the mission first",
+              file=sys.stderr)
+        return EXIT_BLOCKED
+    issues = json.loads(vfile.read_text(encoding="utf-8")).get("issues", [])
+    issue = next((i for i in issues
+                  if i.get("code") == args.issue or i.get("issue_id") == args.issue), None)
+    if issue is None:
+        print(f"no issue '{args.issue}' in {args.mission_id}", file=sys.stderr)
+        return EXIT_BLOCKED
+    # Bind the exception to the mission's functional-lock fingerprint (the
+    # artifact whose change should invalidate the acceptance).
+    lock_file = _lock_path(ws, args.mission_id)
+    fp = ""
+    if lock_file.exists():
+        fp = json.loads(lock_file.read_text(encoding="utf-8")).get("collision_fingerprint", "")
+    store = ExceptionStore(ws.internal_dir / "exceptions")
+    try:
+        exc = store.accept(mission_id=args.mission_id, issue=issue, approver=args.by,
+                           reason=args.reason, artifact_fingerprint=fp,
+                           expires_at=args.expires, follow_up_ticket=args.ticket)
+    except ExceptionError as e:
+        print(f"cannot accept: {e}", file=sys.stderr)
+        return EXIT_BLOCKED
+    print(f"accepted exception for issue '{exc.issue_id}' by {exc.approver}")
+    return EXIT_OK
+
+
+def cmd_review(args) -> int:
+    from packages.review.visual import compare_presentation
+    ws = _ws(args)
+    after_dir = ws.jobs_dir / f"{args.mission_id}.lux_apply" / "out"
+    if not after_dir.exists():
+        print(f"no presentation previews for {args.mission_id}; run presentation first",
+              file=sys.stderr)
+        return EXIT_BLOCKED
+    baseline = ws.internal_dir / "review" / args.mission_id / "baseline"
+    before_dir = baseline if baseline.exists() else None
+
+    review = compare_presentation(args.mission_id, before_dir=before_dir, after_dir=after_dir)
+
+    rdir = ws.internal_dir / "review" / args.mission_id
+    rdir.mkdir(parents=True, exist_ok=True)
+    (rdir / "visual_review.json").write_text(pretty_dumps(review.as_dict()), encoding="utf-8")
+    (rdir / "visual_review.html").write_text(review.to_html(), encoding="utf-8")
+
+    # Snapshot the current previews as the new baseline for next time.
+    import shutil as _sh
+    baseline.mkdir(parents=True, exist_ok=True)
+    for png in after_dir.glob("preview_*.png"):
+        _sh.copy2(png, baseline / png.name)
+
+    changed = review.as_dict()["changed_states"]
+    print(f"visual review for {args.mission_id}: "
+          f"{len(review.comparisons)} states, changed: {', '.join(changed) or '(none)'}")
+    print(f"  report: {rdir / 'visual_review.html'}")
+    return EXIT_OK
+
+
+def cmd_ci_init(args) -> int:
+    from packages.ci.templates import render_templates
+    ws = _ws(args)
+    root = Path(args.dest) if getattr(args, "dest", None) else ws.root
+    written = []
+    for rel, content in render_templates().items():
+        target = root / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        if rel.endswith(".sh"):
+            target.chmod(0o755)
+        written.append(rel)
+    print("wrote CI templates:")
+    for w in written:
+        print(f"  {w}")
+    return EXIT_OK
+
+
+def cmd_release(args) -> int:
+    from packages.release.scm import (
+        ReleaseError, is_clean, tag_release, write_release_provenance,
+    )
+    ws = _ws(args)
+    repo = ws.root
+    if not (repo / ".git").exists():
+        # Walk up: the workspace may live inside a repo.
+        repo = next((p for p in [ws.root, *ws.root.parents] if (p / ".git").exists()), None)
+        if repo is None:
+            print("no git repository found for this workspace", file=sys.stderr)
+            return EXIT_CONFIG
+    try:
+        record = tag_release(repo, batch_id=args.batch_id, tag=args.tag,
+                             message=args.message or f"Level Factory release {args.tag}",
+                             require_clean=not args.allow_dirty)
+    except ReleaseError as e:
+        print(f"release failed: {e}", file=sys.stderr)
+        return EXIT_BLOCKED
+    dest = ws.batch_dir(args.batch_id) / "reports" / "release.json"
+    write_release_provenance(record, dest)
+    print(f"tagged {args.tag} at {record.commit[:12]} (not pushed) -> {dest}")
+    print("  push it yourself when ready: git push origin " + args.tag)
+    return EXIT_OK
+
+
 def _lock_path(ws: Workspace, mission_id: str) -> Path:
     return ws.internal_dir / "locks" / f"{mission_id}.json"
 

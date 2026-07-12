@@ -3,6 +3,55 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.5.0] - 2026-07-12
+
+Phase 5: Advanced Review & CI (TDD 42, Phase 5). Completes the delivery plan.
+
+### Added
+- Team approvals (`packages/approvals/team.py`): per-gate quorum with individual
+  sign-offs bound to the gate's protected-input fingerprint, so a protected
+  change makes sign-offs stale (inherited from 23.2). Final handoff defaults to a
+  two-approver quorum (decision 8). CLI `team-sign` / `team-status`.
+- Accepted exceptions (`packages/approvals/exceptions.py`, TDD 23.3 / AC11): a
+  non-blocking issue may be accepted with approver, timestamp, written reason,
+  exact issue id, and artifact fingerprint (+ optional expiration and follow-up
+  ticket). Blocking issues are refused; acceptances go stale when the artifact
+  fingerprint changes or the expiration passes (23.4). CLI `accept-exception`.
+- Rich visual comparisons (`packages/review/visual.py`): pairs a mission's
+  presentation preview states (calm/alarm/extraction) against a saved baseline
+  and emits an HTML + JSON before/after report with an added/removed/changed
+  status and PNG dimensions. CLI `review` (snapshots a new baseline each run).
+- CI templates (`packages/ci/templates.py`): a GitHub Actions workflow and a
+  portable `ci/run.sh` that run doctor -> batch run -> portability gate ->
+  report, using the documented exit codes. CLI `ci-init`.
+- Source-control release (`packages/release/scm.py`): verify a clean tree, create
+  an annotated tag for a batch release, and record commit + tag provenance. Never
+  pushes and never rewrites history (pushing stays a human action). CLI `release`
+  (`--allow-dirty` to override the clean-tree check).
+- Distributed-worker abstraction (`packages/jobs/workers.py`): a `Worker`
+  protocol, a serializable `JobEnvelope`/`JobResult`, a `LocalWorker`, and a
+  `FakeRemoteWorker` that round-trips the envelope through serialization to prove
+  it is transport-ready. A real cloud transport is intentionally not shipped.
+- Service methods: `team_sign` / `team_status` / `accept_exception` /
+  `visual_review` on `FactoryService`.
+
+### Testing
+- 5 team-approval / exception unit tests (quorum, staleness, blocking-refusal,
+  reason-required, fingerprint staleness).
+- 5 review/CI/release/worker unit tests (added-vs-changed detection, PNG
+  dimensions, template shape, clean/dirty/duplicate-tag release, envelope
+  round-trip).
+- 3 CLI integration tests (team quorum on handoff, accept-exception + review +
+  ci-init, release tags a real git repo). 114 tests pass.
+
+### Deferred (per TDD 41.3, documented not stubbed dishonestly)
+- Cloud/distributed workers and remote artifact store: the worker seam ships;
+  the network transport does not.
+- Embedded 3D viewport, multi-user web review, PR automation, and remote SCM
+  operations remain out of scope; `release` covers local tagging + provenance.
+- Real tool contracts are still stub-backed here (private repos 403 from the
+  network).
+
 ## [0.4.0] - 2026-07-12
 
 Phase 4: Batch Production + parallel scheduling (TDD 42, Phase 4).

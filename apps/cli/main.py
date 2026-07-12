@@ -16,9 +16,11 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from apps.cli.commands import (  # noqa: E402
-    cmd_approve, cmd_batch_create, cmd_batch_report, cmd_batch_run, cmd_cache,
-    cmd_diagnostics, cmd_doctor, cmd_export, cmd_init, cmd_plan,
-    cmd_portability_test, cmd_reject, cmd_run, cmd_status, cmd_validate,
+    cmd_accept_exception, cmd_approve, cmd_batch_create, cmd_batch_report,
+    cmd_batch_run, cmd_cache, cmd_ci_init, cmd_diagnostics, cmd_doctor,
+    cmd_export, cmd_init, cmd_plan, cmd_portability_test, cmd_reject,
+    cmd_release, cmd_review, cmd_run, cmd_status, cmd_team_sign,
+    cmd_team_status, cmd_validate,
 )
 
 EXIT_OK = 0
@@ -111,6 +113,42 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--mode", default="portable-godot",
                     choices=["portable-godot", "pure-shell", "source-authoring"])
     sp.set_defaults(func=cmd_portability_test)
+
+    sp = sub.add_parser("team-sign", help="record one approver's sign-off on a gate")
+    sp.add_argument("mission_id")
+    sp.add_argument("gate")
+    sp.add_argument("--by", required=True)
+    sp.add_argument("--note", default="")
+    sp.set_defaults(func=cmd_team_sign)
+
+    sp = sub.add_parser("team-status", help="show a gate's quorum status")
+    sp.add_argument("mission_id")
+    sp.add_argument("gate")
+    sp.set_defaults(func=cmd_team_status)
+
+    sp = sub.add_parser("accept-exception", help="accept a non-blocking issue with a reason")
+    sp.add_argument("mission_id")
+    sp.add_argument("--issue", required=True, help="issue code or id")
+    sp.add_argument("--by", required=True)
+    sp.add_argument("--reason", required=True)
+    sp.add_argument("--expires", default=None, help="ISO expiration date")
+    sp.add_argument("--ticket", default=None, help="follow-up ticket id")
+    sp.set_defaults(func=cmd_accept_exception)
+
+    sp = sub.add_parser("review", help="visual before/after comparison of presentation states")
+    sp.add_argument("mission_id")
+    sp.set_defaults(func=cmd_review)
+
+    sp = sub.add_parser("ci-init", help="write CI templates into the workspace/repo")
+    sp.add_argument("--dest", default=None, help="destination root (default: workspace)")
+    sp.set_defaults(func=cmd_ci_init)
+
+    sp = sub.add_parser("release", help="tag a batch release in git (local only, no push)")
+    sp.add_argument("batch_id")
+    sp.add_argument("--tag", required=True)
+    sp.add_argument("--message", default="")
+    sp.add_argument("--allow-dirty", action="store_true")
+    sp.set_defaults(func=cmd_release)
 
     sp = sub.add_parser("cache", help="cache maintenance")
     sp.add_argument("action", choices=["inspect", "prune"])

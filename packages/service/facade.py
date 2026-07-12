@@ -466,6 +466,29 @@ class FactoryService:
         from apps.cli.commands import cmd_batch_report
         return self._invoke(cmd_batch_report, batch_id=batch_id, json=True)
 
+    def team_sign(self, mission_id: str, gate: str, approver: str,
+                  note: str = "") -> ActionResult:
+        from apps.cli.commands import cmd_team_sign
+        return self._invoke(cmd_team_sign, mission_id=mission_id, gate=gate,
+                            by=approver, note=note)
+
+    def team_status(self, mission_id: str, gate: str) -> dict:
+        from packages.approvals.team import TeamApprovalStore
+        from apps.cli.commands import _protected_inputs_for_gate
+        protected = _protected_inputs_for_gate(self.ws, mission_id, gate)
+        store = TeamApprovalStore(self.ws.internal_dir / "team_approvals")
+        return store.status(mission_id, gate, protected).as_dict()
+
+    def accept_exception(self, mission_id: str, issue: str, approver: str,
+                         reason: str) -> ActionResult:
+        from apps.cli.commands import cmd_accept_exception
+        return self._invoke(cmd_accept_exception, mission_id=mission_id, issue=issue,
+                            by=approver, reason=reason, expires=None, ticket=None)
+
+    def visual_review(self, mission_id: str) -> ActionResult:
+        from apps.cli.commands import cmd_review
+        return self._invoke(cmd_review, mission_id=mission_id)
+
     def approve(self, mission_id: str, gate: str, *, by: str = "desktop",
                 candidate: str | None = None, note: str = "") -> ActionResult:
         from apps.cli.commands import cmd_approve
