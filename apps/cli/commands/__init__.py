@@ -262,6 +262,11 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                     # Zoo --dress consumes Patina's <stem>.patina.dressing.json.
                     "manifest_path": str(_latest_output(jobs_dir / dress_job,
                                                         "shell.patina.dressing.json")),
+                    # Zoo exits nonzero (2) when some modules fail to build but
+                    # still writes its index and the modules that did build; the
+                    # resolver falls back to base for the rest. That's a quality
+                    # finding, not a crash — treat it as advisory.
+                    "exit_advisory": True,
                 }
             else:
                 pix_job = next((d for d in job.depends_on if "pixelcoat" in d), None)
@@ -272,6 +277,7 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                     "slots_path": str(_lot_slots(ws, jobs_dir, job)),
                     "skins_dir": (str(_latest_output(jobs_dir / pix_job, "."))
                                   if pix_job else ""),
+                    "exit_advisory": True,
                 }
         elif job.adapter_id == "patina":
             deli_glb = str(_latest_output(jobs_dir / _deli_for(plan, job), "shell.glb"))

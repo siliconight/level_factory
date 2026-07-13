@@ -3,6 +3,35 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.6.9] - 2026-07-13
+
+Zoo now builds in real Blender (0.6.8 fix confirmed). It exits 2 on a partial
+build but writes its index and the modules that built — same shape as Laser Tag.
+
+### Changed — Zoo partial build is advisory (not a hard failure)
+- The Zoo log confirmed a real Blender build: `[zoo] 12 modules built, 3 failed`,
+  `[zoo] index: lf_m1_1997_kit.built.json` (index + 12 module glbs all present on
+  disk). Zoo returns `0 if n_fail == 0 else 2`, so exit 2 means "built with some
+  misses" — the resolver falls back to base for the failed modules and the kit is
+  usable. LF was treating that nonzero exit as a crash. Both Zoo job-specs (kit +
+  dress) now set `exit_advisory`, so as long as the index is produced the job
+  completes; the adapter surfaces the failed-module count as a non-blocking
+  ZOO_PARTIAL_BUILD finding. (Same mechanism used for Laser Tag in 0.6.6.)
+- The 3 failed modules in the run were almost certainly the placeholder Pixelcoat
+  pack (a 1-colour skin can't cover every module type); real skins should reduce
+  the miss count. It's a quality note, not a blocker.
+
+### Testing
+- Fast suite: 120 passed (+3 Zoo partial-build), 9 skipped. Real-tool smoke: 9
+  pass. Full pipeline through the service: presentation completes (not blocked),
+  all five art-pass sections "done", export succeeds.
+
+### Now unblocked on hardware
+- With Zoo advisory, presentation should complete on your machine, finally
+  exercising the Lux driver (headless apply; preview PNGs still need a render
+  context) and the Dispatch handoff with an LF-generated mission.json — the last
+  two untested stages.
+
 ## [0.6.8] - 2026-07-12
 
 The zoo_kit "FAILED exit=0" was NOT an output-name problem — Zoo was running

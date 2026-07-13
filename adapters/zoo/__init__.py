@@ -160,4 +160,17 @@ class ZooAdapter(BaseAdapter):
                         "message": f"dressing asset '{asset.get('id')}' declares collision",
                         "blocking": True, "raw_source_path": str(p),
                     })
+            # Some modules can fail to build (Zoo exits 2, resolver falls back to
+            # base for the rest). The kit is still usable — surface the miss as a
+            # non-blocking quality finding for review, not a blocker.
+            n_fail = man.get("n_fail")
+            if isinstance(n_fail, int) and n_fail > 0:
+                issues.append({
+                    "code": "ZOO_PARTIAL_BUILD",
+                    "severity": "moderate", "category": "art_coverage",
+                    "message": (f"{n_fail} module(s) failed to build; the resolver "
+                                f"falls back to base for those. Kit is usable — "
+                                f"review skins/theme coverage."),
+                    "blocking": False, "raw_source_path": str(p),
+                })
         return issues

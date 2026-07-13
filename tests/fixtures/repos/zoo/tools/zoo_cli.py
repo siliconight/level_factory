@@ -42,13 +42,13 @@ def main():
         bid = _bid(a.dress)
         idx = out / f"{bid}_dressing.built.json"
         idx.write_text(json.dumps(
-            {"mode": "dress", "building_id": bid,
+            {"mode": "dress", "building_id": bid, "n_fail": 0,
              "dressing": [{"id": "curb_0", "collision": "none"}]}, sort_keys=True))
     else:
         bid = _bid(a.build_kit)
         idx = out / f"{bid}_kit.built.json"
         idx.write_text(json.dumps(
-            {"mode": "kit", "building_id": bid, "theme": a.theme, "modules": []}, sort_keys=True))
+            {"mode": "kit", "building_id": bid, "theme": a.theme, "modules": [], "n_fail": 0}, sort_keys=True))
         (out / f"{bid}_wall.glb").write_bytes(b"glTF-zoo-stub")
     print(f"[zoo] index: {idx}")
     return 0
