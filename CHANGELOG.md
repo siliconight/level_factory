@@ -3,6 +3,32 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.6.10] - 2026-07-13
+
+Presentation reached Lux (Zoo advisory worked — kit + dress both succeeded).
+Lux failed on a one-line staging bug.
+
+### Fixed — Lux driver not staged (wrong path depth)
+- Godot died with `Attempt to open script 'res://run_lux_apply.gd' ... File not
+  found`: the Lux driver was never copied into the staged project. The job-spec
+  built the driver path with `Path(__file__).parents[2]` (= the `apps/` dir) but
+  the driver lives at `<repo>/assets/godot/run_lux_apply.gd` — needs `parents[3]`.
+  The copy was guarded by `.exists()`, so the wrong path silently skipped the
+  copy. Fixed the depth; verified the driver now resolves and stages into the
+  project root alongside the Lux addon, presets, class cache, and scene.
+- The stub masked this because it matches the `-s` script by name without loading
+  the file, so only real Godot exposed it. The Lux adapter now RAISES if the
+  driver is missing instead of silently skipping — a wrong path fails loudly.
+
+### Testing
+- Fast suite: 120 passed, 9 skipped. Real-tool smoke: 9 pass. Full pipeline
+  through the service: presentation completes, all five art-pass sections "done".
+
+### Now unblocked on hardware
+- Lux should apply headlessly and save the scene + quality/validation JSON
+  (preview PNGs still need a render context — expected). Then the Dispatch handoff
+  with an LF-generated mission.json is the single remaining untested stage.
+
 ## [0.6.9] - 2026-07-13
 
 Zoo now builds in real Blender (0.6.8 fix confirmed). It exits 2 on a partial

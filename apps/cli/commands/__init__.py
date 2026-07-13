@@ -308,7 +308,7 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
             repos = ws.load_tools_local().get("repositories", {})
             lux_repo = Path(str(repos.get("lux", "")))
             lot_repo = Path(str(repos.get("lot", "")))
-            driver = Path(__file__).resolve().parents[2] / "assets" / "godot" / "run_lux_apply.gd"
+            driver = Path(__file__).resolve().parents[3] / "assets" / "godot" / "run_lux_apply.gd"
             specs[job.job_id] = {
                 "preset": _preset_for(model),
                 "quality_tier": "standard",

@@ -80,8 +80,13 @@ class LuxAdapter(BaseAdapter):
                 addon_dirs=[Path(str(addon))] + [Path(str(a)) for a in job_spec.get("extra_addon_dirs", [])],
                 scene_src=Path(str(scene_src)),
                 plugins=["lux"])
-            if driver_src and Path(str(driver_src)).exists():
-                shutil.copy2(str(driver_src), proj / "run_lux_apply.gd")
+            # The driver is the -s script Godot loads; if it's missing, Godot
+            # dies with a cryptic "File not found". Fail loudly here instead.
+            if not driver_src or not Path(str(driver_src)).exists():
+                raise FileNotFoundError(
+                    f"Lux headless driver not found at {driver_src!r} — "
+                    f"run_lux_apply.gd must be staged into the project root")
+            shutil.copy2(str(driver_src), proj / "run_lux_apply.gd")
             project = str(proj)
 
         # Lux is in-engine only (no --lux-apply flag). LF ships a headless
