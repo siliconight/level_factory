@@ -70,12 +70,22 @@ class ZooAdapter(BaseAdapter):
         return fp
 
     def plan_commands(self, job_spec, context) -> Sequence[PlannedCommand]:
+        import json as _json
         repo = Path(str(context["repository"]))
         work = Path(str(context["work_dir"]))
         py = context.get("python_executable") or "python"
         cli = str(repo / "tools" / "zoo_cli.py")
         mode = job_spec.get("mode", "kit")
         plan_only = bool(job_spec.get("plan_only"))
+
+        def _bid(p: object) -> str:
+            if not p:
+                return ""
+            try:
+                return str(_json.loads(Path(str(p)).read_text(encoding="utf-8"))
+                           .get("building_id") or "").strip()
+            except (OSError, ValueError, AttributeError):
+                return ""
 
         if mode == "kit" and plan_only:
             # Headless Intent + BuildPlan; no geometry, no Blender.
@@ -87,7 +97,9 @@ class ZooAdapter(BaseAdapter):
                     "--out", str(work)]
             if job_spec.get("skins_dir"):
                 args += ["--skins", str(job_spec["skins_dir"])]
-            expected = ("zoo.manifest.json",)
+            # zoo --dress writes <building_id>_dressing.built.json into --out.
+            bid = _bid(job_spec.get("manifest_path")) or "building"
+            expected = (f"{bid}_dressing.built.json",)
             rclass = "blender"
         else:  # kit build (Blender)
             args = [cli, "--build-kit", str(job_spec.get("slots_path", "")),
@@ -102,7 +114,9 @@ class ZooAdapter(BaseAdapter):
                 args += ["--roof-props", str(job_spec["roof_props_slots"])]
                 if job_spec.get("density"):
                     args += ["--density", str(job_spec["density"])]
-            expected = ("zoo.manifest.json",)
+            # zoo --build-kit writes <building_id>_kit.built.json into --out.
+            bid = _bid(job_spec.get("slots_path")) or "building"
+            expected = (f"{bid}_kit.built.json",)
             rclass = "blender"
 
         return [PlannedCommand(
@@ -121,7 +135,7 @@ class ZooAdapter(BaseAdapter):
         import json
         issues: list[dict] = []
         for p in output_paths:
-            if p.name != "zoo.manifest.json":
+            if not p.name.endswith(".built.json"):
                 continue
             try:
                 man = json.loads(p.read_text(encoding="utf-8"))

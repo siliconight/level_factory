@@ -14,6 +14,7 @@ reuses the exporting/closure module and is the documented follow-up.
 """
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 
@@ -80,6 +81,45 @@ def stage_godot_project(
         for sib in scene_src.parent.iterdir():
             if sib.is_file() and sib != scene_src:
                 shutil.copy2(sib, dest / sib.name)
+    # Resolve closure: Lot bakes the building glb into site.tscn by ABSOLUTE
+    # path (non-portable mode prepends res:// to it -> "res://C:/Users/.../
+    # shell.glb", which Godot can't load). Copy each such file into the project
+    # and rewrite the reference to a real res:// path. Applied to every staged
+    # .tscn so site.tscn's building ref (and any other absolute ref) resolves.
+    for tscn in dest.glob("*.tscn"):
+        _resolve_absolute_refs(tscn, dest)
     (dest / "project.godot").write_text(
         _project_godot(dest.name, plugins), encoding="utf-8")
     return dest, f"res://{scene_res_name}"
+
+
+_ABS_REF = re.compile(r'path="res://((?:[A-Za-z]:[\\/]|/)[^"]+)"')
+
+
+def _resolve_absolute_refs(tscn: Path, dest: Path) -> None:
+    """Copy files referenced by absolute path into the project and rewrite the
+    ext_resource path to a real res:// location."""
+    try:
+        text = tscn.read_text(encoding="utf-8")
+    except OSError:
+        return
+    changed = False
+
+    def _sub(m: "re.Match[str]") -> str:
+        nonlocal changed
+        raw = m.group(1).replace("\\", "/")
+        src = Path(raw)
+        if not src.exists():
+            return m.group(0)  # leave it; nothing we can do
+        target = dest / src.name
+        if not target.exists():
+            try:
+                shutil.copy2(src, target)
+            except OSError:
+                return m.group(0)
+        changed = True
+        return f'path="res://{src.name}"'
+
+    new = _ABS_REF.sub(_sub, text)
+    if changed:
+        tscn.write_text(new, encoding="utf-8")

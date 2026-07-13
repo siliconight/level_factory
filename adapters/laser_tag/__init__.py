@@ -74,7 +74,8 @@ class LaserTagAdapter(BaseAdapter):
             from packages.staging.godot_project import stage_godot_project
             proj, map_res = stage_godot_project(
                 Path(str(job_spec["staging_dir"])),
-                addon_dirs=[Path(str(addon))], scene_src=Path(str(scene_src)),
+                addon_dirs=[Path(str(addon))] + [Path(str(a)) for a in job_spec.get("extra_addon_dirs", [])],
+                scene_src=Path(str(scene_src)),
                 plugins=["laser_tag_tool"])
             project = str(proj)
 
@@ -126,6 +127,20 @@ class LaserTagAdapter(BaseAdapter):
                 data = json.loads(p.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 continue
+            # The grade/score is a READINESS SIGNAL ONLY (TDD 5.5) — surfaced as
+            # a non-blocking finding for the human at candidate selection, never
+            # a blocker and never a claim the map is fun/balanced/verified.
+            grade = str(data.get("grade", "")).upper()
+            score = data.get("score")
+            if grade in ("BROKEN", "FAIL") or (isinstance(score, (int, float)) and score < 40):
+                issues.append({
+                    "code": "LT_LOW_READINESS",
+                    "severity": "moderate", "category": "combat_structure",
+                    "message": (f"Laser Tag readiness grade {grade or '?'} "
+                                f"(score {score}); evaluation completed — "
+                                f"readiness signal only, review at selection."),
+                    "blocking": False, "raw_source_path": str(p),
+                })
             # Overexposed / blind zones surface as informational structure notes.
             for zone in data.get("overexposed_zones", []):
                 issues.append({

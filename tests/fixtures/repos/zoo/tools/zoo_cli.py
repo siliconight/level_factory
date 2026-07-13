@@ -23,6 +23,13 @@ def main():
     if not a.out:
         print("[zoo] a build needs --out", file=sys.stderr); return 3
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
+
+    def _bid(path):
+        try:
+            return str(json.load(open(path)).get("building_id") or "building")
+        except Exception:
+            return "building"
+
     if a.dress:
         try:
             man = json.load(open(a.dress))
@@ -32,13 +39,18 @@ def main():
         if not str(schema).startswith("patina-dressing/"):
             print(f"[zoo] not a Patina dressing manifest (schema={schema!r})", file=sys.stderr)
             return 4
-        (out / "zoo.manifest.json").write_text(json.dumps(
-            {"mode": "dress", "dressing": [{"id": "curb_0", "collision": "none"}]}, sort_keys=True))
+        bid = _bid(a.dress)
+        idx = out / f"{bid}_dressing.built.json"
+        idx.write_text(json.dumps(
+            {"mode": "dress", "building_id": bid,
+             "dressing": [{"id": "curb_0", "collision": "none"}]}, sort_keys=True))
     else:
-        (out / "zoo.manifest.json").write_text(json.dumps(
-            {"mode": "kit", "theme": a.theme, "modules": []}, sort_keys=True))
-        (out / "kit.glb").write_bytes(b"glTF-zoo-stub")
-    print(f"[zoo] manifest: {out / 'zoo.manifest.json'}")
+        bid = _bid(a.build_kit)
+        idx = out / f"{bid}_kit.built.json"
+        idx.write_text(json.dumps(
+            {"mode": "kit", "building_id": bid, "theme": a.theme, "modules": []}, sort_keys=True))
+        (out / f"{bid}_wall.glb").write_bytes(b"glTF-zoo-stub")
+    print(f"[zoo] index: {idx}")
     return 0
 
 if __name__ == "__main__":

@@ -227,13 +227,21 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
             lot_out = jobs_dir / lot_job
             repos = ws.load_tools_local().get("repositories", {})
             lt_repo = Path(str(repos.get("laser_tag", "")))
+            lot_repo = Path(str(repos.get("lot", "")))
             specs[job.job_id] = {
                 "seed": int(job.candidate_id.rsplit("_", 1)[-1]),
                 "run_count": 25,
                 # Laser Tag evaluates the walkable candidate scene.
                 "evaluation_scene": str(_latest_output(lot_out, "site_walk.tscn")),
                 "addon_dir": str(lt_repo / "addons" / "laser_tag_tool"),
+                # The walkable scene references Lot's own runtime addon
+                # (res://addons/lot/...), which ships under <lot_repo>/godot/.
+                "extra_addon_dirs": [str(lot_repo / "godot" / "addons" / "lot")],
                 "staging_dir": str(ws.internal_dir / "staging" / job.job_id),
+                # Laser Tag is a readiness evaluator: a low/BROKEN grade exits
+                # nonzero but is evidence, not a build failure. As long as it
+                # produced its report, the job completes with findings.
+                "exit_advisory": True,
             }
         elif job.adapter_id == "pixelcoat":
             recipe_path, source_path = _write_pixelcoat_recipe(ws, batch, model)
@@ -293,6 +301,7 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                             and j.candidate_id == job.candidate_id), None)
             repos = ws.load_tools_local().get("repositories", {})
             lux_repo = Path(str(repos.get("lux", "")))
+            lot_repo = Path(str(repos.get("lot", "")))
             driver = Path(__file__).resolve().parents[2] / "assets" / "godot" / "run_lux_apply.gd"
             specs[job.job_id] = {
                 "preset": _preset_for(model),
@@ -300,6 +309,7 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                 "composed_scene": str(_latest_output(jobs_dir / (lot_job or zoo_dress_job),
                                                      "site.tscn")),
                 "addon_dir": str(lux_repo / "addons" / "lux"),
+                "extra_addon_dirs": [str(lot_repo / "godot" / "addons" / "lot")],
                 "driver_src": str(driver),
                 "staging_dir": str(ws.internal_dir / "staging" / job.job_id),
             }

@@ -3,6 +3,88 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.6.7] - 2026-07-12
+
+Fourth real Windows run: the functional pipeline PASSED end to end (Deli x3 +
+Lot + Laser Tag, with the advisory + closure + cache fixes all confirmed on
+hardware). Presentation then blocked at Zoo — the last documented-vs-real gap.
+
+### Fixed — Zoo output-contract name (the presentation blocker)
+- zoo_kit_build reported FAILED with exit=0: the Blender build SUCCEEDED but LF
+  looked for the wrong output file. Real Zoo writes `<building_id>_kit.built.json`
+  (kit) and `<building_id>_dressing.built.json` (dress) — LF expected
+  `zoo.manifest.json`. The adapter now reads `building_id` from the slots /
+  dressing manifest at execution and expects the real index file, falling back
+  to Zoo's own `"building"` default when the id is absent (real Patina emits
+  dressing building_id=None, and Zoo falls back to "building"). Confirmed against
+  real Zoo 0.27 source (build_kit / build_dressing index naming).
+- normalize_validation now reads `*.built.json`; planner metadata no longer
+  hardcodes `zoo.manifest.json`; the Zoo stub + Patina-dressing stub emit the
+  real building-id-based names so fast suite and real tools share one contract.
+
+### Confirmed on hardware (this run)
+- Fast suite exit 0 (cache-race fix held — Lot candidates 2/3 hit cache cleanly).
+- Deli x3 through real Blender; Lot x3; Laser Tag x3 completed as SUCCEEDED with
+  a non-blocking low-readiness finding (advisory fix works — functional-lock
+  finished at exit 1). Pixelcoat + Patina succeeded (theme fix held).
+
+### Testing
+- Fast suite: 117 passed, 9 skipped. Real-tool smoke: 9 pass. Full pipeline
+  through the service: all five art-pass sections "done", export succeeds.
+
+### Still open (unchanged)
+- Laser Tag grades the map low until Lot's spawn/objective/extraction beacons are
+  bridged to LT_PlayerSpawn/LT_EnemySpawnPoints nodes (your tool-contract call);
+  advisory means it no longer blocks. Lux driver execution + preview capture and
+  the Dispatch handoff with an LF-generated mission.json are the next things a
+  real run will exercise now that presentation completes.
+
+## [0.6.6] - 2026-07-12
+
+Third real Windows run: class-cache fix confirmed (Godot resolved LT_MapEvalHarness
+and ran 25 eval runs). Fixes the cache race + the Godot resource closure.
+
+### Fixed — cache blob-publish race on Windows (WinError 32)
+- The temp file was named only by content hash, so parallel jobs producing
+  byte-identical output (deterministic Deli candidates hash to the SAME blob)
+  clobbered each other's "<hash>.part" and failed the rename on Windows. Now the
+  temp name is unique per writer (pid+uuid), the publish is dedup-aware (if
+  another worker published the blob first, discard the copy — blobs are
+  immutable), and the rename retries briefly on a transient lock. Stress-tested
+  with 24 threads racing one blob: no errors, no leftover temps.
+
+### Fixed — Godot resource closure for the staged project (laser_tag + lux)
+- The staged walkable scene referenced (a) the Deli building glb by an ABSOLUTE
+  path that Godot mangled into "res://C:/Users/.../shell.glb", and (b) Lot's own
+  runtime addon (res://addons/lot/...), neither of which was in the throwaway
+  project. Now stage_godot_project copies any absolutely-referenced file into the
+  project and rewrites the ext_resource path to a real res:// location, and the
+  laser_tag/lux staging also stages Lot's addon (<lot_repo>/godot/addons/lot).
+  Verified against real Lot 0.18: building glb copied in + path rewritten to
+  res://shell.glb, Lot addon staged, zero absolute refs left.
+
+### Changed — Laser Tag exit is advisory (readiness signal only, TDD 5.5)
+- Laser Tag signals its verdict via exit code; a low/BROKEN grade exits nonzero
+  but is EVIDENCE for the human at candidate selection, not a build crash. The
+  scheduler now treats a nonzero exit as advisory when the job sets
+  `exit_advisory` AND the expected report is present (a missing report still
+  fails as a real error). The adapter surfaces the grade/score as a non-blocking
+  LT_LOW_READINESS finding. So a candidate that evaluates poorly is a selectable
+  candidate with a visible low score — the pipeline no longer hard-fails on it.
+
+### Testing
+- Fast suite: 117 passed (+3 readiness), 9 skipped. Real-tool smoke: 9 pass.
+  Closure + cache race verified in-container against the real repos.
+
+### Open — needs your tool-contract knowledge (NOT an LF bug)
+- Even with geometry loaded, Laser Tag grades the map BROKEN because it wants
+  LT_PlayerSpawn / LT_EnemySpawnPoints nodes, but Lot's walkable scene emits its
+  own spawn/objective/extraction beacons. How are these meant to bridge — does
+  Laser Tag auto-derive spawns, is it meant to run on a different scene (e.g. a
+  Dispatch mission.tscn), or should LF inject LT spawn nodes from Lot's markers?
+  The advisory change means this no longer blocks the pipeline; resolving it is
+  what makes the Laser Tag evidence meaningful.
+
 ## [0.6.5] - 2026-07-12
 
 Fixes from the second real Windows run: Lot now passes (v0.4 fix confirmed on

@@ -299,9 +299,20 @@ class Scheduler:
                         and job_spec.get("transient_ok")):
                     job.attempt += 1
                     return self._execute_job(job, job_spec, cancel)
-                return self._fail(job, fail_class,
-                                  f"tool exited {result.exit_code}",
-                                  exit_code=result.exit_code)
+                # A readiness EVALUATOR (e.g. Laser Tag) signals its verdict via
+                # exit code: a low/BROKEN grade exits nonzero but is EVIDENCE for
+                # the human at candidate selection, not a build crash. Fall
+                # through to the output-contract check — if the report is present
+                # the job "completed with findings"; if it's missing, that check
+                # will fail it as a real error.
+                if not (result.timed_out or job_spec.get("exit_advisory")):
+                    return self._fail(job, fail_class,
+                                      f"tool exited {result.exit_code}",
+                                      exit_code=result.exit_code)
+                if result.timed_out:
+                    return self._fail(job, fail_class,
+                                      f"tool exited {result.exit_code}",
+                                      exit_code=result.exit_code)
 
         # 4. Verify expected-output contract.
         missing = [o for o in planned[0].expected_outputs

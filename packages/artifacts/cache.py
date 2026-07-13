@@ -13,6 +13,8 @@ import datetime as _dt
 import json
 import os
 import shutil
+import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -126,10 +128,29 @@ class ContentCache:
             blob = self._blob_path(content_hash)
             if not blob.exists():
                 blob.parent.mkdir(parents=True, exist_ok=True)
-                # Copy into cache immutably.
-                tmp = self.temp / (blob.name + ".part")
+                # Copy into cache immutably. The temp name MUST be unique per
+                # writer: parallel jobs that produce byte-identical outputs (e.g.
+                # deterministic Deli candidates) hash to the SAME blob, and a
+                # shared "<hash>.part" name makes them clobber each other's temp
+                # and fail the rename on Windows (WinError 32). Blobs are
+                # content-addressed and immutable, so if another worker publishes
+                # the same blob first, our copy is redundant — discard it.
+                tmp = self.temp / f"{blob.name}.{os.getpid()}.{uuid.uuid4().hex}.part"
                 shutil.copy2(f, tmp)
-                os.replace(tmp, blob)
+                published = False
+                for attempt in range(5):
+                    if blob.exists():  # another worker won the race
+                        break
+                    try:
+                        os.replace(tmp, blob)  # atomic; replaces if dest exists
+                        published = True
+                        break
+                    except OSError:
+                        # Transient lock (a concurrent replace of the same blob
+                        # on Windows). Back off briefly and retry.
+                        time.sleep(0.05 * (attempt + 1))
+                if not published:
+                    tmp.unlink(missing_ok=True)
             rel = f.relative_to(output_root).as_posix()
             cached.append(
                 CachedOutput(

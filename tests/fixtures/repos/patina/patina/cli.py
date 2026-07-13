@@ -22,7 +22,7 @@ def main():
         {"collision": "untouched", "anchors": []}, sort_keys=True))
     if dressing and "--anchors" in args:
         Path(base + ".dressing.json").write_text(json.dumps(
-            {"schema": "patina-dressing/1", "building_id": inp,
+            {"schema": "patina-dressing/1", "building_id": Path(inp).stem.split(".")[0],
              "orders": [{"kind": "curb", "count": 4}]}, sort_keys=True))
         Path(base + ".anchors.json").write_text(json.dumps(
             {"schema": "patina-anchors/1", "anchors": []}, sort_keys=True))

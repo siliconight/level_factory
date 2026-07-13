@@ -167,7 +167,7 @@ def plan_mission(
             stage_id=_STAGE_ZOO_KIT, adapter_id="zoo",
             candidate_id=selected_candidate, resource_class="blender",
             depends_on=[lot_jid, pixelcoat_jid],
-            expected_outputs=["zoo.manifest.json"],
+            expected_outputs=[],  # zoo names by building_id at exec; adapter checks
         ))
         # Patina base cohesion pass.
         patina_base_jid = job_id(brief.mission_id, _STAGE_PATINA_BASE)
@@ -197,7 +197,7 @@ def plan_mission(
             stage_id=_STAGE_ZOO_DRESS, adapter_id="zoo",
             candidate_id=selected_candidate, resource_class="blender",
             depends_on=[patina_dress_jid, zoo_kit_jid],
-            expected_outputs=["zoo.manifest.json"],
+            expected_outputs=[],  # zoo names by building_id at exec; adapter checks
         ))
         # Lux apply (final PS2 look) over the composed presentation scene.
         lux_jid = job_id(brief.mission_id, _STAGE_LUX)
