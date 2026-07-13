@@ -133,25 +133,32 @@ def build_license_manifest(tool_versions: dict[str, str | None]) -> dict:
 def export_mission(
     *,
     mission_id: str,
-    handoff_dir: Path,
+    handoff_dir: Path | None,
     presentation_dir: Path | None,
     source_dir: Path | None,
     profile: ExportProfile,
     tool_versions: dict[str, str | None],
     out_root: Path,
+    graybox_dir: Path | None = None,
+    layers=None,
 ) -> ExportResult:
     export_dir = out_root / f"{mission_id}.{profile.mode}"
     if export_dir.exists():
         shutil.rmtree(export_dir)
     export_dir.mkdir(parents=True, exist_ok=True)
+    layers = frozenset(layers or ())
 
-    # 1. Copy the Dispatch handoff (the functional + shell contract).
+    # 1. Copy the functional base. With the Gameplay layer this is the Dispatch
+    # handoff (functional + shell contract + advisory objective layer); without
+    # it, the graybox Lot site IS the deliverable base.
     skip: set[str] = set()
     if profile.mode == MODE_PURE_SHELL:
         skip |= _PRESENTATION_FILES
     if not profile.include_validation:
         skip |= {"validation"}
-    _copy_tree(handoff_dir, export_dir, skip=skip)
+    base_dir = handoff_dir if (handoff_dir and handoff_dir.exists()) else graybox_dir
+    if base_dir and base_dir.exists():
+        _copy_tree(base_dir, export_dir, skip=skip)
 
     # 2. Localize presentation (unless pure-shell).
     if profile.mode != MODE_PURE_SHELL and presentation_dir and presentation_dir.exists():
@@ -181,6 +188,11 @@ def export_mission(
         pretty_dumps(license_manifest), encoding="utf-8")
     (export_dir / "export_profile.json").write_text(
         pretty_dumps(profile.as_dict()), encoding="utf-8")
+    parts = ["graybox"] + [x for x in ("art", "gameplay") if x in layers]
+    (export_dir / "output_layers.json").write_text(pretty_dumps({
+        "schema": "level_factory.output_layers.v0.1",
+        "layers": sorted(layers), "label": "+".join(parts),
+    }), encoding="utf-8")
 
     return ExportResult(
         mission_id=mission_id, mode=profile.mode, export_dir=export_dir,

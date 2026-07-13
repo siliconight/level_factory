@@ -36,11 +36,13 @@ class BatchPlan:
     mission_ids: list[str] = field(default_factory=list)
     skipped_missions: list[str] = field(default_factory=list)
     shared_job_ids: list[str] = field(default_factory=list)
+    layers: frozenset = field(default_factory=frozenset)
 
     def as_dict(self) -> dict:
         return {
             "batch_id": self.batch_id,
             "target": self.target,
+            "layers": sorted(self.layers),
             "missions": self.mission_ids,
             "skipped_missions": self.skipped_missions,
             "shared_jobs": self.shared_job_ids,
@@ -54,30 +56,35 @@ def plan_batch(
     batch: dict,
     selected_by_mission: dict[str, str | None],
     target: str = TARGET_PRESENTATION,
+    layers=None,
 ) -> BatchPlan:
+    from packages.pipeline.planner import LAYER_ART, layers_for_target
+    layers = frozenset(layers) if layers is not None else layers_for_target(target)
     batch_id = str(batch.get("batch_id", "batch"))
     seed_base = int(batch.get("seed_base", 0))
     graph = JobGraph()
     plan = BatchPlan(batch_id=batch_id, target=target, graph=graph)
+    plan.layers = layers
 
-    include_shared = (target == TARGET_PRESENTATION)
+    include_shared = (LAYER_ART in layers)  # Pixelcoat is part of the Art layer
     shared_id = shared_pixelcoat_id(batch_id)
     if include_shared:
         graph.add(Job(
             job_id=shared_id, mission_id=f"batch:{batch_id}",
             stage_id=SHARED_PIXELCOAT_STAGE, adapter_id="pixelcoat",
             resource_class="python_cpu", depends_on=[],
-            expected_outputs=["theme.pack.json"],
+            expected_outputs=["theme/theme.pack.json"],
         ))
         plan.shared_job_ids.append(shared_id)
 
     for brief in briefs:
         selected = selected_by_mission.get(brief.mission_id)
-        # Presentation/handoff need a selected candidate; skip missions without one.
-        if target in (TARGET_PRESENTATION, TARGET_SHELL_HANDOFF) and not selected:
+        # Any optional layer needs a selected+locked candidate; skip missions
+        # without one. Graybox-only batches have no post-lock jobs to gate.
+        if layers and not selected:
             plan.skipped_missions.append(brief.mission_id)
             continue
-        mplan = plan_mission(brief, seed_base=seed_base, target=target,
+        mplan = plan_mission(brief, seed_base=seed_base, layers=layers,
                              selected_candidate=selected)
         for job in mplan.graph.jobs():
             # Drop the per-mission Pixelcoat node; the shared node replaces it.

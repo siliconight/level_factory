@@ -56,8 +56,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     br = bsub.add_parser("run", help="run a whole batch as one parallel DAG")
     br.add_argument("batch_id")
-    br.add_argument("--target", default="presentation",
-                    choices=["functional-lock", "dispatch-handoff", "presentation"])
+    br.add_argument("--art", action="store_true", help="add the Art layer (Zoo/Pixelcoat/Patina/Lux)")
+    br.add_argument("--gameplay", action="store_true", help="add the Gameplay-suggestion layer (Dispatch)")
+    br.add_argument("--target", default=None,
+                    choices=["functional-lock", "dispatch-handoff", "presentation"],
+                    help="legacy alias for a layer set; --art/--gameplay take precedence")
     br.set_defaults(func=cmd_batch_run)
 
     brp = bsub.add_parser("report", help="write mission + batch summary reports")
@@ -67,15 +70,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("plan", help="plan a mission pipeline")
     sp.add_argument("mission_id")
-    sp.add_argument("--target", default="dispatch-handoff",
-                    choices=["functional-lock", "dispatch-handoff", "presentation"])
+    sp.add_argument("--art", action="store_true", help="add the Art layer")
+    sp.add_argument("--gameplay", action="store_true", help="add the Gameplay-suggestion layer")
+    sp.add_argument("--target", default=None,
+                    choices=["functional-lock", "dispatch-handoff", "presentation"],
+                    help="legacy alias for a layer set; --art/--gameplay take precedence")
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(func=cmd_plan)
 
-    sp = sub.add_parser("run", help="run a mission pipeline")
+    sp = sub.add_parser("run", help="run a mission pipeline (graybox base + optional layers)")
     sp.add_argument("mission_id")
-    sp.add_argument("--target", default="dispatch-handoff",
-                    choices=["functional-lock", "dispatch-handoff", "presentation"])
+    sp.add_argument("--art", action="store_true",
+                    help="add the Art layer (Zoo swaps + props/dressing, Pixelcoat, Patina, Lux)")
+    sp.add_argument("--gameplay", action="store_true",
+                    help="add the Gameplay-suggestion layer (Dispatch objective/nav/spawn hints)")
+    sp.add_argument("--target", default=None,
+                    choices=["functional-lock", "dispatch-handoff", "presentation"],
+                    help="legacy alias for a layer set; --art/--gameplay take precedence")
     sp.set_defaults(func=cmd_run)
 
     sp = sub.add_parser("status", help="show mission/job status")

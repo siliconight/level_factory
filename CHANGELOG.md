@@ -3,6 +3,63 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.7.1] - 2026-07-13
+
+Docs only. The README predated the composable-layer work (0.7.0) and several
+grounding versions — it still described a fixed functional-pipeline + art-pass +
+handoff flow and used stale `--target` examples.
+
+### Changed — README
+- Leads with the **Output layers** model: Graybox base + independent Art/Gameplay,
+  the four `run` combinations, and the DC/Zoo boundary (DC builds greybox +
+  collision standalone; Zoo is the art-pass swap/props/dressing). Notes the
+  `--target` legacy alias.
+- Quick start and batch examples use `--art`/`--gameplay`; adapter list corrected
+  to all eight tools; added `packages/staging/` and the `LF_TOOLS_DIR` real-tool
+  smoke to the docs. No code changes (still 128 passed / 10 skipped).
+
+## [0.7.0] - 2026-07-13
+
+Composable output layers. The deliverable is now a **Graybox** base (DC greybox +
+collision, assembled by Lot, with Laser Tag nav QA) plus two independent optional
+layers — **Art** and **Gameplay** — in any combination. Corrects an earlier
+mental model: Zoo is an *art-pass* tool (kit swaps at DC's slot transforms + non-
+collision props/dressing), NOT a graybox collision producer — DC builds the
+greybox with functional collision standalone (`docs/ASSET_SWAP_CONTRACT.md`,
+point 5: swaps "provide collision or inherit DC's auto-collision rule").
+
+### Added — composable layers (`packages/pipeline/planner.py`)
+- `LAYER_ART` (Pixelcoat + Zoo kit/dressing + Patina + Lux) and `LAYER_GAMEPLAY`
+  (Dispatch objective/nav/spawn suggestions, advisory) are independent. Graybox
+  is the always-on base. Four real outputs: graybox, +art, +gameplay, +art+gameplay.
+- `--art` alone now produces the art pass with **no Dispatch** (new capability —
+  previously the only art path, `presentation`, always ran Dispatch). Dispatch's
+  dependency follows the stack: on the Lux art scene when `--art` is set, else on
+  the graybox Lot site directly.
+- `plan_mission(..., layers=...)` is the new primary API; `target=` still works
+  and maps via `layers_for_target` (functional-lock → graybox, dispatch-handoff →
+  +gameplay, presentation → +art+gameplay), so existing CI/scripts don't break.
+
+### Added — CLI + batch
+- `run` / `plan` / `batch run` take `--art` and `--gameplay` (independent flags);
+  bare `run <mission>` is graybox. `--target` kept as a legacy alias
+  (`--art`/`--gameplay` take precedence). `plan` prints the output label
+  (e.g. `output=graybox+art`).
+- Batch planner is layer-driven: the shared Pixelcoat node is included only when
+  the Art layer is on; any optional layer requires a locked candidate.
+
+### Changed — layer-aware export
+- `export` resolves its functional base from what was actually built: the
+  Dispatch handoff when the Gameplay layer ran, otherwise the graybox Lot site.
+  A graybox or art-only mission exports a valid self-contained Godot package with
+  no phantom art/gameplay references. Each export records `output_layers.json`.
+
+### Testing
+- Fast suite: 128 passed (+8 layer tests), 10 skipped. Real-tool smoke: 10 pass.
+  Verified end-to-end through the CLI: bare `run`=graybox, `--art`=art pass w/o
+  dispatch, `--gameplay`=dispatch on graybox, `--art --gameplay`=full stack;
+  graybox-only export produces a clean package from the Lot site.
+
 ## [0.6.11] - 2026-07-13
 
 Grounded the LAST un-rebound stage: the Dispatch handoff. LF was assembling a

@@ -21,6 +21,37 @@ TARGET_FUNCTIONAL_LOCK = "functional-lock"
 TARGET_SHELL_HANDOFF = "dispatch-handoff"
 TARGET_PRESENTATION = "presentation"
 
+# Composable output layers. Graybox (DC greybox+collision, assembled by Lot) is
+# the always-on base; Art and Gameplay are independent optional layers.
+LAYER_ART = "art"          # Zoo swaps + props/dressing, Pixelcoat, Patina, Lux
+LAYER_GAMEPLAY = "gameplay"  # Dispatch objective/nav/spawn suggestions (advisory)
+ALL_LAYERS = frozenset({LAYER_ART, LAYER_GAMEPLAY})
+
+# Backward-compat: the legacy --target values map onto layer sets.
+_TARGET_LAYERS = {
+    TARGET_FUNCTIONAL_LOCK: frozenset(),                 # graybox only
+    TARGET_SHELL_HANDOFF: frozenset({LAYER_GAMEPLAY}),   # graybox + gameplay
+    TARGET_PRESENTATION: frozenset({LAYER_ART, LAYER_GAMEPLAY}),  # full stack
+}
+
+
+def layers_for_target(target: str) -> frozenset:
+    """Map a legacy --target string to its composable layer set."""
+    return _TARGET_LAYERS.get(target, frozenset({LAYER_GAMEPLAY}))
+
+
+def label_for_layers(layers) -> str:
+    """A short deliverable label for a layer set (for plan/report output)."""
+    lset = frozenset(layers or ())
+    if not lset:
+        return "graybox"
+    parts = ["graybox"]
+    if LAYER_ART in lset:
+        parts.append("art")
+    if LAYER_GAMEPLAY in lset:
+        parts.append("gameplay")
+    return "+".join(parts)
+
 _STAGE_DELI = "deli_generate"
 _STAGE_LOT = "lot_assemble"
 _STAGE_LASER = "laser_tag_evaluate"
@@ -43,9 +74,10 @@ def derive_seeds(seed_base: int, count: int) -> list[int]:
 
 
 class Plan:
-    def __init__(self, mission_id: str, target: str) -> None:
+    def __init__(self, mission_id: str, target: str, layers=None) -> None:
         self.mission_id = mission_id
         self.target = target
+        self.layers = frozenset(layers or ())
         self.graph = JobGraph()
         self.candidate_ids: list[str] = []
         self.selected_candidate: str | None = None
@@ -55,6 +87,8 @@ class Plan:
             "schema": "level_factory.pipeline_plan.v0.1",
             "mission_id": self.mission_id,
             "target": self.target,
+            "layers": sorted(self.layers),
+            "output_label": label_for_layers(self.layers),
             "candidates": list(self.candidate_ids),
             "selected_candidate": self.selected_candidate,
             "jobs": [
@@ -77,15 +111,20 @@ def plan_mission(
     *,
     seed_base: int,
     target: str = TARGET_SHELL_HANDOFF,
+    layers=None,
     selected_candidate: str | None = None,
 ) -> Plan:
-    """Build the functional (+handoff) DAG for one mission.
+    """Build the composable DAG for one mission.
 
-    ``selected_candidate`` gates the presentation/handoff tail: Dispatch is only
-    planned once a candidate has been selected and locked, and it depends on the
-    Lot site of exactly that candidate.
+    Graybox (DC greybox+collision assembled by Lot, with Laser Tag nav QA) is the
+    always-on base. ``layers`` selects the optional layers on top:
+      * LAYER_ART      -> Pixelcoat + Zoo (kit swaps + props/dressing) + Patina + Lux
+      * LAYER_GAMEPLAY -> Dispatch objective/nav/spawn suggestions (advisory)
+    Layers are independent and apply only once a candidate is selected + locked.
+    ``layers`` wins if given; otherwise it's derived from the legacy ``target``.
     """
-    plan = Plan(brief.mission_id, target)
+    layers = frozenset(layers) if layers is not None else layers_for_target(target)
+    plan = Plan(brief.mission_id, target, layers)
     seeds = derive_seeds(seed_base, brief.candidate_count)
 
     laser_job_ids: list[str] = []
@@ -138,10 +177,12 @@ def plan_mission(
         plan.graph.add(laser)
         laser_job_ids.append(laser_jid)
 
-    if target == TARGET_FUNCTIONAL_LOCK:
+    # Graybox base is the candidate shells above (DC+Lot+Laser Tag QA). With no
+    # optional layers selected, the graybox site IS the deliverable.
+    if not layers:
         return plan
 
-    # Handoff / presentation tail requires a selected+locked candidate.
+    # Optional layers require a selected + locked candidate.
     plan.selected_candidate = selected_candidate
     if selected_candidate is None:
         return plan
@@ -149,7 +190,7 @@ def plan_mission(
     lot_jid = lot_job_ids_by_candidate[selected_candidate]
     dispatch_dep = lot_jid
 
-    if target == TARGET_PRESENTATION:
+    if LAYER_ART in layers:
         # Presentation DAG (TDD 15.2), rooted at the locked functional shell.
         # Pixelcoat shared packs.
         pixelcoat_jid = job_id(brief.mission_id, _STAGE_PIXELCOAT)
@@ -212,20 +253,23 @@ def plan_mission(
         # Dispatch depends on the Lux-applied presentation, not just the Lot site.
         dispatch_dep = lux_jid
 
-    dispatch_jid = job_id(brief.mission_id, _STAGE_DISPATCH)
-    dispatch = Job(
-        job_id=dispatch_jid,
-        mission_id=brief.mission_id,
-        stage_id=_STAGE_DISPATCH,
-        adapter_id="dispatch",
-        candidate_id=selected_candidate,
-        resource_class="python_cpu",
-        depends_on=[dispatch_dep],
-        expected_outputs=["mission.tscn", "mission_manifest.json",
-                          "gameplay_anchors.json", "runtime_ownership_requirements.json",
-                          "proposed_beat_graph.json", "navigation_hints.json",
-                          "build.lock.json", "HANDOFF.md"],
-    )
-    plan.graph.add(dispatch)
+    if LAYER_GAMEPLAY in layers:
+        dispatch_jid = job_id(brief.mission_id, _STAGE_DISPATCH)
+        dispatch = Job(
+            job_id=dispatch_jid,
+            mission_id=brief.mission_id,
+            stage_id=_STAGE_DISPATCH,
+            adapter_id="dispatch",
+            candidate_id=selected_candidate,
+            resource_class="python_cpu",
+            depends_on=[dispatch_dep],
+            expected_outputs=["mission.tscn", "mission_manifest.json",
+                              "gameplay_anchors.json", "runtime_ownership_requirements.json",
+                              "proposed_beat_graph.json", "navigation_hints.json",
+                              "build.lock.json", "HANDOFF.md"],
+        )
+        plan.graph.add(dispatch)
+
+    return plan
 
     return plan

@@ -162,21 +162,35 @@ def _resolve_selected_candidate(ws: Workspace, mission_id: str) -> str | None:
     return None
 
 
-def _plan_for(ws: Workspace, mission_id: str, target: str):
-    from packages.pipeline.planner import TARGET_PRESENTATION
+def _resolve_layers(args):
+    """Resolve the composable layer set from CLI args. Explicit --art/--gameplay
+    win; otherwise fall back to the legacy --target mapping; otherwise graybox."""
+    from packages.pipeline.planner import LAYER_ART, LAYER_GAMEPLAY, layers_for_target
+    art = bool(getattr(args, "art", False))
+    gameplay = bool(getattr(args, "gameplay", False))
+    if art or gameplay:
+        layers = set()
+        if art:
+            layers.add(LAYER_ART)
+        if gameplay:
+            layers.add(LAYER_GAMEPLAY)
+        return frozenset(layers)
+    target = getattr(args, "target", None)
+    if target:
+        return layers_for_target(target)
+    return frozenset()  # bare `run` == graybox base
+
+
+def _plan_for(ws: Workspace, mission_id: str, target: str, layers=None):
     batch_id, brief = _find_mission(ws, mission_id)
     batch = _load_batch(ws, batch_id)
     model = _brief_model(brief)
     selected = _resolve_selected_candidate(ws, mission_id)
-    target_map = {
-        "functional-lock": TARGET_FUNCTIONAL_LOCK,
-        "dispatch-handoff": TARGET_SHELL_HANDOFF,
-        "presentation": TARGET_PRESENTATION,
-    }
     plan = plan_mission(
         model,
         seed_base=int(batch.get("seed_base", 0)),
-        target=target_map.get(target, TARGET_SHELL_HANDOFF),
+        target=target or TARGET_SHELL_HANDOFF,
+        layers=layers,
         selected_candidate=selected,
     )
     return batch_id, batch, model, plan
@@ -184,11 +198,13 @@ def _plan_for(ws: Workspace, mission_id: str, target: str):
 
 def cmd_plan(args) -> int:
     ws = _ws(args)
-    _, _, _, plan = _plan_for(ws, args.mission_id, args.target)
+    _, _, _, plan = _plan_for(ws, args.mission_id, getattr(args, 'target', None),
+                              layers=_resolve_layers(args))
     if args.json:
         print(pretty_dumps(plan.as_dict()))
     else:
-        print(f"plan for {plan.mission_id} (target={plan.target})")
+        from packages.pipeline.planner import label_for_layers
+        print(f"plan for {plan.mission_id} (output={label_for_layers(plan.layers)})")
         print(f"  candidates: {', '.join(plan.candidate_ids)}")
         if plan.selected_candidate:
             print(f"  selected:   {plan.selected_candidate}")
@@ -506,7 +522,9 @@ def _write_pixelcoat_recipe(ws: Workspace, batch: dict, model: MissionBrief):
 def cmd_run(args) -> int:
     ws = _ws(args)
     index = _open_index(ws)
-    batch_id, batch, model, plan = _plan_for(ws, args.mission_id, args.target)
+    batch_id, batch, model, plan = _plan_for(ws, args.mission_id,
+                                              getattr(args, 'target', None),
+                                              layers=_resolve_layers(args))
     specs = _job_specs_for_plan(ws, batch, model, plan)
     scheduler = _build_scheduler(ws, index)
 
@@ -560,7 +578,8 @@ def _batch_job_specs(ws: Workspace, batch: dict, batch_plan) -> dict:
     shared_out = str(_latest_output(jobs_dir / shared_id, "."))
 
     for brief in _batch_briefs(ws, batch["batch_id"], batch):
-        _, _, _, mplan = _plan_for(ws, brief.mission_id, batch_plan.target)
+        _, _, _, mplan = _plan_for(ws, brief.mission_id, batch_plan.target,
+                                     layers=batch_plan.layers)
         mission_specs = _job_specs_for_plan(ws, batch, brief, mplan)
         for job in batch_plan.graph.jobs():
             if job.mission_id != brief.mission_id:
@@ -590,12 +609,10 @@ def cmd_batch_run(args) -> int:
     briefs = _batch_briefs(ws, args.batch_id, batch)
     selected = {b.mission_id: _resolve_selected_candidate(ws, b.mission_id) for b in briefs}
 
-    target_map = {"functional-lock": TARGET_FUNCTIONAL_LOCK,
-                  "dispatch-handoff": TARGET_SHELL_HANDOFF,
-                  "presentation": TARGET_PRESENTATION}
     batch_plan = plan_batch(briefs, batch=batch,
                             selected_by_mission=selected,
-                            target=target_map.get(args.target, TARGET_PRESENTATION))
+                            target=args.target or TARGET_PRESENTATION,
+                            layers=_resolve_layers(args))
     if not batch_plan.mission_ids:
         print("no missions ready to run (each needs a selected candidate)",
               file=sys.stderr)
@@ -983,13 +1000,24 @@ def cmd_export(args) -> int:
     ws = _ws(args)
     mission_id = args.mission_id
     jobs_dir = ws.jobs_dir
+    from packages.pipeline.planner import LAYER_ART, LAYER_GAMEPLAY
+
     handoff_dir = jobs_dir / f"{mission_id}.dispatch_handoff" / "out"
-    if not handoff_dir.exists():
-        print(f"no dispatch handoff for {mission_id}; run --target dispatch-handoff first",
-              file=sys.stderr)
+    lux_dir = jobs_dir / f"{mission_id}.lux_apply" / "out"
+    lot_out = _selected_lot_out(ws, mission_id)
+
+    # Resolve which layers were actually produced, and the functional base.
+    layers = set()
+    if handoff_dir.exists():
+        layers.add(LAYER_GAMEPLAY)
+    if lux_dir.exists():
+        layers.add(LAYER_ART)
+    graybox_dir = lot_out  # the assembled Lot site is the graybox base
+    if not handoff_dir.exists() and (graybox_dir is None or not graybox_dir.exists()):
+        print(f"nothing to export for {mission_id}; run it first "
+              f"(graybox at minimum, optionally --art/--gameplay)", file=sys.stderr)
         return EXIT_BLOCKED
 
-    lux_dir = jobs_dir / f"{mission_id}.lux_apply" / "out"
     presentation_dir = lux_dir if lux_dir.exists() else None
     source_dir = None  # source-authoring would gather briefs/specs; omitted in MVP folder
 
@@ -1018,6 +1046,7 @@ def cmd_export(args) -> int:
         mission_id=mission_id, handoff_dir=handoff_dir,
         presentation_dir=presentation_dir, source_dir=source_dir,
         profile=profile, tool_versions=_adapter_versions(), out_root=out_root,
+        graybox_dir=graybox_dir, layers=frozenset(layers),
     )
     if args.format == "zip":
         zip_export(result)
