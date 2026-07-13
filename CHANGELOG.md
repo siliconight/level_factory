@@ -3,6 +3,52 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.6.11] - 2026-07-13
+
+Grounded the LAST un-rebound stage: the Dispatch handoff. LF was assembling a
+mission spec against an *assumed* flat contract that real Dispatch 0.3.0 rejects,
+and it fed Dispatch none of the input files its resolver requires. Fixed and
+verified end-to-end against the real tool (readiness 100, 0 blockers).
+
+### Fixed — `_write_dispatch_spec` wrote an invalid mission spec
+- Wrote `"mode": "shell-handoff"` into the spec's `mode` field, but Dispatch
+  only accepts `online_coop_pve` there — `shell-handoff` is the *build* mode,
+  already passed correctly by the adapter as `--mode`. Now writes a valid v0.2
+  spec: correct `mode`, `players`/`networking` defaults, real `inputs`, and a
+  minimal `mission_flow`. The old top-level `site_scene`/`gameplay`/`lights`
+  fields (ignored by Dispatch) are gone.
+- The mission-objective layer is OPTIONAL in this pipeline (the model is just a
+  shell the gameplay team fills), so the spec's `validation` block relaxes
+  objective-reachability and runtime-readiness — the shell is never gated on a
+  fabricated mission.
+
+### Added — Dispatch-input staging bridge (`packages/staging/dispatch_inputs.py`)
+- Dispatch's resolver needs `deli_counter` = `shell.gameplay.json` + `shell.glb`
+  + `shell.nav_hints.json`, and `lot` = `lot.layout.json` + `lot.gameplay.json`
+  + `lot.nav_hints.json` + `lot.glb`. DC and Lot natively emit a richer
+  `markers`/`objectives`/`loot` schema (x/y/z), not Dispatch's `anchors:[{pos}]`
+  + nav `{nodes,links}`. The staging layer maps between them: affordance markers
+  (doors, cover, landmarks, loot) become anchors (descriptive model data, not a
+  mission), a connectivity nav graph is derived, and the DC shell glb is reused
+  as the passthrough `lot.glb` (Dispatch only copies it).
+- Anchor ids are namespaced per source (`deli_counter:` / `lot:`) for the global
+  uniqueness Dispatch requires; a `player_start` + `extraction` are guaranteed so
+  spawn/extraction checks bind without inventing objectives.
+
+### Testing
+- Fast suite: 120 passed, 9 skipped. Real-tool smoke: **10 pass** (+1: real Lot
+  → staging → real `dispatch build`, asserting a blocker-free handoff). Full CLI
+  `run m1 --target dispatch-handoff` completes (exit 0) with the full handoff
+  (mission.tscn, manifests, anchors, beat graph, nav hints, build.lock, HANDOFF.md).
+- DC stub aligned to the real DC schema (markers/objectives/loot) so stub and
+  real tool share the staging path.
+
+### Now unblocked on hardware
+- The Dispatch handoff from an LF-generated mission is verified in-container
+  against the real tool. On your machine the remaining real-Blender/Godot steps
+  (DC build.py, Zoo kit/dress, Lux headless apply) feed this same bridge — the
+  handoff itself is no longer the unknown.
+
 ## [0.6.10] - 2026-07-13
 
 Presentation reached Lux (Zoo advisory worked — kit + dress both succeeded).

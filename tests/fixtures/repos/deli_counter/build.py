@@ -20,11 +20,17 @@ def main():
     base = str(out)[:-4] if str(out).endswith(".glb") else str(out)
     out.write_bytes(b"glTF-deli-stub-" + spec.get("preset", "").encode())
     Path(base + ".gameplay.json").write_text(json.dumps({
-        "schema": "1.21.0", "preset": spec.get("preset"),
+        "schema": "1.21.0", "preset": spec.get("preset"), "up_axis": "z",
+        "mode": spec.get("mode"),
+        "markers": [
+            {"id": "AUTO_FRONT_DOOR", "type": "door", "x": 0, "y": -1.5, "z": 0},
+            {"id": "AUTO_COVER_1", "type": "cover_low", "x": 3, "y": 2, "z": 0},
+            {"id": "AUTO_VAULT", "type": "landmark", "x": -4, "y": 5, "z": 0}],
+        "objectives": [{"id": "grab_take", "type": "objective",
+                        "x": -4, "y": 5, "z": 0, "objective": "grab_the_take"}],
+        "loot": [{"id": "register", "type": "loot", "x": 2, "y": 1, "z": 0}],
         "stair_systems": [{"id": "s1", "role": "primary"}],
-        "ladders": [], "platforms": [], "fire_escapes": [],
-        "anchors": [{"id": "vault_door", "type": "breach_point",
-                     "required_authority": "server"}],
+        "ladders": [], "props": [], "zones": [], "rooms": [],
         "intel": []}, sort_keys=True))
     Path(base + ".slots.json").write_text(json.dumps(
         {"version": "1", "building_id": spec.get("name", "b0"),

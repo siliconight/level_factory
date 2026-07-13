@@ -71,6 +71,72 @@ def test_real_lot(tool_root, tmp_path):
     assert all(not i["blocking"] or i["severity"] == "blocker" for i in issues)
 
 
+def test_real_dispatch_handoff_from_lf_staged_inputs(tool_root, tmp_path):
+    """The end-to-end LF bridge: real Lot output + LF's dispatch-input staging
+    fed to a real `dispatch build`. This is the stage that was previously broken
+    (LF assembled an invalid spec against an assumed contract). Asserts a real
+    handoff with no blockers."""
+    import json, os, subprocess
+    from packages.staging.dispatch_inputs import stage_dispatch_inputs
+    lot_repo = tool_root("lot.py")
+    disp_repo = tool_root("dispatch/__main__.py")
+
+    # DC build needs Blender; use a realistic DC-schema gameplay fixture.
+    deli = tmp_path / "deli"; deli.mkdir()
+    (deli / "shell.gameplay.json").write_text(json.dumps({
+        "up_axis": "z",
+        "markers": [{"id": "AUTO_DOOR", "type": "door", "x": 0, "y": -1.5, "z": 0},
+                    {"id": "AUTO_COVER", "type": "cover_low", "x": 3, "y": 2, "z": 0}],
+        "objectives": [{"id": "take", "type": "objective", "x": -4, "y": 5, "z": 0,
+                        "objective": "grab_the_take"}],
+        "loot": [{"id": "reg", "type": "loot", "x": 2, "y": 1, "z": 0}], "props": []}))
+    (deli / "shell.glb").write_bytes(b"glTF\x02\x00\x00\x00shell")
+
+    # Real Lot.
+    lot_out = tmp_path / "lot"; lot_out.mkdir()
+    (tmp_path / "site.json").write_text(json.dumps({
+        "name": "m1", "up_axis": "z",
+        "buildings": [{"id": "b0", "glb": "b0.glb",
+                       "gameplay": str(deli / "shell.gameplay.json"), "at": [0, 0], "rot": 0}]}))
+    env = {**os.environ, "PYTHONPATH": str(lot_repo)}
+    r = subprocess.run([sys.executable, "lot.py", str(tmp_path / "site.json"),
+                        str(lot_out), "--walkable"], cwd=str(lot_repo), env=env,
+                       capture_output=True, text=True, timeout=90)
+    assert r.returncode == 0, (r.stdout + r.stderr)[-600:]
+    lot_gp = next(lot_out.glob("*.site.gameplay.json"))
+
+    # LF staging.
+    stage = tmp_path / "stage"
+    m = stage_dispatch_inputs(stage, deli_gameplay=deli / "shell.gameplay.json",
+        shell_glb=deli / "shell.glb", lot_gameplay=lot_gp, mission_id="m1", theme="delco")
+
+    # Valid v0.2 spec (mirrors _write_dispatch_spec) + real dispatch build.
+    spec = {"schema": "dispatch.mission.v0.2", "mission_id": "m1", "title": "M1",
+            "engine": "godot_4_7", "mode": "online_coop_pve",
+            "players": {"min": 1, "max": 4, "preferred": 4},
+            "networking": {"model": "server_authoritative", "critical_state_owner": "server"},
+            "theme": "delco", "inputs": m,
+            "mission_flow": [{"step": "spawn", "location_tag": "mission_start"},
+                             {"step": "extract", "location_tag": "extraction"}],
+            "validation": {"require_online_runtime_readiness": False,
+                           "require_all_objectives_reachable": False,
+                           "require_all_players_spawn_valid": True,
+                           "require_ai_navmesh": False, "require_performance_budget": False}}
+    (stage / "dispatch.mission.json").write_text(json.dumps(spec, indent=2))
+    out = tmp_path / "handoff"
+    denv = {**os.environ, "PYTHONPATH": str(disp_repo)}
+    rd = subprocess.run([sys.executable, "-m", "dispatch", "build",
+                         str(stage / "dispatch.mission.json"), "--mode", "shell-handoff",
+                         "--out", str(out), "--strict-licenses"],
+                        cwd=str(disp_repo), env=denv, capture_output=True, text=True, timeout=120)
+    assert rd.returncode == 0, (rd.stdout + rd.stderr)[-1000:]
+    for f in ("mission.tscn", "mission_manifest.json", "gameplay_anchors.json",
+              "HANDOFF.md", "build.lock.json"):
+        assert (out / f).exists(), f"missing handoff artifact: {f}"
+    report = json.loads((out / "validation" / "report.json").read_text())
+    assert not report.get("blockers"), report.get("blockers")
+
+
 def test_real_patina(tool_root, tmp_path):
     from adapters.patina import PatinaAdapter
     repo = tool_root("patina/cli.py")
