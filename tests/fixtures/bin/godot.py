@@ -25,6 +25,15 @@ def main():
     if "--version" in argv:
         print("4.7.stable.official"); return 0
 
+    # Blender-style invocation: `--background --python <script> -- <args>`.
+    # Real Zoo geometry builds run this way; execute the target script with the
+    # post-`--` args so the zoo stub writes its real building-id-named index.
+    if "--python" in argv and argv.index("--python") + 1 < len(argv):
+        target = argv[argv.index("--python") + 1]
+        zoo_args = argv[argv.index("--") + 1:] if "--" in argv else []
+        import subprocess
+        return subprocess.run([sys.executable, target, *zoo_args]).returncode
+
     script = argv[argv.index("-s") + 1] if "-s" in argv else ""
     uargs = _uargs(argv)
 

@@ -74,6 +74,7 @@ class ZooAdapter(BaseAdapter):
         repo = Path(str(context["repository"]))
         work = Path(str(context["work_dir"]))
         py = context.get("python_executable") or "python"
+        blender = str(context.get("blender_executable") or "blender")
         cli = str(repo / "tools" / "zoo_cli.py")
         mode = job_spec.get("mode", "kit")
         plan_only = bool(job_spec.get("plan_only"))
@@ -88,42 +89,50 @@ class ZooAdapter(BaseAdapter):
                 return ""
 
         if mode == "kit" and plan_only:
-            # Headless Intent + BuildPlan; no geometry, no Blender.
+            # Headless Intent + BuildPlan — pure Python, no bpy, no Blender.
             args = [cli, "--kit", str(job_spec.get("slots_path", "")), "--plan"]
-            expected: tuple[str, ...] = ()
-            rclass = "python_cpu"
-        elif mode == "dress":
-            args = [cli, "--dress", str(job_spec.get("manifest_path", "")),
-                    "--out", str(work)]
+            return [PlannedCommand(
+                executable=Path(str(py)), arguments=tuple(args),
+                working_directory=repo, expected_outputs=(),
+                resource_class="python_cpu", timeout_seconds=300,
+            )]
+
+        # Geometry builds REQUIRE bpy: Zoo must run INSIDE Blender via
+        # `blender --background --python tools/zoo_cli.py -- <zoo args>`. Run
+        # with plain Python and bpy is absent, so Zoo degrades to a no-op skin
+        # report and writes no index (the FAILED-exit=0 seen on hardware).
+        zoo_args: list[str]
+        if mode == "dress":
+            zoo_args = ["--dress", str(job_spec.get("manifest_path", "")),
+                        "--out", str(work)]
             if job_spec.get("skins_dir"):
-                args += ["--skins", str(job_spec["skins_dir"])]
-            # zoo --dress writes <building_id>_dressing.built.json into --out.
+                zoo_args += ["--skins", str(job_spec["skins_dir"])]
             bid = _bid(job_spec.get("manifest_path")) or "building"
             expected = (f"{bid}_dressing.built.json",)
-            rclass = "blender"
-        else:  # kit build (Blender)
-            args = [cli, "--build-kit", str(job_spec.get("slots_path", "")),
-                    "--out", str(work)]
+        else:  # kit build
+            zoo_args = ["--build-kit", str(job_spec.get("slots_path", "")),
+                        "--out", str(work)]
             if job_spec.get("skins_dir"):
-                args += ["--skins", str(job_spec["skins_dir"])]
+                zoo_args += ["--skins", str(job_spec["skins_dir"])]
             if job_spec.get("theme"):
-                args += ["--theme", str(job_spec["theme"])]
+                zoo_args += ["--theme", str(job_spec["theme"])]
             if job_spec.get("seed") is not None:
-                args += ["--seed", str(job_spec["seed"])]
+                zoo_args += ["--seed", str(job_spec["seed"])]
             if job_spec.get("roof_props_slots"):
-                args += ["--roof-props", str(job_spec["roof_props_slots"])]
+                zoo_args += ["--roof-props", str(job_spec["roof_props_slots"])]
                 if job_spec.get("density"):
-                    args += ["--density", str(job_spec["density"])]
-            # zoo --build-kit writes <building_id>_kit.built.json into --out.
+                    zoo_args += ["--density", str(job_spec["density"])]
             bid = _bid(job_spec.get("slots_path")) or "building"
             expected = (f"{bid}_kit.built.json",)
-            rclass = "blender"
 
+        # Blender passes everything after `--` through as user args; zoo_cli.py
+        # reads them and adds its own repo root to sys.path.
+        args = ["--background", "--python", cli, "--", *zoo_args]
         return [PlannedCommand(
-            executable=Path(str(py)), arguments=tuple(args),
+            executable=Path(blender), arguments=tuple(args),
             working_directory=repo,
             expected_outputs=expected,
-            resource_class=rclass, timeout_seconds=900,
+            resource_class="blender", timeout_seconds=1200,
         )]
 
     def collect_outputs(self, job_spec, context) -> Iterable[Path]:

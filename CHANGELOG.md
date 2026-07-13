@@ -3,6 +3,33 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.6.8] - 2026-07-12
+
+The zoo_kit "FAILED exit=0" was NOT an output-name problem — Zoo was running
+without bpy and no-op'ing. The real fix: run Zoo's geometry builds in Blender.
+
+### Fixed — Zoo kit/dress builds must run INSIDE Blender
+- The job log showed `[zoo] bpy not available -> skin library report only. Run
+  inside Blender to build with these skins.` LF invoked Zoo with plain Python, so
+  bpy was absent and Zoo degraded to a no-op report, writing no index (exit 0 but
+  no output → the FAILED-exit=0). Zoo's geometry builds are meant to run as
+  `blender --background --python tools/zoo_cli.py -- --build-kit ...` (zoo_cli.py
+  adds its own repo root to sys.path, so imports resolve). The adapter now
+  invokes kit and dress that way (executable = blender, resource_class = blender);
+  the `--kit --plan` pre-pass stays pure Python (no bpy needed). The building-id
+  output-name logic from 0.6.7 was correct and stays — it just needed Zoo to
+  actually build. Verified command shape: `blender --background --python
+  zoo_cli.py -- --build-kit <slots> ... --out <work>`, expects
+  `<building_id>_kit.built.json`.
+- The Blender stub now handles `--background --python <script> -- <args>` by
+  running the target script with the post-`--` args, so the fast suite exercises
+  the same Blender-invocation path.
+
+### Testing
+- Fast suite: 117 passed, 9 skipped. Real-tool smoke: 9 pass (Zoo `--plan` still
+  runs headless in-container). The real Blender kit/dress build needs the user's
+  Blender to execute — this is the next thing the hardware run will exercise.
+
 ## [0.6.7] - 2026-07-12
 
 Fourth real Windows run: the functional pipeline PASSED end to end (Deli x3 +
