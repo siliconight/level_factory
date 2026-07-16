@@ -58,7 +58,13 @@ func _initialize() -> void:
 	await process_frame  # let _ready populate the preset library
 
 	var applied_ok := true
+	var preset_known := true
 	if not preset_name.is_empty():
+		# The library keys presets by DISPLAY name; a wrong name makes
+		# blend_to_preset a silent no-op. Check and report instead.
+		var lib: Variant = lux.get("_preset_library")
+		if typeof(lib) == TYPE_DICTIONARY:
+			preset_known = (lib as Dictionary).has(StringName(preset_name))
 		lux.blend_to_preset(StringName(preset_name), 0.0)
 	await process_frame
 
@@ -72,7 +78,12 @@ func _initialize() -> void:
 	var quality := {"preset": preset_name, "applied": applied_ok,
 		"driver": "run_lux_apply", "note": "previews need a render context"}
 	_write_json(out_dir + "/lux.quality.json", quality)
-	_write_json(out_dir + "/lux.validation.json", {"issues": []})
+	var issues := []
+	if not preset_known:
+		issues.append({"code": "LUX_PRESET_UNKNOWN", "severity": "moderate",
+			"category": "presentation",
+			"message": "preset '%s' is not in the registered library; look not applied" % preset_name})
+	_write_json(out_dir + "/lux.validation.json", {"issues": issues})
 
 	print("[lux] applied preset '%s' -> %s" % [preset_name, out_dir])
 	quit(0 if applied_ok else 1)

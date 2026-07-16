@@ -124,10 +124,23 @@ def run_doctor(
         if not probe.available:
             report.add(f"tool:{adapter_id}", FAIL, "; ".join(probe.problems) or "unavailable")
         else:
+            from packages.tools import contracts
             detail = f"v{probe.tool_version or '?'}"
             if probe.repository_commit:
                 detail += f" @ {probe.repository_commit[:8]}"
-            report.add(f"tool:{adapter_id}", PASS, detail)
+            certified, src = contracts.certified_version(
+                adapter_id, tools_lock.get("tools", {}))
+            status = contracts.compare(certified, probe.tool_version)
+            if status == contracts.OK:
+                report.add(f"tool:{adapter_id}", PASS, detail)
+            elif status == contracts.INCOMPATIBLE:
+                report.add(f"tool:{adapter_id}", FAIL,
+                           f"{detail} — {contracts.INCOMPATIBLE} vs certified {certified} ({src})")
+            elif status == contracts.DRIFT:
+                report.add(f"tool:{adapter_id}", WARN,
+                           f"{detail} — drift vs certified {certified} ({src}); re-certify")
+            else:  # UNKNOWN — no comparable version
+                report.add(f"tool:{adapter_id}", PASS, f"{detail} (version unpinned)")
 
     # Workspace writability
     report.add("workspace_writable", PASS if workspace_writable else FAIL,

@@ -27,15 +27,24 @@ _GAMEPLAY_NODES = {"Collision", "GameplayAnchors", "NavRegion", "Interactives"}
 
 class LuxAdapter(BaseAdapter):
     adapter_id = "lux"
-    adapter_version = "0.2.0"
+    adapter_version = "0.3.0"
     capabilities = frozenset(
         {"apply_preset", "apply_roles", "level_override", "validate_scene",
-         "preview_states", "quality_tiers"}
+         "preview_states", "quality_tiers", "fixture_gate"}
     )
-    output_contract_version = "lux.look.0.13"
+    output_contract_version = "lux.look.0.15"
 
     def validate_configuration(self, job_spec, context) -> Sequence[str]:
         problems: list[str] = []
+        if job_spec.get("mode") == "fixture_gate":
+            fdir = job_spec.get("fixtures_dir")
+            if not fdir:
+                problems.append("fixture gate requires the zoo fixtures job dir")
+            elif not Path(str(fdir)).exists():
+                problems.append(f"fixtures dir missing: {fdir}")
+            if not context.get("godot_executable"):
+                problems.append("godot_executable is not configured (headless gate)")
+            return problems
         scene = job_spec.get("composed_scene")
         if not scene:
             problems.append("lux apply requires a composed presentation scene")
@@ -55,6 +64,14 @@ class LuxAdapter(BaseAdapter):
             "overrides": job_spec.get("overrides", {}),
             "preview_states": sorted(job_spec.get("preview_states", [])),
         }
+        if job_spec.get("mode") == "fixture_gate":
+            fdir = job_spec.get("fixtures_dir")
+            if fdir and Path(str(fdir)).exists():
+                fp["fixture_glb_hashes"] = {
+                    g.name: hash_file(g)
+                    for g in sorted(Path(str(fdir)).rglob("*_fixtures.glb"))
+                }
+            return fp
         for key in ("composed_scene", "lights_json"):
             p = job_spec.get(key)
             if p and Path(str(p)).exists():
@@ -64,6 +81,9 @@ class LuxAdapter(BaseAdapter):
     def plan_commands(self, job_spec, context) -> Sequence[PlannedCommand]:
         work = Path(str(context["work_dir"]))
         godot = Path(str(context.get("godot_executable") or "godot"))
+
+        if job_spec.get("mode") == "fixture_gate":
+            return self._plan_fixture_gate(job_spec, context, work, godot)
 
         # Stage a throwaway project: Lux addon + LF's headless driver at the
         # project root + the composed presentation scene at res://.
@@ -106,6 +126,57 @@ class LuxAdapter(BaseAdapter):
             resource_class="godot_headless", timeout_seconds=900,
         )]
 
+    def _plan_fixture_gate(self, job_spec, context, work: Path,
+                           godot: Path) -> Sequence[PlannedCommand]:
+        """Machine-gate a Zoo v0.30 fixtures GLB: spawn at emitter markers,
+        check lamp<->hardware co-location, and exercise the powered
+        kill/restore — headlessly, via LF's run_fixture_gate.gd driver. The
+        driver load()s Lux scripts BY PATH (no class_name annotations), so it
+        does not depend on the staged global class cache; the explicit
+        --import first command builds the GLB import artifacts the load needs.
+        """
+        import shutil
+        from packages.staging.godot_project import stage_godot_project
+
+        fdir = Path(str(job_spec.get("fixtures_dir", "")))
+        glbs = sorted(fdir.rglob("*_fixtures.glb"),
+                      key=lambda p: p.stat().st_mtime, reverse=True)
+        if not glbs:
+            raise FileNotFoundError(
+                f"no *_fixtures.glb under {fdir} — did the zoo fixtures job run?")
+        fixtures_glb = glbs[0]
+
+        proj, scene_res = stage_godot_project(
+            Path(str(job_spec["staging_dir"])),
+            addon_dirs=[Path(str(job_spec["addon_dir"]))],
+            scene_src=fixtures_glb,
+            plugins=["lux"],
+            scene_res_name="fixtures.glb")
+
+        driver_src = job_spec.get("driver_src")
+        if not driver_src or not Path(str(driver_src)).exists():
+            raise FileNotFoundError(
+                f"fixture gate driver not found at {driver_src!r} — "
+                f"run_fixture_gate.gd must be staged into the project root")
+        shutil.copy2(str(driver_src), proj / "run_fixture_gate.gd")
+
+        import_cmd = PlannedCommand(
+            executable=godot,
+            arguments=("--headless", "--path", str(proj), "--import"),
+            working_directory=proj, expected_outputs=(),
+            resource_class="godot_headless", timeout_seconds=900,
+        )
+        gate_cmd = PlannedCommand(
+            executable=godot,
+            arguments=("--headless", "--path", str(proj),
+                       "-s", "res://run_fixture_gate.gd", "--",
+                       "--fixtures", scene_res, "--out", str(work)),
+            working_directory=proj,
+            expected_outputs=("fixture_gate.report.json",),
+            resource_class="godot_headless", timeout_seconds=900,
+        )
+        return [import_cmd, gate_cmd]
+
     def collect_outputs(self, job_spec, context) -> Iterable[Path]:
         work = Path(str(context["work_dir"]))
         return sorted(p for p in work.rglob("*")
@@ -126,6 +197,44 @@ class LuxAdapter(BaseAdapter):
                         "message": f"gameplay node '{gp}' placed under a Lux root",
                         "blocking": True, "raw_source_path": str(applied),
                     })
+        gate = next((p for p in output_paths
+                     if p.name == "fixture_gate.report.json"), None)
+        if gate is not None:
+            try:
+                g = json.loads(gate.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                g = {}
+            markers = int(g.get("markers", 0))
+            if markers == 0:
+                issues.append({
+                    "code": "LUX_NO_FIXTURE_MARKERS",
+                    "severity": "moderate", "category": "contract",
+                    "message": ("fixtures GLB carries no LuxEmit_* markers "
+                                "(pre-v0.30 Zoo) — nothing gated"),
+                    "blocking": False, "raw_source_path": str(gate)})
+            else:
+                if int(g.get("spawned", 0)) != int(g.get("spawnable", markers)):
+                    issues.append({
+                        "code": "LUX_FIXTURE_SPAWN_MISMATCH",
+                        "severity": "blocker", "category": "presentation",
+                        "message": (f"spawned {g.get('spawned')} of "
+                                    f"{g.get('spawnable', markers)} spawnable marker(s)"),
+                        "blocking": True, "raw_source_path": str(gate)})
+                for msg in g.get("colocation_errors", []):
+                    issues.append({
+                        "code": "LUX_FIXTURE_COLOCATION",
+                        "severity": "blocker", "category": "presentation",
+                        "message": str(msg),
+                        "blocking": True, "raw_source_path": str(gate)})
+                powered = g.get("powered", {})
+                if not (powered.get("kill") and powered.get("restore")):
+                    issues.append({
+                        "code": "LUX_FIXTURE_POWER_GATE",
+                        "severity": "blocker", "category": "presentation",
+                        "message": (f"fixtures_powered gate failed: "
+                                    f"kill={powered.get('kill')} "
+                                    f"restore={powered.get('restore')}"),
+                        "blocking": True, "raw_source_path": str(gate)})
         report = next((p for p in output_paths if p.name == "lux.validation.json"), None)
         if report is not None:
             try:

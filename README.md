@@ -132,6 +132,24 @@ python apps/cli/main.py -C <ws> export bank_block_001 --mode portable-godot
 - `examples/delco_batch/` — a runnable example batch + briefs.
 - `tests/` — unit, adapter-contract, and stub-tool integration suites.
 
+## Tool-contract verification
+
+LF orchestrates eight independently-versioned tool repos, so a sub-tool update can
+drift out from under the adapter grounded against it. Three layers guard this:
+
+- `verify-contracts` compares each installed tool's version to the certified
+  baseline (the workspace `tools.lock.json` if set, else the grounded baseline
+  that ships with LF) → OK / DRIFT / INCOMPATIBLE / UNKNOWN. `doctor` shows the
+  same inline.
+- The **real-tool smoke** (`tests/real_tools`, above) is the actual contract test —
+  each adapter drives the real tool and asserts its CLI + outputs.
+- `ci-init`'s **contract-guard** job runs the fast suite, `verify-contracts`, and
+  the real-tool smoke on every push, so a tool-pin bump that breaks a contract
+  fails CI instead of surfacing as a broken output later.
+
+After re-running the smoke against new tool versions, `certify` records them as
+the certified baseline.
+
 ## Determinism & cache
 
 Every job has a build fingerprint (adapter + tool versions, repo commit, a

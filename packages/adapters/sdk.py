@@ -148,9 +148,30 @@ class BaseAdapter:
     # ---- helpers ---------------------------------------------------------
     @staticmethod
     def _read_tool_version(repo: Path) -> str | None:
+        # Tools expose versions inconsistently. Try, cheapest first (no tool
+        # execution): a VERSION file, then pyproject.toml, then a package
+        # __version__. Returns the raw string; comparison normalizes the semver.
         vf = repo / "VERSION"
         if vf.exists():
-            return vf.read_text(encoding="utf-8").strip()
+            txt = vf.read_text(encoding="utf-8").strip()
+            if txt:
+                return txt
+        import re as _re
+        # A package __version__ (runtime truth) is preferred over pyproject,
+        # whose packaging metadata can lag behind the shipped tool. Check the
+        # common homes: <pkg>/__init__.py, <pkg>/version.py, <pkg>/_version.py.
+        _vpat = _re.compile(r'(?m)^\s*__version__\s*=\s*["\']([^"\']+)["\']')
+        for pattern in ("*/__init__.py", "*/version.py", "*/_version.py"):
+            for mod in repo.glob(pattern):
+                m = _vpat.search(mod.read_text(encoding="utf-8", errors="ignore"))
+                if m:
+                    return m.group(1)
+        pp = repo / "pyproject.toml"
+        if pp.exists():
+            m = _re.search(r'(?m)^\s*version\s*=\s*["\']([^"\']+)["\']',
+                           pp.read_text(encoding="utf-8"))
+            if m:
+                return m.group(1)
         return None
 
     @staticmethod

@@ -30,7 +30,7 @@ def main():
     (asset_dir / f"{asset_id}.pack.json").write_text(json.dumps(pack, sort_keys=True))
     (asset_dir / "build_report.json").write_text(json.dumps({"asset_id": asset_id}, sort_keys=True))
     if a.json:
-        print(json.dumps({"tool_version": "0.2.0", "asset_id": asset_id,
+        print(json.dumps({"tool_version": "0.9.0", "asset_id": asset_id,
                           "files": [f"{asset_id}.pack.json"]}, sort_keys=True))
     return 0
 

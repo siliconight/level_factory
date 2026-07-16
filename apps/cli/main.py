@@ -17,10 +17,10 @@ if str(_REPO_ROOT) not in sys.path:
 
 from apps.cli.commands import (  # noqa: E402
     cmd_accept_exception, cmd_approve, cmd_batch_create, cmd_batch_report,
-    cmd_batch_run, cmd_cache, cmd_ci_init, cmd_diagnostics, cmd_doctor,
-    cmd_export, cmd_init, cmd_plan, cmd_portability_test, cmd_reject,
+    cmd_batch_run, cmd_cache, cmd_certify, cmd_ci_init, cmd_diagnostics,
+    cmd_doctor, cmd_export, cmd_init, cmd_plan, cmd_portability_test, cmd_reject,
     cmd_release, cmd_review, cmd_run, cmd_status, cmd_team_sign,
-    cmd_team_status, cmd_validate,
+    cmd_team_status, cmd_validate, cmd_verify_contracts, cmd_verify_manifest,
 )
 
 EXIT_OK = 0
@@ -117,6 +117,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--mode", default="portable-godot",
                     choices=["portable-godot", "pure-shell", "source-authoring"])
     sp.add_argument("--format", default="folder", choices=["folder", "zip"])
+    sp.add_argument("--include-walk", action="store_true",
+                    help="localize walk scenes (runtime scripts bundled) instead of stripping them")
     sp.set_defaults(func=cmd_export)
 
     sp = sub.add_parser("portability-test", help="clean-project portability test")
@@ -149,6 +151,26 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("review", help="visual before/after comparison of presentation states")
     sp.add_argument("mission_id")
     sp.set_defaults(func=cmd_review)
+
+    sp = sub.add_parser("verify-manifest",
+                        help="check every tool's VERSION against the factory manifest pin set")
+    sp.add_argument("--factory", default=".",
+                    help="factory root containing factory.manifest.json (default: cwd)")
+    sp.add_argument("--json", action="store_true")
+    sp.add_argument("--strict", action="store_true",
+                    help="treat DRIFT as a config error (exit 3)")
+    sp.set_defaults(func=cmd_verify_manifest)
+
+    sp = sub.add_parser("verify-contracts",
+                        help="check installed tool versions against the certified baseline")
+    sp.add_argument("--strict", action="store_true",
+                    help="treat drift/unknown as a hard failure (for CI gates)")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_verify_contracts)
+
+    sp = sub.add_parser("certify",
+                        help="record installed tool versions as certified in tools.lock.json")
+    sp.set_defaults(func=cmd_certify)
 
     sp = sub.add_parser("ci-init", help="write CI templates into the workspace/repo")
     sp.add_argument("--dest", default=None, help="destination root (default: workspace)")

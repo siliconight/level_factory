@@ -24,12 +24,13 @@ from packages.core.hashing import hash_file
 
 class ZooAdapter(BaseAdapter):
     adapter_id = "zoo"
-    adapter_version = "0.2.0"
+    adapter_version = "0.3.0"
     capabilities = frozenset(
         {"structural_kit", "dressing_build", "roof_props", "facade_kit",
-         "skin_apply", "plan_dry_run", "deterministic_build"}
+         "skin_apply", "plan_dry_run", "deterministic_build",
+         "light_fixtures"}
     )
-    output_contract_version = "zoo.asset.0.27"
+    output_contract_version = "zoo.asset.0.30"
 
     def validate_configuration(self, job_spec, context) -> Sequence[str]:
         problems: list[str] = []
@@ -40,6 +41,12 @@ class ZooAdapter(BaseAdapter):
                 problems.append("zoo kit build requires a slots.json")
             elif not Path(str(slots)).exists():
                 problems.append(f"slots.json missing: {slots}")
+        elif mode == "fixtures":
+            lights = job_spec.get("lights_path")
+            if not lights:
+                problems.append("zoo fixtures build requires a .lights.json")
+            elif not Path(str(lights)).exists():
+                problems.append(f"lights manifest missing: {lights}")
         elif mode == "dress":
             man = job_spec.get("manifest_path")
             if not man:
@@ -57,7 +64,7 @@ class ZooAdapter(BaseAdapter):
             "seed": job_spec.get("seed"),
             "theme": job_spec.get("theme"),
         }
-        for key in ("slots_path", "manifest_path"):
+        for key in ("slots_path", "manifest_path", "lights_path"):
             p = job_spec.get(key)
             if p and Path(str(p)).exists():
                 fp[key + "_hash"] = hash_file(Path(str(p)))
@@ -101,7 +108,35 @@ class ZooAdapter(BaseAdapter):
         # `blender --background --python tools/zoo_cli.py -- <zoo args>`. Run
         # with plain Python and bpy is absent, so Zoo degrades to a no-op skin
         # report and writes no index (the FAILED-exit=0 seen on hardware).
+        def _scope(p: object) -> str:
+            # Zoo names fixture outputs by the manifest's scope: building_id
+            # (DC per-building) or site (Lot-merged). Mirrors core.fixtures.
+            if not p:
+                return ""
+            try:
+                man = _json.loads(Path(str(p)).read_text(encoding="utf-8"))
+                return str(man.get("building_id") or man.get("site") or "scene").strip()
+            except (OSError, ValueError, AttributeError):
+                return ""
+
         zoo_args: list[str]
+        if mode == "fixtures":
+            zoo_args = ["--fixtures", str(job_spec.get("lights_path", "")),
+                        "--out", str(work)]
+            if job_spec.get("theme"):
+                zoo_args += ["--theme", str(job_spec["theme"])]
+            if job_spec.get("fixture_types"):
+                zoo_args += ["--fixture-types",
+                             *[str(t) for t in job_spec["fixture_types"]]]
+            scope = _scope(job_spec.get("lights_path")) or "scene"
+            expected = (f"{scope}_fixtures.built.json",)
+            args = ["--background", "--python", cli, "--", *zoo_args]
+            return [PlannedCommand(
+                executable=Path(blender), arguments=tuple(args),
+                working_directory=repo,
+                expected_outputs=expected,
+                resource_class="blender", timeout_seconds=1200,
+            )]
         if mode == "dress":
             zoo_args = ["--dress", str(job_spec.get("manifest_path", "")),
                         "--out", str(work)]
@@ -160,6 +195,29 @@ class ZooAdapter(BaseAdapter):
                         "message": f"dressing asset '{asset.get('id')}' declares collision",
                         "blocking": True, "raw_source_path": str(p),
                     })
+            # Fixture builds (v0.30 emitter-marker contract): every placement
+            # must ship a LuxEmit_* marker or downstream spawning is blind.
+            if p.name.endswith("_fixtures.built.json"):
+                built = man.get("fixtures_built")
+                markers = man.get("emitter_markers")
+                if markers is None:
+                    issues.append({
+                        "code": "ZOO_FIXTURES_NO_MARKER_CONTRACT",
+                        "severity": "blocker", "category": "contract",
+                        "message": ("fixtures index has no emitter_markers — "
+                                    "built by a pre-v0.30 Zoo; the Lux fixture "
+                                    "gate cannot spawn or verify these"),
+                        "blocking": True, "raw_source_path": str(p),
+                    })
+                elif isinstance(built, int) and markers != built:
+                    issues.append({
+                        "code": "ZOO_FIXTURES_MARKER_MISMATCH",
+                        "severity": "blocker", "category": "contract",
+                        "message": (f"emitter_markers ({markers}) != "
+                                    f"fixtures_built ({built})"),
+                        "blocking": True, "raw_source_path": str(p),
+                    })
+                continue
             # Some modules can fail to build (Zoo exits 2, resolver falls back to
             # base for the rest). The kit is still usable — surface the miss as a
             # non-blocking quality finding for review, not a blocker.

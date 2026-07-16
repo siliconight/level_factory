@@ -64,6 +64,23 @@ def main():
         print(f"[lux] applied preset '{preset}' -> {out}")
         return 0
 
+    if script.endswith("run_fixture_gate.gd"):
+        out = Path(_opt(uargs, "--out", "user://fixture_gate"))
+        out.mkdir(parents=True, exist_ok=True)
+        # Mirror the real driver's report shape; stub fixtures GLB carries no
+        # real markers, so derive counts from the staged glb name marker.
+        (out / "fixture_gate.report.json").write_text(json.dumps(
+            {"driver": "run_fixture_gate", "markers": 4, "spawnable": 4,
+             "spawned": 4, "colocation_errors": [],
+             "powered": {"kill": True, "restore": True},
+             "tolerance": 0.1}, sort_keys=True))
+        print("[fixture_gate] markers=4 spawned=4 colocation_errors=0")
+        return 0
+
+    # Bare import pass on a staged project: nothing to do headlessly.
+    if "--import" in argv:
+        return 0
+
     if "--lf-portability-check" in argv:
         proj = Path(argv[argv.index("--path") + 1]) if "--path" in argv else Path(".")
         if (proj / "mission.tscn").exists():

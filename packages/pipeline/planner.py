@@ -64,6 +64,8 @@ _STAGE_PATINA_BASE = "patina_apply"
 _STAGE_PATINA_DRESS = "patina_dressing"
 _STAGE_ZOO_DRESS = "zoo_dressing_build"
 _STAGE_LUX = "lux_apply"
+_STAGE_ZOO_FIXTURES = "zoo_fixtures_build"
+_STAGE_LUX_FIXTURE_GATE = "lux_fixture_gate"
 _STAGE_REGRESSION = "regression"
 
 
@@ -249,6 +251,29 @@ def plan_mission(
             depends_on=[zoo_dress_jid],
             expected_outputs=["lux.applied.tscn", "lux.quality.json",
                               "lux.validation.json"],
+        ))
+        # Light-fixture pass (Zoo v0.30 emitter-marker contract): bake the
+        # physical hardware from the locked shell's lights manifest, then
+        # machine-gate it — spawn count, lamp<->hardware co-location, powered
+        # kill/restore — in headless Godot. Gate findings are BLOCKING (a
+        # floating light / dark fixture is broken output, not a style note).
+        deli_sel_jid = job_id(brief.mission_id, _STAGE_DELI,
+                              candidate=selected_candidate)
+        zoo_fixtures_jid = job_id(brief.mission_id, _STAGE_ZOO_FIXTURES)
+        plan.graph.add(Job(
+            job_id=zoo_fixtures_jid, mission_id=brief.mission_id,
+            stage_id=_STAGE_ZOO_FIXTURES, adapter_id="zoo",
+            candidate_id=selected_candidate, resource_class="blender",
+            depends_on=[deli_sel_jid],
+            expected_outputs=[],  # zoo names by scope_id at exec; adapter checks
+        ))
+        fixture_gate_jid = job_id(brief.mission_id, _STAGE_LUX_FIXTURE_GATE)
+        plan.graph.add(Job(
+            job_id=fixture_gate_jid, mission_id=brief.mission_id,
+            stage_id=_STAGE_LUX_FIXTURE_GATE, adapter_id="lux",
+            candidate_id=selected_candidate, resource_class="godot_headless",
+            depends_on=[zoo_fixtures_jid],
+            expected_outputs=["fixture_gate.report.json"],
         ))
         # Dispatch depends on the Lux-applied presentation, not just the Lot site.
         dispatch_dep = lux_jid

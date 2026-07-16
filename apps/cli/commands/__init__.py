@@ -268,8 +268,21 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
             }
         elif job.adapter_id == "zoo":
             # Kit build depends on Lot(+Pixelcoat); dressing build depends on
-            # Patina dressing(+Zoo kit). Distinguish by stage id.
-            if job.stage_id == "zoo_dressing_build":
+            # Patina dressing(+Zoo kit); fixtures build consumes the locked
+            # shell's lights manifest. Distinguish by stage id.
+            if job.stage_id == "zoo_fixtures_build":
+                deli_job = job.depends_on[0]
+                specs[job.job_id] = {
+                    "mode": "fixtures",
+                    "seed": int(str(job.candidate_id).rsplit("_", 1)[-1]),
+                    "theme": model.theme or batch.get("theme_family", ""),
+                    "lights_path": str(_latest_output(jobs_dir / deli_job,
+                                                      "shell.lights.json")),
+                    # A fixture build that fails IS a failure — hardware is
+                    # load-bearing for the lighting contract, unlike kit
+                    # module misses.
+                }
+            elif job.stage_id == "zoo_dressing_build":
                 dress_job = next(d for d in job.depends_on if "patina_dressing" in d)
                 specs[job.job_id] = {
                     "mode": "dress",
@@ -317,6 +330,19 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                     "theme": getattr(model, "patina_theme", "") or "default",
                 }
         elif job.adapter_id == "lux":
+            if job.stage_id == "lux_fixture_gate":
+                repos = ws.load_tools_local().get("repositories", {})
+                lux_repo = Path(str(repos.get("lux", "")))
+                gate_driver = (Path(__file__).resolve().parents[3]
+                               / "assets" / "godot" / "run_fixture_gate.gd")
+                specs[job.job_id] = {
+                    "mode": "fixture_gate",
+                    "fixtures_dir": str(jobs_dir / job.depends_on[0]),
+                    "addon_dir": str(lux_repo / "addons" / "lux"),
+                    "driver_src": str(gate_driver),
+                    "staging_dir": str(ws.internal_dir / "staging" / job.job_id),
+                }
+                continue
             zoo_dress_job = job.depends_on[0]
             lot_job = next((j.job_id for j in plan.graph.jobs()
                             if j.stage_id == "lot_assemble"
@@ -365,12 +391,17 @@ def _deli_for(plan, job):
 
 
 def _preset_for(model: MissionBrief) -> str:
+    # Lux registers presets under their DISPLAY names ("Blue Hour"), not
+    # resource stems — a wrong name makes blend_to_preset a silent no-op
+    # (proven on hardware in the lux visual pass). Registered library:
+    # Delco Summer Afternoon / Delco Arcade / Gas Station Fluorescent /
+    # Blue Hour / Heavy Rain / Mission Goes Hot.
     tod = (model.time_of_day or "").lower()
     if tod in ("night", "evening"):
-        return "gothic_street_night"
+        return "Blue Hour"
     if tod == "afternoon":
-        return "delco_summer_afternoon"
-    return "blue_hour"
+        return "Delco Summer Afternoon"
+    return "Gas Station Fluorescent"
 
 
 def _latest_output(job_root: Path, name: str) -> Path:
@@ -992,6 +1023,103 @@ def _adapter_versions() -> dict:
     return {aid: reg.get(aid).adapter_version for aid in reg.ids()}
 
 
+def _probe_tool_versions(ws: Workspace) -> dict:
+    """Probe every configured tool repo for the version it actually reports."""
+    from packages.adapters.registry import AdapterRegistry
+    reg = AdapterRegistry()
+    tools_local = ws.load_tools_local()
+    repos = tools_local.get("repositories", {})
+    versions: dict = {}
+    for aid in reg.ids():
+        repo = repos.get(aid)
+        if not repo:
+            versions[aid] = None
+            continue
+        try:
+            probe = reg.get(aid).probe({"repository": repo, **tools_local})
+            versions[aid] = probe.tool_version
+        except Exception:
+            versions[aid] = None
+    return versions
+
+
+def cmd_verify_contracts(args) -> int:
+    """Compare installed tool versions against the certified baseline (lock, else
+    the grounded baseline the LF release was verified against)."""
+    from packages.tools import contracts
+    ws = _ws(args)
+    installed = _probe_tool_versions(ws)
+    lock_tools = ws.load_tools_lock().get("tools", {})
+    results = contracts.verify(installed, lock_tools)
+
+    if getattr(args, "json", False):
+        print(pretty_dumps({"results": [r.as_dict() for r in results],
+                            "worst": contracts.worst_status(results)}))
+    else:
+        width = max(len(r.adapter_id) for r in results)
+        for r in results:
+            print(f"  {r.status:<12} {r.adapter_id:<{width}}  {r.message}")
+
+    worst = contracts.worst_status(results)
+    strict = getattr(args, "strict", False)
+    if worst == contracts.INCOMPATIBLE:
+        return EXIT_CONFIG  # a major bump — the adapter is likely broken
+    if worst == contracts.DRIFT:
+        return EXIT_CONFIG if strict else EXIT_FINDINGS
+    if worst == contracts.UNKNOWN:
+        # Unverifiable (no version source). Informational by default; --strict
+        # treats it as a gap to close.
+        return EXIT_FINDINGS if strict else EXIT_OK
+    return EXIT_OK
+
+
+def cmd_verify_manifest(args) -> int:
+    """Two-layer lockstep check: every tool's installed VERSION against the
+    factory manifest's pinned set (factory.manifest.json at the factory root)."""
+    from packages.tools import contracts
+    factory_root = Path(str(getattr(args, "factory", None) or ".")).resolve()
+    try:
+        results = contracts.verify_manifest(factory_root)
+        manifest = contracts.read_factory_manifest(factory_root)
+    except FileNotFoundError as exc:
+        print(str(exc))
+        return EXIT_CONFIG
+    if getattr(args, "json", False):
+        print(pretty_dumps({"factory_version": manifest.get("factory_version"),
+                            "results": [r.as_dict() for r in results],
+                            "worst": contracts.worst_status(results)}))
+    else:
+        print(f"factory {manifest.get('factory_version')} @ {factory_root}")
+        width = max(len(r.adapter_id) for r in results)
+        for r in results:
+            print(f"  {r.status:<12} {r.adapter_id:<{width}}  {r.message}")
+    worst = contracts.worst_status(results)
+    if worst == contracts.INCOMPATIBLE:
+        return EXIT_CONFIG
+    if worst == contracts.DRIFT:
+        return EXIT_CONFIG if getattr(args, "strict", False) else EXIT_FINDINGS
+    if worst == contracts.UNKNOWN:
+        return EXIT_FINDINGS if getattr(args, "strict", False) else EXIT_OK
+    return EXIT_OK
+
+
+def cmd_certify(args) -> int:
+    """Record the currently-installed tool versions as certified in tools.lock.json.
+    Run the real-tool smoke first — this asserts those versions pass it."""
+    from packages.tools import contracts
+    ws = _ws(args)
+    installed = _probe_tool_versions(ws)
+    updated = contracts.certify(ws.load_tools_lock(), installed)
+    ws.write_json(ws.tools_lock, updated)
+    print("certified tool versions into tools.lock.json:")
+    for aid in sorted(contracts.GROUNDED):
+        v = installed.get(aid)
+        print(f"  {aid:<14} {v or '(no version reported)'}")
+    print("\nReminder: certify only what the real-tool smoke has passed "
+          "(LF_TOOLS_DIR=... pytest tests/real_tools).")
+    return EXIT_OK
+
+
 def cmd_export(args) -> int:
     from packages.exporting.export import (
         ExportProfile, MODE_PORTABLE, MODE_PURE_SHELL, MODE_SOURCE,
@@ -1023,7 +1151,8 @@ def cmd_export(args) -> int:
 
     mode_map = {"portable-godot": MODE_PORTABLE, "pure-shell": MODE_PURE_SHELL,
                 "source-authoring": MODE_SOURCE}
-    profile = ExportProfile(mode=mode_map[args.mode])
+    profile = ExportProfile(mode=mode_map[args.mode],
+                            include_walk=bool(getattr(args, "include_walk", False)))
 
     # Post-art regression: a functional drift after the art pass blocks export.
     lock_file = _lock_path(ws, mission_id)
@@ -1042,11 +1171,14 @@ def cmd_export(args) -> int:
             return EXIT_BLOCKED
 
     out_root = ws.internal_dir / "exports"
+    repos = ws.load_tools_local().get("repositories", {})
+    addon_sources = {name: Path(str(p)) for name, p in repos.items()}
     result = export_mission(
         mission_id=mission_id, handoff_dir=handoff_dir,
         presentation_dir=presentation_dir, source_dir=source_dir,
         profile=profile, tool_versions=_adapter_versions(), out_root=out_root,
         graybox_dir=graybox_dir, layers=frozenset(layers),
+        addon_sources=addon_sources,
     )
     if args.format == "zip":
         zip_export(result)

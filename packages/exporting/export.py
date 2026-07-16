@@ -52,6 +52,7 @@ class ExportProfile:
     mode: str = MODE_PORTABLE
     godot_version: str = "4.7"
     entry_scene: str = "mission.tscn"
+    include_walk: bool = False
     lux_strategy: str = LUX_LOCALIZED
     include_source_authoring: bool = False
     include_validation: bool = True
@@ -141,6 +142,7 @@ def export_mission(
     out_root: Path,
     graybox_dir: Path | None = None,
     layers=None,
+    addon_sources: dict[str, Path] | None = None,
 ) -> ExportResult:
     export_dir = out_root / f"{mission_id}.{profile.mode}"
     if export_dir.exists():
@@ -175,6 +177,20 @@ def export_mission(
     # 3. Source authoring (only in source mode).
     if profile.mode == MODE_SOURCE and source_dir and source_dir.exists():
         _copy_tree(source_dir, export_dir / "source")
+
+    # 3.5 Resource-closure repair (TDD 33.5): bundle absolutely-referenced
+    # assets, localize addon scripts (LUX_LOCALIZED made real), strip or
+    # localize walk scenes, then synthesize the mission.tscn entry the
+    # portability test instantiates. Runs for every mode; pure-shell has
+    # already skipped presentation files so there is simply less to do.
+    from packages.exporting.localize import localize_export, write_entry_scene
+    closure_report = localize_export(
+        export_dir,
+        addon_sources=dict(addon_sources or {}),
+        strip_walk=not profile.include_walk)
+    write_entry_scene(export_dir, closure_report)
+    (export_dir / "export_closure.json").write_text(
+        pretty_dumps(closure_report.as_dict()), encoding="utf-8")
 
     # 4. project.godot, HANDOFF.md, manifests.
     _write_project_godot(export_dir, profile.entry_scene, mission_id)

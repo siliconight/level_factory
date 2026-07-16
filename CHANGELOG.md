@@ -3,6 +3,181 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.10.0] - 2026-07-15
+
+Export closure: portable exports are now portable by construction. Root-caused
+from the 2026-07-15 hardware smoke (first run to reach portability with art
+layers): the exporter was a straight tree copy — absolute input paths (Lot's
+site.tscn shell ref, mangled to res://C:/...), addon script refs
+(site_walk/lux.applied), no mission.tscn entry, and workspace paths embedded
+in tool JSON all leaked into the "clean" package. Provenance note from the
+same root-cause: the seed_2199-path-in-seed_1997-output scare was the
+content-addressed cache working correctly on byte-identical candidate shells
+(DC seed variance lives in gameplay/lights data, not graybox geometry); only
+the absolute path was poison.
+
+### Added
+- **`packages/exporting/localize.py`** — scan_closure stays the judge; this is
+  the fixer, run inside `export_mission` for every mode:
+  - Absolute ext-resource refs -> bundled `assets/` (content-hash dedupe,
+    collision-safe naming) with refs rewritten.
+  - `res://addons/<tool>/...` -> localized `runtime/<tool>/...` with refs
+    rewritten RECURSIVELY (localized .gd preloads pull their own deps) —
+    LUX_LOCALIZED finally does what its README stub promised.
+  - Walk scenes (`*_walk.tscn`): STRIPPED by default (portable-godot promises
+    no addons; walk is dev chrome, not mission content); `export
+    --include-walk` localizes them instead.
+  - Tool JSON hygiene: absolute-path string values in exported data files
+    neutralized to basenames (dead paths in a clean project either way).
+  - `export_closure.json` records every rewrite/localize/strip/sanitize.
+- **Synthesized `mission.tscn` entry**: instances site (+ localized
+  presentation) via an embedded, addon-free script that prints the
+  instantiate marker and self-quits under `--lf-portability-check` — the
+  clean-project engine check becomes a real load test instead of a
+  missing-main-scene failure or a headless hang.
+- `ExportProfile.include_walk` + `export --include-walk` CLI flag.
+
+### Testing
+- 143 passed, 1 skipped. New `tests/unit/test_export_localize.py` (abs-ref
+  bundling, recursive addon localization, strip-vs-include-walk, entry
+  synthesis, hash-deduped name collisions, closure judge green). End-to-end
+  stub pipeline now runs export -> **portability-test PASS exit 0, zero
+  issues** — first time the full chain closes.
+
+## [0.9.1] - 2026-07-15
+
+### Added
+- `tools/smoke_lf.ps1`: the hardware smoke runner, homed in-repo and rebuilt
+  for the gabagool_factory layout (paths derive from the repo location;
+  `_lf_tools` junctions map LF tool keys onto factory folder names —
+  laser_tag -> lasertag). Stage 10 explicitly dumps the fixture-pipeline
+  evidence: the zoo fixtures index (`emitter_markers`) and the full
+  `fixture_gate.report.json`. Results land in `_lf_smoke_<stamp>` at the
+  factory root (run artifact, not repo content).
+
+## [0.9.0] - 2026-07-15
+
+The light-fixture pipeline (Zoo v0.30 emitter markers -> Lux v0.15 spawner),
+machine-gated, plus two-layer factory versioning. Binds only to contracts that
+passed a hardware run on 2026-07-15 (20 markers -> 20 spawned, co-location
+0.049-0.051 m, powered kill/restore exact).
+
+### Added — fixture pipeline
+- **`zoo_fixtures_build` stage**: bakes physical light hardware from the locked
+  shell's `shell.lights.json` (Blender; `zoo --fixtures`). Zoo adapter gains
+  `mode="fixtures"` (adapter 0.3.0, contract `zoo.asset.0.30`); its
+  `normalize_validation` enforces the marker contract — a fixtures index with
+  no `emitter_markers`, or markers != built, is a BLOCKER (pre-v0.30 output is
+  invisible to the spawner).
+- **`lux_fixture_gate` stage**: headless Godot gate over the fixtures GLB —
+  spawn count vs markers, lamp<->hardware co-location (LuxValidator), and the
+  `set_fixtures_powered` kill/restore beat. New driver
+  `assets/godot/run_fixture_gate.gd` load()s Lux scripts BY PATH (no
+  class_name annotations, so no staged-class-cache dependency — the
+  LT_MapEvalHarness lesson) and the adapter plans an explicit `--import`
+  command before the gate run. Gate failures are BLOCKING findings
+  (`LUX_FIXTURE_SPAWN_MISMATCH` / `LUX_FIXTURE_COLOCATION` /
+  `LUX_FIXTURE_POWER_GATE`); a marker-less GLB is a non-blocking
+  `LUX_NO_FIXTURE_MARKERS`. Lux adapter 0.3.0, contract `lux.look.0.15`.
+
+### Added — two-layer factory versioning
+- **`verify-manifest`** command + `contracts.verify_manifest()`: checks every
+  tool's `VERSION` against the pin set in `factory.manifest.json` at the
+  factory root (OK/DRIFT/INCOMPATIBLE/UNKNOWN, same semantics and exit codes
+  as `verify-contracts`). The manifest is DATA at the factory level; the
+  checking CODE lives here — code never lands at the factory level.
+
+### Changed / Fixed
+- **Re-grounded**: zoo 0.27.0 -> 0.30.1, lux 0.13.0 -> 0.15.2, deli_counter
+  0.74.2 -> 0.75.0 (additive lights.json 1.1; CLI unchanged, exercised across
+  the 2026-07-14/15 walkabout chain on hardware).
+- **`_preset_for` display-name fix**: Lux registers presets under DISPLAY
+  names; `"gothic_street_night"` was never in the library, making
+  `blend_to_preset` a silent no-op (proven on hardware in the lux visual
+  pass). Now emits "Blue Hour" / "Delco Summer Afternoon" / "Gas Station
+  Fluorescent", and `run_lux_apply.gd` checks the registered library and
+  reports `LUX_PRESET_UNKNOWN` (non-blocking) instead of applying nothing
+  silently.
+- Contracts unit test updated to track the re-grounded baseline.
+
+### Testing
+- 138 passed, 1 skipped (fast suite; integration tests run the full stub
+  pipeline WITH the two new stages). Stubs: zoo `--fixtures`, godot
+  `run_fixture_gate.gd` + bare `--import`. New
+  `tests/unit/test_fixture_pipeline.py` (planner wiring, zoo fixtures mode,
+  marker-contract blockers, gate normalization, factory-manifest lockstep).
+- Real-Godot execution of the gate still needs one hardware run (same class
+  as every prior Godot-side feature).
+
+## [0.8.1] - 2026-07-13
+
+Re-grounded pixelcoat after an intended tool update — the contract guard's first
+real exercise. All eight updated repos were re-verified; only pixelcoat's version
+moved.
+
+### Changed
+- `verify-contracts` flagged **pixelcoat DRIFT (0.2.0 -> 0.9.0)** against the
+  updated repos and everything else OK. The real-tool smoke was re-run: pixelcoat
+  0.9.0's CLI (`build <recipe> --output --json`), output tree, and pack schema
+  (`pixelcoat-pack/1`) are unchanged — the richer 0.9.0 recipe format is additive
+  and LF's minimal recipe is still accepted (new pack keys `export_type`/
+  `processing_mode` are additive). So the contract holds; the grounded baseline is
+  moved to 0.9.0 (pixelcoat also now ships a clean `version.py`). Stub bumped to
+  0.9.0 for parity.
+- The other seven tools re-verified OK with unchanged versions and a passing smoke
+  against the updated repos.
+
+### Testing
+- 134 passed, 10 skipped; real-tool smoke 10 pass against the updated repos;
+  `verify-contracts` exit 0 after re-grounding.
+
+## [0.8.0] - 2026-07-13
+
+Tool-contract verification — the integration-drift guard. When one of the eight
+sub-tools is updated, its CLI/output contract can drift out from under the adapter
+grounded against it; this turns silent drift into a loud, gating signal.
+
+### Added — `packages/tools/contracts.py`
+- A **grounded baseline** (`GROUNDED`) recording the version each adapter was
+  certified against (deli_counter 0.74.2, lot 0.18.0, pixelcoat 0.2.0, zoo 0.27.0,
+  patina 0.18.0, lux 0.13.0, dispatch 0.3.0 / contract dispatch.mission.v0.2;
+  laser_tag has no version source and is marked unpinned).
+- Semver-tolerant comparison → OK / DRIFT (same major, re-certify) / INCOMPATIBLE
+  (major bump, adapter likely broken) / UNKNOWN (no version to compare). Handles
+  the tools' heterogeneous version strings ("Deli Counter 0.74.2", bare semver,
+  `version.py`, or absent).
+
+### Added — commands
+- `verify-contracts` — probes installed tool versions and compares to the
+  certified baseline (the workspace lock if set, else GROUNDED). Exit 0 all-clear,
+  1 on drift, 3 on incompatible; `--strict` also fails on unverifiable tools;
+  `--json` for CI.
+- `certify` — records the currently-installed versions as certified into
+  `tools.lock.json` (extends the existing per-tool lock section, preserving
+  `required_schema`/`required_contract`). Run the real-tool smoke first.
+
+### Changed
+- `doctor` now compares each tool's installed version to the certified baseline
+  and reports drift (WARN) / incompatible (FAIL) inline, not just the version.
+- Tool-version probing reads more sources (VERSION -> package `__version__` incl.
+  `version.py` -> pyproject), preferring the runtime version over packaging
+  metadata (patina's pyproject 0.1.1 vs runtime 0.18.0 was the motivating case).
+- `ci-init` templates gain a **contract-guard** job that runs the fast suite +
+  `verify-contracts` + the real-tool smoke (when `LF_TOOLS_DIR` is set) on every
+  push — so a tool-pin bump that breaks a contract fails CI instead of surfacing
+  as a broken output later.
+
+### Testing
+- 134 passed (+6 contract tests), 10 skipped; real-tool smoke 10 pass. Verified
+  live against the real repos: 7/8 tools verify clean, laser_tag honestly reported
+  as unpinned (default exit 0); a simulated drift/major-bump flags correctly.
+
+### Still needs the tool repos (not LF)
+- Extending Dispatch's machine-readable `contract` command to the other seven
+  tools would let LF diff the *contract* (schemas, CLI surface, outputs), not just
+  the version — the durable fix. The three layers here are the safety net around
+  it. laser_tag and pixelcoat would also benefit from a static VERSION file.
+
 ## [0.7.1] - 2026-07-13
 
 Docs only. The README predated the composable-layer work (0.7.0) and several

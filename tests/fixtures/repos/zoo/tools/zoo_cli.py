@@ -7,6 +7,8 @@ def main():
     p.add_argument("--build-kit", dest="build_kit", default="")
     p.add_argument("--dress", default="")
     p.add_argument("--kit", default="")
+    p.add_argument("--fixtures", default="")
+    p.add_argument("--fixture-types", dest="fixture_types", nargs="*", default=None)
     p.add_argument("--plan", action="store_true")
     p.add_argument("--skins", default="")
     p.add_argument("--theme", default="")
@@ -30,6 +32,22 @@ def main():
         except Exception:
             return "building"
 
+    if a.fixtures:
+        try:
+            man = json.load(open(a.fixtures))
+        except Exception:
+            man = {}
+        scope = str(man.get("building_id") or man.get("site") or "scene")
+        n = len([x for x in man.get("anchors", [])
+                 if x.get("type") in ("fluorescent", "streetlight", "sign", "wall_pack")])
+        idx = out / f"{scope}_fixtures.built.json"
+        idx.write_text(json.dumps(
+            {"mode": "fixtures", "scope_id": scope, "fixtures_built": n,
+             "emitter_markers": n, "marker_prefix": "LuxEmit",
+             "skipped": [], "tool_version": "0.30.1"}, sort_keys=True))
+        (out / f"{scope}_fixtures.glb").write_bytes(b"glTF-zoo-fixtures-stub")
+        print(f"[zoo] index: {idx}")
+        return 0
     if a.dress:
         try:
             man = json.load(open(a.dress))
