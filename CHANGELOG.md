@@ -3,6 +3,12 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.10.5] - Run artifacts land in _runs\
+
+- `tools/smoke_lf.ps1` (incl. the `_lf_tools` junctions) write run folders and results zips under the factory's `_runs\`
+  directory instead of the factory root — tool repos and the coordination
+  files stay alone at the top level. No behavior change.
+
 ## [0.10.4] - 2026-07-15
 
 ### Changed

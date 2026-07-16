@@ -22,7 +22,9 @@ $Factory = (Resolve-Path (Join-Path $LFRepo "..")).Path
 $Blender = "C:\blender\blender.exe"
 $Godot   = "C:\Godot\4.7\Godot_v4.7-stable_win64.exe"   # plain exe (not _console): LF captures output itself
 $Stamp   = Get-Date -Format "yyyyMMdd_HHmmss"
-$Run     = Join-Path $Factory ("_lf_smoke_" + $Stamp)
+$Runs    = Join-Path $Factory "_runs"
+New-Item -ItemType Directory -Path $Runs -Force | Out-Null
+$Run     = Join-Path $Runs ("_lf_smoke_" + $Stamp)
 $WS      = Join-Path $Run "ws"
 $Src     = Join-Path $Run "src"
 New-Item -ItemType Directory -Path $Run, $Src, (Join-Path $Src "briefs") -Force | Out-Null
@@ -45,7 +47,7 @@ foreach ($p in @($Blender, $Godot)) { if (Test-Path $p) { W ("ok      : " + $p) 
 # LF's tool keys vs factory folder names: only laser_tag differs (folder
 # 'lasertag'). Real-tool smoke wants one dir keyed by LF names -> junctions.
 Section "1. TOOL JUNCTIONS (_lf_tools, LF-keyed names)"
-$ToolsDir = Join-Path $Factory "_lf_tools"
+$ToolsDir = Join-Path $Runs "_lf_tools"
 if (Test-Path $ToolsDir) { Remove-Item $ToolsDir -Recurse -Force }
 New-Item -ItemType Directory -Path $ToolsDir -Force | Out-Null
 $map = @{ "deli_counter"="deli_counter"; "dispatch"="dispatch"; "laser_tag"="lasertag";

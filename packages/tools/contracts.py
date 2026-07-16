@@ -41,16 +41,16 @@ LOCK_SCHEMA = "level_factory.tools_lock.v0.1"
 # `contract` string is recorded where the tool publishes a machine-readable one.
 GROUNDED: dict[str, dict] = {
     "deli_counter": {"version": "0.75.0", "source": "VERSION"},
-    "lot":          {"version": "0.18.0", "source": "VERSION"},
+    "lot":          {"version": "0.18.3", "source": "VERSION"},
     "laser_tag":    {"version": None,     "source": None,
                      "note": "Godot addon exposes no version string; unpinned"},
     "pixelcoat":    {"version": "0.9.0",  "source": "version.py",
                      "note": "re-grounded 0.2.0->0.9.0; CLI/output contract "
                              "(pixelcoat-pack/1) verified unchanged by the smoke"},
-    "zoo":          {"version": "0.30.1", "source": "VERSION"},
+    "zoo":          {"version": "0.30.2", "source": "VERSION"},
     "patina":       {"version": "0.18.0", "source": "CLI banner",
                      "note": "pyproject reports 0.1.1; runtime/CLI is authoritative"},
-    "lux":          {"version": "0.15.3", "source": "VERSION"},
+    "lux":          {"version": "0.15.4", "source": "VERSION"},
     "dispatch":     {"version": "0.3.0",  "source": "contract probe",
                      "contract": "dispatch.mission.v0.2"},
 }
