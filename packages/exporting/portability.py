@@ -84,6 +84,15 @@ def run_portability_test(
 
     if godot_executable:
         entry = "mission.tscn"
+        # Import pass first: the clean project has no .godot — the bundled
+        # GLB needs import artifacts and localized scripts need the global
+        # class cache before anything can load (the staged-project lesson).
+        try:
+            subprocess.run(
+                [godot_executable, "--headless", "--path", str(clean), "--import"],
+                capture_output=True, text=True, timeout=900)
+        except (OSError, subprocess.SubprocessError):
+            report.issues.append("import pass failed; attempting instantiate anyway")
         try:
             proc = subprocess.run(
                 [godot_executable, "--headless", "--path", str(clean),
@@ -99,6 +108,12 @@ def run_portability_test(
                 and report.shader_error_count == 0) else "failed"
             if report.engine_check == "failed":
                 report.issues.append("clean-project instantiate failed")
+                for line in out.splitlines():
+                    if ("Parse Error" in line or "SCRIPT ERROR" in line
+                            or "Failed to load script" in line):
+                        report.issues.append(line.strip()[:200])
+                        if len(report.issues) > 10:
+                            break
         except (OSError, subprocess.SubprocessError) as exc:
             report.engine_check = "failed"
             report.issues.append(f"godot invocation failed: {exc}")

@@ -121,3 +121,96 @@ def test_asset_name_collision_deduped_by_hash(tmp_path):
     assert len(assets) == 2 and "shell.glb" in assets
     text = (export / "site.tscn").read_text(encoding="utf-8")
     assert text.count("res://assets/") == 2
+
+
+def test_directory_addon_ref_copytreed_not_crashed(tmp_path):
+    """lux_root.gd scans res://addons/lux/presets (a DIRECTORY) — v0.10.0
+    crashed the whole export on this (Errno 13 on Windows)."""
+    export = tmp_path / "export"
+    export.mkdir(parents=True)
+    repo = tmp_path / "repos" / "lux"
+    (repo / "addons" / "lux" / "runtime").mkdir(parents=True)
+    (repo / "addons" / "lux" / "presets").mkdir()
+    (repo / "addons" / "lux" / "presets" / "blue_hour.tres").write_text(
+        "[gd_resource]\n", encoding="utf-8")
+    (repo / "addons" / "lux" / "runtime" / "lux_root.gd").write_text(
+        "extends Node3D\n"
+        "const PRESET_DIR := 'res://addons/lux/presets'\n", encoding="utf-8")
+    (export / "presentation").mkdir()
+    (export / "presentation" / "lux.applied.tscn").write_text(
+        '[gd_scene format=3]\n'
+        '[ext_resource type="Script" path="res://addons/lux/runtime/lux_root.gd" id="1"]\n',
+        encoding="utf-8")
+    report = localize_export(export, addon_sources={"lux": repo}, strip_walk=True)
+    gd = (export / "runtime" / "lux" / "runtime" / "lux_root.gd").read_text(encoding="utf-8")
+    assert "res://runtime/lux/presets" in gd
+    assert (export / "runtime" / "lux" / "presets" / "blue_hour.tres").exists()
+    assert any("(dir)" in x for x in report.localized_scripts)
+    assert report.unresolved == []
+
+
+def test_copy_failure_recorded_never_raised(tmp_path):
+    export = tmp_path / "export"
+    export.mkdir(parents=True)
+    (export / "scene.tscn").write_text(
+        '[gd_scene format=3]\n'
+        '[ext_resource type="Script" path="res://addons/ghost/missing.gd" id="1"]\n',
+        encoding="utf-8")
+    report = localize_export(export, addon_sources={}, strip_walk=True)
+    assert any("ghost" in u for u in report.unresolved)
+
+
+def test_class_name_references_pull_scripts(tmp_path):
+    """v0.10.1 hardware: lux_root.gd names LuxLighting/LuxEmissiveBinder etc.
+    by GLOBAL CLASS NAME (no res:// path) -> 30 clean-project parse errors.
+    The class map must pull those scripts by name, recursively."""
+    export = tmp_path / "export"
+    export.mkdir(parents=True)
+    repo = tmp_path / "repos" / "lux"
+    rt = repo / "addons" / "lux" / "runtime"
+    rt.mkdir(parents=True)
+    (rt / "lux_root.gd").write_text(
+        "extends Node3D\n"
+        "func _build() -> void:\n"
+        "\tvar l := LuxLighting.new()\n", encoding="utf-8")
+    (rt / "lux_lighting.gd").write_text(
+        "class_name LuxLighting\nextends RefCounted\n"
+        "func bind() -> void:\n"
+        "\tLuxEmissiveBinder.bind_all()\n", encoding="utf-8")
+    (rt / "lux_emissive_binder.gd").write_text(
+        "class_name LuxEmissiveBinder\nextends RefCounted\n", encoding="utf-8")
+    (export / "presentation").mkdir()
+    (export / "presentation" / "lux.applied.tscn").write_text(
+        '[gd_scene format=3]\n'
+        '[ext_resource type="Script" path="res://addons/lux/runtime/lux_root.gd" id="1"]\n',
+        encoding="utf-8")
+    localize_export(export, addon_sources={"lux": repo}, strip_walk=True)
+    rtdir = export / "runtime" / "lux" / "runtime"
+    assert (rtdir / "lux_root.gd").exists()
+    assert (rtdir / "lux_lighting.gd").exists()       # named by lux_root
+    assert (rtdir / "lux_emissive_binder.gd").exists()  # named by lux_lighting (recursive)
+    result = scan_closure(export)
+    assert result.ok, result.issues
+
+
+def test_directory_ref_counts_as_present_in_judge(tmp_path):
+    export = tmp_path / "export"
+    (export / "runtime" / "lux" / "presets").mkdir(parents=True)
+    (export / "runtime" / "lux" / "presets" / "a.tres").write_text("[gd_resource]\n")
+    (export / "boot.gd").write_text(
+        "extends Node\nconst P := 'res://runtime/lux/presets'\n", encoding="utf-8")
+    result = scan_closure(export)
+    assert result.missing_resource_count == 0, result.issues
+
+
+def test_export_metadata_exempt_from_marker_scan(tmp_path):
+    """v0.10.2 hardware: the closure audit report incriminated itself — its
+    rewritten_absolute entries contain the original absolute paths."""
+    export = tmp_path / "export"
+    export.mkdir(parents=True)
+    (export / "export_closure.json").write_text(
+        '{"rewritten_absolute": ["C:/Projects/level_factory/x.glb -> res://assets/x.glb"]}',
+        encoding="utf-8")
+    result = scan_closure(export)
+    assert result.absolute_path_count == 0, result.issues
+    assert result.external_reference_count == 0, result.issues

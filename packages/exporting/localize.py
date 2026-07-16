@@ -90,7 +90,15 @@ def _bundle_asset(src: Path, export_dir: Path, report: LocalizeReport) -> str | 
 
 def _localize_script(tool: str, rest: str, addon_sources: dict[str, Path],
                      export_dir: Path, report: LocalizeReport) -> str | None:
-    """Copy addons/<tool>/<rest> into runtime/<tool>/<rest>; return res-rel path."""
+    """Copy addons/<tool>/<rest> into runtime/<tool>/<rest>; return res-rel path.
+
+    <rest> may be a DIRECTORY: lux_root.gd scans its preset library via
+    ``res://addons/lux/presets`` (this crashed v0.10.0 exports with Errno 13
+    on real hardware — copy2 on a directory). Directories are copytree'd:
+    a localized LuxRoot needs its presets to travel with it. Any copy
+    failure is recorded, never raised — closure problems belong in the
+    report and the portability verdict, not in a dead export.
+    """
     repo = addon_sources.get(tool)
     if repo is None:
         return None
@@ -98,15 +106,24 @@ def _localize_script(tool: str, rest: str, addon_sources: dict[str, Path],
     if not src.exists():
         return None
     target = export_dir / _RUNTIME_DIR / tool / rest
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if not target.exists():
-        shutil.copy2(src, target)
-        report.localized_scripts.append(f"addons/{tool}/{rest}")
+    try:
+        if src.is_dir():
+            shutil.copytree(src, target, dirs_exist_ok=True)
+            report.localized_scripts.append(f"addons/{tool}/{rest}/ (dir)")
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if not target.exists():
+                shutil.copy2(src, target)
+                report.localized_scripts.append(f"addons/{tool}/{rest}")
+    except OSError as exc:
+        report.unresolved.append(f"addons/{tool}/{rest}: copy failed ({exc})")
+        return None
     return (Path(_RUNTIME_DIR) / tool / rest).as_posix()
 
 
 def _rewrite_text(path: Path, export_dir: Path, addon_sources: dict[str, Path],
-                  report: LocalizeReport) -> bool:
+                  report: LocalizeReport,
+                  class_map: dict[str, tuple[str, str]] | None = None) -> bool:
     """One rewrite pass over a text resource. Returns True if changed."""
     try:
         text = path.read_text(encoding="utf-8")
@@ -137,15 +154,58 @@ def _rewrite_text(path: Path, export_dir: Path, addon_sources: dict[str, Path],
 
     new = _ABS_EXT_REF.sub(_abs_sub, text)
     new = _ADDON_REF.sub(_addon_sub, new)
+
+    # Class-name closure (localized .gd only): pull scripts referenced by
+    # global class name. The names need no rewriting — presence + the import
+    # pass registers them — but a fresh copy must count as a change so the
+    # fixpoint loop rescans it for ITS references.
+    if class_map and path.suffix == ".gd":
+        for cname, (tool, rest) in class_map.items():
+            target = export_dir / _RUNTIME_DIR / tool / rest
+            if target.exists():
+                continue
+            if re.search(r"\b" + re.escape(cname) + r"\b", new):
+                if _localize_script(tool, rest, addon_sources, export_dir, report):
+                    changed = True
+
     if changed:
         path.write_text(new, encoding="utf-8")
     return changed
+
+
+_CLASS_NAME_DECL = re.compile(r"^class_name\s+([A-Za-z_]\w*)", re.MULTILINE)
+
+
+def _build_class_map(addon_sources: dict[str, Path]) -> dict[str, tuple[str, str]]:
+    """class_name -> (tool, path-under-addons/<tool>) across all tool repos.
+
+    GDScript cross-references by GLOBAL CLASS NAME carry no res:// path for
+    the ref rewriter to chase — the v0.10.1 hardware run localized lux_root.gd
+    but none of the classes it names (30 parse errors in the clean project).
+    The class map lets the .gd scan pull those scripts by name; once they are
+    IN the project, the portability import pass registers them and the names
+    resolve — no text rewrite needed for the names themselves.
+    """
+    out: dict[str, tuple[str, str]] = {}
+    for tool, repo in addon_sources.items():
+        base = Path(repo) / "addons" / tool
+        if not base.is_dir():
+            continue
+        for gd in base.rglob("*.gd"):
+            try:
+                m = _CLASS_NAME_DECL.search(gd.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError):
+                continue
+            if m:
+                out[m.group(1)] = (tool, gd.relative_to(base).as_posix())
+    return out
 
 
 def localize_export(export_dir: Path, *, addon_sources: dict[str, Path],
                     strip_walk: bool = True, max_passes: int = 10) -> LocalizeReport:
     """Repair the export's resource closure in place."""
     report = LocalizeReport()
+    class_map = _build_class_map(addon_sources)
 
     if strip_walk:
         for walk in sorted(export_dir.rglob("*_walk.tscn")):
@@ -186,7 +246,12 @@ def localize_export(export_dir: Path, *, addon_sources: dict[str, Path],
         changed = False
         for f in sorted(export_dir.rglob("*")):
             if f.is_file() and f.suffix in _TEXT_SUFFIXES:
-                changed |= _rewrite_text(f, export_dir, addon_sources, report)
+                try:
+                    changed |= _rewrite_text(f, export_dir, addon_sources, report,
+                                             class_map)
+                except OSError as exc:
+                    report.unresolved.append(
+                        f"{f.relative_to(export_dir).as_posix()}: rewrite failed ({exc})")
         if not changed:
             break
     return report

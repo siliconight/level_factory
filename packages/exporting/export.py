@@ -104,7 +104,13 @@ def _write_project_godot(export_dir: Path, entry_scene: str, mission_id: str) ->
         f'config/name="{mission_id} (shell)"\n'
         f'run/main_scene="res://{entry_scene}"\n\n'
         "[rendering]\n"
-        'renderer/rendering_method="gl_compatibility"\n',
+        'renderer/rendering_method="gl_compatibility"\n\n'
+        "[debug]\n"
+        "; Localized tool scripts are strict-clean under their home projects'\n"
+        "; warning config; engine DEFAULTS escalate inference-on-Variant to a\n"
+        "; load-killing error (proven on hardware: lux_root.gd:218 took two\n"
+        "; dependents down as compile knock-ons). Warn, don't refuse to load.\n"
+        "gdscript/warnings/inference_on_variant=1\n",
         encoding="utf-8",
     )
 

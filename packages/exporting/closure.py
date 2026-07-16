@@ -25,6 +25,7 @@ _METADATA_FILES = {
     "portable_resource_manifest.json", "LICENSES.json", "export_profile.json",
     "build.lock.json", "mission_manifest.json", "runtime_ownership_requirements.json",
     "proposed_beat_graph.json", "gameplay_anchors.json", "navigation_hints.json",
+    "export_closure.json", "output_layers.json",
     "lux.quality.json", "lux.validation.json",
 }
 # A marker only breaks portability when it appears as a PATH reference.
@@ -74,6 +75,10 @@ def scan_closure(mission_root: Path) -> ClosureResult:
                if p.is_file()}
 
     for f in files:
+        # LF/Dispatch metadata files are not Godot resources; the closure
+        # audit report in particular RECORDS the absolute paths it rewrote.
+        if f.name in _METADATA_FILES:
+            continue
         text = f.read_text(encoding="utf-8", errors="replace")
 
         for m in _ABS_PATH.finditer(text):
@@ -87,6 +92,10 @@ def scan_closure(mission_root: Path) -> ClosureResult:
         for m in _RES_REF.finditer(text):
             rel = m.group(1)
             if rel not in present and not rel.startswith(("addons/godot/", "builtin/")):
+                # Directory references (preset-library scans etc.) are
+                # resolvable even though the present-set only lists files.
+                if (mission_root / rel).exists():
+                    continue
                 if not any(pr.endswith(rel) for pr in present):
                     result.missing_resource_count += 1
                     result.issues.append(f"{f.name}: unresolved res://{rel}")

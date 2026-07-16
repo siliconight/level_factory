@@ -50,7 +50,7 @@ GROUNDED: dict[str, dict] = {
     "zoo":          {"version": "0.30.1", "source": "VERSION"},
     "patina":       {"version": "0.18.0", "source": "CLI banner",
                      "note": "pyproject reports 0.1.1; runtime/CLI is authoritative"},
-    "lux":          {"version": "0.15.2", "source": "VERSION"},
+    "lux":          {"version": "0.15.3", "source": "VERSION"},
     "dispatch":     {"version": "0.3.0",  "source": "contract probe",
                      "contract": "dispatch.mission.v0.2"},
 }

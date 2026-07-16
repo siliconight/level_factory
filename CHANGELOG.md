@@ -3,6 +3,76 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.10.4] - 2026-07-15
+
+### Changed
+- Re-grounded lux 0.15.2 -> 0.15.3 (the blend_to_preset typing pair fix).
+  Bookkeeping only — this is the release under which the full pipeline,
+  export included, first passed portability on hardware (2026-07-15 smoke:
+  status PASS, all closure counters zero, clean-project instantiate green).
+
+## [0.10.3] - 2026-07-15
+
+Third hardware pass, root-caused IN-CONTAINER against B$'s actual export with
+a real Godot binary: parse errors 30 -> 2 -> 0.
+
+### Fixed
+- **Exported project.godot downgrades inference-on-Variant to WARN**: engine
+  defaults escalate it to a load-killing error; tool scripts are strict-clean
+  under their home projects' warning config (proven: lux_root.gd:218 —
+  `var p := _preset_library.get(...)` — killed the script load and took
+  lux_runtime_api + lux_emissive_binder down as compile knock-ons). Verified
+  green against the real export in a clean project (0 errors, instantiated,
+  exit 0). Pair fix: lux v0.15.3 types the line properly.
+- **Closure judge**: `export_closure.json` (and `output_layers.json`) are LF
+  metadata — the audit report records the original absolute paths it
+  rewrote, so the scanner was incriminating the auditor.
+- **Portability failures name themselves**: matching Parse/SCRIPT/load-fail
+  lines from Godot's output are attached to report issues (first ~10).
+
+## [0.10.2] - 2026-07-15
+
+Second hardware pass on the export closure: the mission INSTANTIATED in a
+clean project for the first time (scene_instantiated true, shell bundled,
+walk stripped, presets traveling) — remaining failure was 30 parse errors.
+
+### Fixed
+- **Class-name script closure**: lux scripts reference each other by GLOBAL
+  CLASS NAME (LuxLighting, LuxEmissiveBinder, ...) — no res:// path for the
+  ref rewriter to chase, so the named scripts never got localized. The
+  localizer now builds a class_name -> script map per tool repo and pulls
+  scripts referenced by name from localized .gd files, recursively; names
+  need no rewriting — presence plus the portability import pass registers
+  them in the class cache.
+- **Closure judge**: directory references (lux's preset-library scan) count
+  as present when the path exists — the present-set only listed files, so
+  res://runtime/lux/presets false-flagged as unresolved.
+
+### Testing
+- 147 passed, 1 skipped; regressions for recursive class-name pulls and
+  directory-ref resolution.
+
+## [0.10.1] - 2026-07-15
+
+Hardware fixes from the first v0.10.0 smoke: the fixture pipeline held green
+(23/23/23, powered exact) but export crashed (exit 5) inside the localizer.
+
+### Fixed
+- **Directory addon refs**: `lux_root.gd` scans `res://addons/lux/presets` —
+  a DIRECTORY — and the localizer's copy2 died with Errno 13 on Windows,
+  killing the export. Directories are now copytree'd (a localized LuxRoot
+  needs its preset library to travel with it), and every copy/rewrite is
+  wrapped so closure trouble lands in export_closure.json and the
+  portability verdict, never in a dead export.
+- **Portability engine check runs an `--import` pass first**: the clean
+  project has no `.godot`, so the bundled GLB has no import artifacts and
+  localized scripts have no global class cache — the staged-project lesson,
+  applied to the clean-project test.
+
+### Testing
+- 145 passed, 1 skipped; new regressions: directory-ref localization with
+  preset payload, copy-failure recorded-not-raised.
+
 ## [0.10.0] - 2026-07-15
 
 Export closure: portable exports are now portable by construction. Root-caused
