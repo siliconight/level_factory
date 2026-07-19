@@ -39,15 +39,30 @@ class PixelcoatAdapter(BaseAdapter):
 
     def validate_configuration(self, job_spec, context) -> Sequence[str]:
         problems: list[str] = []
-        recipe = job_spec.get("recipe_path")
+        if job_spec.get("theme"):
+            return problems                      # theme-library mode: theme is enough
+        recipe = job_spec.get("recipe_path")     # legacy single-recipe mode
         if not recipe:
-            problems.append("pixelcoat job requires a recipe_path (a recipe JSON)")
+            problems.append("pixelcoat job requires a theme or a recipe_path")
         elif not Path(str(recipe)).exists():
             problems.append(f"pixelcoat recipe missing: {recipe}")
         return problems
 
     def fingerprint_inputs(self, job_spec, context) -> Mapping[str, object]:
-        fp: dict[str, object] = {"asset_id": self._asset_id(job_spec)}
+        theme = job_spec.get("theme")
+        if theme:
+            # Theme-library mode: rebuild when the theme profile changes. (A
+            # curated grammar edit is caught by the pixelcoat repo pin, which
+            # advances on any grammar change.)
+            fp: dict[str, object] = {"theme": str(theme),
+                                     "adapter_version": self.adapter_version}
+            repo = context.get("repository")
+            if repo:
+                prof = Path(str(repo)) / "profiles" / "themes" / f"{theme}.json"
+                if prof.exists():
+                    fp["theme_profile_hash"] = hash_file(prof)
+            return fp
+        fp = {"asset_id": self._asset_id(job_spec)}
         recipe = job_spec.get("recipe_path")
         if recipe and Path(str(recipe)).exists():
             fp["recipe_hash"] = hash_file(Path(str(recipe)))
@@ -62,12 +77,25 @@ class PixelcoatAdapter(BaseAdapter):
         repo = Path(str(context["repository"]))
         work = Path(str(context["work_dir"]))
         py = context.get("python_executable") or "python"
-        recipe = str(job_spec.get("recipe_path", ""))
-        asset_id = self._asset_id(job_spec)
 
+        theme = job_spec.get("theme")
+        if theme:
+            # Themed skins library: one <kind>_<theme>/ pack per curated material
+            # (profiles/themes/<theme>.json). This is the library the Zoo kit
+            # resolves from via --skins <this out dir> --theme <theme>.
+            args = ["-m", "pixelcoat.cli.main", "theme-library",
+                    "--theme", str(theme), "--out", str(work), "--json"]
+            return [PlannedCommand(
+                executable=Path(str(py)), arguments=tuple(args),
+                working_directory=repo,
+                expected_outputs=(),   # <kind>_<theme>/ dirs; validated in normalize
+                resource_class="python_cpu", timeout_seconds=1800,
+            )]
+
+        recipe = str(job_spec.get("recipe_path", ""))     # legacy single-recipe
+        asset_id = self._asset_id(job_spec)
         args = ["-m", "pixelcoat.cli.main", "build", recipe,
                 "--output", str(work), "--json", "--force"]
-
         return [PlannedCommand(
             executable=Path(str(py)), arguments=tuple(args),
             working_directory=repo,

@@ -194,14 +194,17 @@ def plan_mission(
 
     if LAYER_ART in layers:
         # Presentation DAG (TDD 15.2), rooted at the locked functional shell.
-        # Pixelcoat shared packs.
+        # Pixelcoat builds the themed skins LIBRARY (one <kind>_<theme>/ pack per
+        # curated material) that the Zoo kit resolves from; the pack set is
+        # dynamic (per theme profile), so the adapter validates it, not a fixed
+        # expected-output name.
         pixelcoat_jid = job_id(brief.mission_id, _STAGE_PIXELCOAT)
         plan.graph.add(Job(
             job_id=pixelcoat_jid, mission_id=brief.mission_id,
             stage_id=_STAGE_PIXELCOAT, adapter_id="pixelcoat",
             candidate_id=selected_candidate, resource_class="python_cpu",
             depends_on=[lot_jid],
-            expected_outputs=["theme/theme.pack.json"],
+            expected_outputs=[],  # <kind>_<theme>/ library; adapter checks
         ))
         # Zoo structural kit from DC slots, skinned by Pixelcoat packs.
         zoo_kit_jid = job_id(brief.mission_id, _STAGE_ZOO_KIT)

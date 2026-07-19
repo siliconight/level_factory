@@ -3,6 +3,26 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.11.0] - Pixelcoat stage builds the themed skins library
+
+- `adapters/pixelcoat`: theme mode -- when a job spec carries `theme`, the
+  stage plans `pixelcoat theme-library --theme <t> --out <work>` (one
+  `<kind>_<theme>/` pack per curated material) instead of a single legacy
+  recipe. `validate_configuration`/`fingerprint_inputs` accept a theme and
+  invalidate on the theme profile's hash.
+- `_job_specs_for_plan`: the pixelcoat job now derives
+  `{theme: model.theme or batch.theme_family or "delco"}`. The Zoo kit stage
+  already points `--skins` at that job's `out/` and `--theme` at the same
+  theme, so a building wears its theme profile's curated vocabulary end to end.
+- `packages/pipeline/planner`: pixelcoat stage `expected_outputs` relaxed to
+  `[]` -- the library is a dynamic set of `<kind>_<theme>/` dirs, validated
+  by the adapter in `normalize_validation`.
+
+### Verified
+- Seam confirmed against the real scheduler: `_publish_stable` reconstructs
+  each output's path relative to work_dir, so the `<kind>_<theme>/`
+  subdirectories survive into the stable `out/` the Zoo stage resolves from.
+
 ## [0.10.5] - Run artifacts land in _runs\
 
 - `tools/smoke_lf.ps1` (incl. the `_lf_tools` junctions) write run folders and results zips under the factory's `_runs\`

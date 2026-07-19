@@ -260,11 +260,13 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                 "exit_advisory": True,
             }
         elif job.adapter_id == "pixelcoat":
-            recipe_path, source_path = _write_pixelcoat_recipe(ws, batch, model)
+            # Build the whole themed skins library the Zoo kit resolves from:
+            # one <kind>_<theme>/ pack per curated material in the building's
+            # theme profile (profiles/themes/<theme>.json). The Zoo kit stage
+            # below points --skins at this job's out/ and --theme at the same
+            # theme, so the vocabulary a building wears IS its theme profile.
             specs[job.job_id] = {
-                "recipe_path": str(recipe_path),
-                "source_path": str(source_path),
-                "asset_id": "theme",
+                "theme": model.theme or batch.get("theme_family", "") or "delco",
             }
         elif job.adapter_id == "zoo":
             # Kit build depends on Lot(+Pixelcoat); dressing build depends on
