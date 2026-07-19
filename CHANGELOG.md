@@ -3,6 +3,16 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.11.1] - Fast-suite pixelcoat stub learns theme-library
+
+- `tests/fixtures/repos/pixelcoat/pixelcoat/cli/main.py`: the stub CLI now
+  implements `theme-library --theme <t> --out <dir>` (the command 0.11.0's
+  adapter change started issuing), emitting one resolvable `<kind>_<theme>/`
+  pack per curated kind with its maps written alongside. Without it the
+  fast-suite presentation pipeline blocked at `pixelcoat_build` (exit 3),
+  cascading into 8 service/integration failures. Production code is unchanged
+  -- this realigns the test double with the 0.11.0 pixelcoat-stage contract.
+
 ## [0.11.0] - Pixelcoat stage builds the themed skins library
 
 - `adapters/pixelcoat`: theme mode -- when a job spec carries `theme`, the
