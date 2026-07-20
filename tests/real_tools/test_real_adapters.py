@@ -39,6 +39,18 @@ def test_real_dispatch(tool_root):
     example = repo / "examples" / "gas_station_robbery_001" / "dispatch.mission.json"
     if not example.exists():
         pytest.skip("dispatch example mission not present")
+    # The bundled example points its `inputs` at pre-built tool outputs
+    # (build/deli_counter/shell.gameplay.json, build/lot/..., etc.) that the
+    # dispatch repo does not ship. When they're absent this is an incomplete
+    # example fixture, not an LF adapter defect — skip like the other real-tool
+    # tests do. The real LF->dispatch bridge is covered end-to-end (with
+    # synthesized inputs) by test_real_dispatch_handoff_from_lf_staged_inputs.
+    import json as _json
+    _inputs = _json.loads(example.read_text(encoding="utf-8")).get("inputs", {})
+    _missing = [rel for rel in _inputs.values()
+                if not (example.parent / rel).exists()]
+    if _missing:
+        pytest.skip(f"dispatch example build inputs not present: {_missing}")
     adapter = DispatchAdapter()
     # Probe the real contract command.
     probe = adapter.probe({"repository": str(repo), "python_executable": sys.executable})

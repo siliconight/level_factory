@@ -43,6 +43,47 @@ def _class_cache_entries(text: str) -> str:
     return text[start + 1:end].strip()
 
 
+_CLASS_NAME_RE = re.compile(r'^\s*class_name\s+([A-Za-z_][A-Za-z0-9_]*)', re.M)
+_EXTENDS_RE = re.compile(r'^\s*extends\s+([A-Za-z_][A-Za-z0-9_]*)', re.M)
+
+
+def _synth_class_cache_entries(addon_target: Path, project_root: Path) -> str:
+    """Synthesize global_script_class_cache.cfg entries by scanning an addon's
+    ``class_name`` declarations.
+
+    Godot writes ``.godot/global_script_class_cache.cfg`` from the editor, and
+    every tool repo gitignores ``.godot/`` — so a fresh checkout that has never
+    been opened in the editor carries no cache to copy, and Godot then can't
+    resolve a ``class_name`` TYPE (LT_MapEvalHarness, LuxRoot, ...) when running
+    ``-s <runner>.gd`` headlessly. Rather than depend on that editor artifact,
+    scan the staged addon's ``.gd`` files and emit a well-formed entry per
+    ``class_name`` so the staged project is self-sufficient. Godot regenerates
+    this file on its own ``--import`` pass anyway, so a scanned cache is safe:
+    correct entries work immediately, and anything imperfect is rebuilt.
+
+    Returns the comma-joined inner entries (same shape as
+    ``_class_cache_entries``), or "" if the addon declares no class_name.
+    """
+    entries: list[str] = []
+    for gd in sorted(addon_target.rglob("*.gd")):
+        try:
+            text = gd.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        m = _CLASS_NAME_RE.search(text)
+        if not m:
+            continue
+        cls = m.group(1)
+        em = _EXTENDS_RE.search(text)
+        base = em.group(1) if em else "RefCounted"
+        res = "res://" + gd.relative_to(project_root).as_posix()
+        entries.append(
+            '{\n"base": &"%s",\n"class": &"%s",\n"icon": "",\n'
+            '"language": &"GDScript",\n"path": "%s"\n}' % (base, cls, res)
+        )
+    return ", ".join(entries)
+
+
 def stage_godot_project(
     dest: Path, *, addon_dirs: list[Path], scene_src: Path,
     plugins: list[str], scene_res_name: str = "level.tscn",
@@ -70,6 +111,14 @@ def stage_godot_project(
             src_cache = addon.parent.parent / ".godot" / "global_script_class_cache.cfg"
             if src_cache.exists():
                 cache_entries.append(_class_cache_entries(src_cache.read_text(encoding="utf-8")))
+            else:
+                # Fresh checkout: the addon repo's editor-generated .godot cache
+                # is gitignored and absent. Synthesize entries from the addon's
+                # own class_name declarations so staging stays self-sufficient
+                # instead of depending on the repo having been opened in Godot.
+                synth = _synth_class_cache_entries(target, dest)
+                if synth:
+                    cache_entries.append(synth)
     if cache_entries:
         merged = ", ".join(e for e in cache_entries if e)
         (dest / ".godot").mkdir(exist_ok=True)

@@ -3,6 +3,30 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.11.2] - Staging self-generates the Godot class cache
+
+- `packages/staging/godot_project.py`: when an addon repo carries no
+  `.godot/global_script_class_cache.cfg` (Godot writes it from the editor and
+  every tool repo gitignores `.godot/`, so a fresh checkout has none), staging
+  now synthesizes the cache by scanning the addon's own `class_name`
+  declarations instead of copying that editor artifact. Removes the hidden
+  precondition that a tool repo must have been opened in the Godot editor
+  before Laser Tag / Lux staging could resolve class_name TYPES
+  (LT_MapEvalHarness, LT_TestScenario, LuxRoot). The copy-from-repo fast path
+  still runs first when the cache is present.
+- `tests/real_tools/test_real_adapters.py`: `test_real_dispatch` now skips
+  when the bundled `gas_station_robbery_001` example's referenced `build/`
+  inputs are absent (a dispatch-repo fixture gap, not an LF defect), matching
+  the skip convention of the other real-tool tests. The real LF->dispatch
+  bridge stays covered by `test_real_dispatch_handoff_from_lf_staged_inputs`.
+
+### Verified
+- Real-tool smoke green on hardware (2026-07-20): `tests/real_tools` 9 passed,
+  1 skipped (dispatch example inputs absent), 0 failed. Class-cache synthesis
+  validated against the real laser_tag_tool and lux addons —
+  LT_MapEvalHarness / LT_TestScenario / LuxRoot emitted with correct base
+  types and res:// paths. Fast suite unchanged: 148 passed / 11 skipped.
+
 ## [0.11.1] - Fast-suite pixelcoat stub learns theme-library
 
 - `tests/fixtures/repos/pixelcoat/pixelcoat/cli/main.py`: the stub CLI now
