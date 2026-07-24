@@ -3,6 +3,26 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.11.3] - Staging runs a real Godot --import pass to register class_name types
+
+- `packages/staging/godot_project.py`: after staging the throwaway project, run
+  `godot --headless --path <proj> --import` so Godot itself registers the addon's
+  global `class_name` types. Verified on hardware (Blender 5.1.1 + Godot 4.7): the
+  0.11.2 synthesized `global_script_class_cache.cfg` is present and correct, yet
+  `-s <runner>.gd` still failed "Could not find type" (LT_MapEvalHarness /
+  LT_TestScenario) — Godot only resolves class_name types it registered during an
+  import scan. The import pass (mirroring exporting/portability) fixes it; the
+  synthesized cache stays as the offline fallback. Adds a `godot_executable` param
+  to `stage_godot_project`.
+- `adapters/laser_tag`, `adapters/lux`: pass `godot_executable` into
+  `stage_godot_project` so both Godot-addon stages get the import pass.
+
+### Verified
+- Full Category 5 mission built end to end on hardware (2026-07-23): graybox
+  (Deli Counter + Lot + Laser Tag, 5 candidates) AND art pass (Pixelcoat `rockay`
+  theme-library -> Zoo kit + dressing -> Patina -> Lux apply), 0 blockers, 0
+  findings. Fast suite unchanged: 148 passed / 11 skipped.
+
 ## [0.11.2] - Staging self-generates the Godot class cache
 
 - `packages/staging/godot_project.py`: when an addon repo carries no
