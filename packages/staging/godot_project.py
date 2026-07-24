@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 import shutil
+import subprocess
 from pathlib import Path
 
 
@@ -87,6 +88,7 @@ def _synth_class_cache_entries(addon_target: Path, project_root: Path) -> str:
 def stage_godot_project(
     dest: Path, *, addon_dirs: list[Path], scene_src: Path,
     plugins: list[str], scene_res_name: str = "level.tscn",
+    godot_executable: str | None = None,
 ) -> tuple[Path, str]:
     """Create a project at ``dest`` with the addons + the scene at res://.
 
@@ -139,6 +141,22 @@ def stage_godot_project(
         _resolve_absolute_refs(tscn, dest)
     (dest / "project.godot").write_text(
         _project_godot(dest.name, plugins), encoding="utf-8")
+    # Register the addon's global class_name TYPES the way Godot actually trusts:
+    # a real `--import` pass. A hand-written global_script_class_cache.cfg (the
+    # synthesized fallback above) is NOT honored by `-s <runner>.gd` at load time
+    # — Godot only resolves class_name types it registered during an import scan
+    # (verified on hardware: the synthesized cache is present and correct, yet
+    # `-s` still fails "Could not find type" without this). This mirrors the
+    # exporting/portability import pass. Best-effort: if Godot is unavailable or
+    # the import errors, the synthesized cache remains as the fallback.
+    if godot_executable:
+        try:
+            subprocess.run(
+                [str(godot_executable), "--headless", "--path", str(dest), "--import"],
+                capture_output=True, timeout=300,
+            )
+        except (OSError, subprocess.SubprocessError):
+            pass
     return dest, f"res://{scene_res_name}"
 
 

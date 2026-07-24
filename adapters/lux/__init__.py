@@ -99,7 +99,8 @@ class LuxAdapter(BaseAdapter):
                 Path(str(job_spec["staging_dir"])),
                 addon_dirs=[Path(str(addon))] + [Path(str(a)) for a in job_spec.get("extra_addon_dirs", [])],
                 scene_src=Path(str(scene_src)),
-                plugins=["lux"])
+                plugins=["lux"],
+                godot_executable=str(godot))
             # The driver is the -s script Godot loads; if it's missing, Godot
             # dies with a cryptic "File not found". Fail loudly here instead.
             if not driver_src or not Path(str(driver_src)).exists():

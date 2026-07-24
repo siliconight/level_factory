@@ -76,7 +76,8 @@ class LaserTagAdapter(BaseAdapter):
                 Path(str(job_spec["staging_dir"])),
                 addon_dirs=[Path(str(addon))] + [Path(str(a)) for a in job_spec.get("extra_addon_dirs", [])],
                 scene_src=Path(str(scene_src)),
-                plugins=["laser_tag_tool"])
+                plugins=["laser_tag_tool"],
+                godot_executable=str(godot))
             project = str(proj)
 
         scenario = str(job_spec.get(
