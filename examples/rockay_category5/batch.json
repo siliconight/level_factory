@@ -1,0 +1,8 @@
+{
+  "schema": "level_factory.batch.v0.1",
+  "batch_id": "rockay_category5",
+  "name": "Rockay City - Category 5",
+  "seed_base": 5017,
+  "theme_family": "rockay",
+  "missions": ["category5_baie_dore_001"]
+}

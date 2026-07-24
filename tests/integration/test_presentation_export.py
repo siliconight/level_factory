@@ -84,9 +84,15 @@ def test_presentation_export_and_portability(workspace):
     r = _cli(root, "run", "bank_block_001", "--target", "presentation")
     assert r.returncode in (0, 1), r.stderr + r.stdout
     for stage in ("pixelcoat_build", "zoo_kit_build", "patina_apply",
-                  "patina_dressing", "zoo_dressing_build", "lux_apply",
-                  "dispatch_handoff"):
+                  "patina_dressing", "zoo_dressing_build", "presentation_compose",
+                  "lux_apply", "dispatch_handoff"):
         assert stage in r.stdout, f"missing stage {stage}"
+
+    # The compose stage produced the themed scene DC's composer emits, and Lux
+    # lit THAT (not the greybox site) — the --art wiring under test.
+    compose_out = (root / ".level_factory" / "jobs"
+                   / "bank_block_001.presentation_compose" / "out")
+    assert (compose_out / "presentation" / "site.tscn").exists()
 
     # Lux applied a presentation-only scene.
     lux_out = root / ".level_factory" / "jobs" / "bank_block_001.lux_apply" / "out"

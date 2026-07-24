@@ -1,0 +1,27 @@
+{
+  "schema": "level_factory.mission_brief.v0.1",
+  "mission_id": "category5_baie_dore_001",
+  "display_name": "Category 5",
+  "archetype": "casino_tower",
+  "building_count": 4,
+  "site_shape": "boardwalk_crescent",
+  "route_shape": "descend_then_surface",
+  "objective_hypotheses": [
+    "blend_through_evacuation",
+    "breach_casino_floor",
+    "reach_the_cage",
+    "override_storm_shutters",
+    "crack_baie_dore_vault",
+    "haul_through_surge",
+    "extract_by_airboat"
+  ],
+  "extraction_relationship": "storm_shifted_extraction",
+  "verticality": "high",
+  "landmark": "baie_dore_marquee",
+  "time_of_day": "night",
+  "weather": "hurricane",
+  "theme": "rockay",
+  "candidate_count": 5,
+  "target_minutes": [12, 20],
+  "notes": "HERO ANCHOR. The Baie Dore Casino on Ndogo Beach, Rockay City, the night a Category 5 makes landfall. 4-building hero site (hero rule 2-4): (1) BAIE DORE CASINO - main mass; gaming floor at grade, the Cage on story 1, the vault two stories BELOW sea level; per-story stairs + freight lift + a service stair (no through-stairs - Phase 1 finding: multi-story switchbacks orphan intermediate floors). (2) VALET PARKING DECK - insertion; deck-0 lobby link + deck-1 sniper/overwatch overlook onto the crescent. (3) BOARDWALK PIER PAVILION - extraction; airboat berth, only holds during the eye. (4) BACK-OF-HOUSE SERVICE BLOCK - staff route + the storm-shutter override room (soft breach to the Cage). Signature system = a STORM CLOCK that escalates independent of the alarm (advisory, owned by the production game per the Authority Statement; encoded as dispatch dynamic_events): power fails -> lights flip to emergency red; surge 1 floods the sub-basement vault approach (reroute via freight lift); surge 2 floods the gaming floor (slot banks become waist-deep cover, movement slows, heavy bags slow you more); the EYE opens the single airboat extraction window. Civilian->dangerous flip (Crime Boss style): insert in civilian mode inside the mandatory-evacuation crowd; the crowd is your cover until a weapon fires, the drill starts, or the shutters trip. Built to exploit assets already in-repo: lux presets mission_goes_hot / ps1_storm_night / heavy_rain for the escalating storm lighting, skymint apocalypse|sinister panoramas for the sky, Lot walkable site + Laser Tag nav/readiness on the flooding floor plates. Introduces a new theme 'rockay' (coastal art-deco + neon + storm dressing): Pixelcoat profiles/themes/rockay.json (11 curated materials) + a rockay style on all 48 Zoo species. The theme resolves end to end; textures need one Pixelcoat theme-library run + Blender for the Zoo kit build. Pacing: hero traversal ~2.5-3.5 min; the 12-20 min mission length is owned downstream by the vault drill + the surge timers, not traversal."
+}

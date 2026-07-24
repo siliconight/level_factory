@@ -21,6 +21,7 @@ from apps.cli.commands import (  # noqa: E402
     cmd_doctor, cmd_export, cmd_init, cmd_plan, cmd_portability_test, cmd_reject,
     cmd_release, cmd_review, cmd_run, cmd_status, cmd_team_sign,
     cmd_team_status, cmd_validate, cmd_verify_contracts, cmd_verify_manifest,
+    cmd_walk,
 )
 
 EXIT_OK = 0
@@ -111,6 +112,15 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--reason", default="")
     sp.add_argument("--by", default="cli-user")
     sp.set_defaults(func=cmd_reject)
+
+    sp = sub.add_parser("walk", help="build a dev-only first-person walk preview "
+                                     "of the composed themed level (never exported)")
+    sp.add_argument("mission_id")
+    sp.add_argument("--open", action="store_true",
+                    help="launch Godot editor on the preview project")
+    sp.add_argument("--play", action="store_true",
+                    help="launch Godot and run the preview (walk immediately)")
+    sp.set_defaults(func=cmd_walk)
 
     sp = sub.add_parser("export", help="export a portable mission package")
     sp.add_argument("mission_id")

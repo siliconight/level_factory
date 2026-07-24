@@ -127,11 +127,22 @@ def stage_godot_project(
         (dest / ".godot" / "global_script_class_cache.cfg").write_text(
             "list=[" + merged + "]\n", encoding="utf-8")
     # Stage the scene + its work-dir siblings (relative-path deps) at res://.
+    # Files land flat; sibling SUBDIRECTORIES are copied preserving their
+    # structure so a composed scene that refs modules under a subtree (e.g. the
+    # themed presentation scene's res://art/zoo/*.glb) still resolves. We skip
+    # 'addons' and '.godot' so a package's own copies never clobber the staged
+    # addon(s) or the class cache written above.
     if scene_src.exists():
         shutil.copy2(scene_src, dest / scene_res_name)
         for sib in scene_src.parent.iterdir():
-            if sib.is_file() and sib != scene_src:
+            if sib == scene_src:
+                continue
+            if sib.is_file():
                 shutil.copy2(sib, dest / sib.name)
+            elif sib.is_dir() and sib.name not in ("addons", ".godot"):
+                dst = dest / sib.name
+                if not dst.exists():
+                    shutil.copytree(sib, dst)
     # Resolve closure: Lot bakes the building glb into site.tscn by ABSOLUTE
     # path (non-portable mode prepends res:// to it -> "res://C:/Users/.../
     # shell.glb", which Godot can't load). Copy each such file into the project

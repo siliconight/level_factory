@@ -17,6 +17,7 @@ def build_default_registry() -> dict[str, ToolAdapter]:
     from adapters.lux import LuxAdapter
     from adapters.patina import PatinaAdapter
     from adapters.pixelcoat import PixelcoatAdapter
+    from adapters.presentation import PresentationAdapter
     from adapters.zoo import ZooAdapter
 
     instances: list[ToolAdapter] = [
@@ -26,6 +27,7 @@ def build_default_registry() -> dict[str, ToolAdapter]:
         PixelcoatAdapter(),
         ZooAdapter(),
         PatinaAdapter(),
+        PresentationAdapter(),
         LuxAdapter(),
         DispatchAdapter(),
     ]

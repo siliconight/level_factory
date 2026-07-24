@@ -3,6 +3,65 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.13.0] - `walk` preview: walk the themed level without polluting the package
+
+Adds a dev-only first-person walk preview so you can walk the composed themed
+level and make refinements. Kept strictly SEPARATE from the drop-in package: the
+package is content a stranger instances into their own project, so it stays
+project-agnostic (no player, no forced main scene). A player needs its own
+project, so the preview is a distinct throwaway project that wraps the same
+content scene — it is never exported.
+
+- `packages/preview/walk_preview.py`: builds a separate preview project that
+  copies the drop-in content in, adds LF's dependency-free player, and writes a
+  `walk.tscn` (content instance + player) + its own `project.godot`
+  (main_scene=walk.tscn). Spawns the player at the best baked marker
+  (player_start > spawn > attacker_spawn > entrance > door), lifted so gravity
+  settles it onto the floor. Never mutates the package.
+- `assets/godot/player_walk.{tscn,gd}`: dependency-free CharacterBody3D FPS
+  controller (WASD, mouse-look, jump, sprint) — no addons, no project input
+  actions (polls keys directly), so it drops into any preview as-is.
+- `apps/cli`: new `walk <mission> [--open|--play]` command. Resolves the
+  presentation_compose output, builds the preview under
+  `.level_factory/preview/<mission>_walk/`, and optionally launches Godot.
+- Tests: prove the preview is a separate project wrapping the content, does not
+  leak the package harness, leaves the package untouched, and spawns at the
+  highest-priority marker. 159 passed, 11 skipped.
+
+## [0.12.0] - `--art` composes the themed level onto DC's collision (contract fix)
+
+The `--art` layer promised a themed level but shipped a grey one: Zoo built the
+themed modules, but nothing instanced them onto the shell, so `lux_apply` lit the
+raw greybox `site.tscn`. The named-but-unimplemented `presentation_compose` stage
+is now real, closing that gap.
+
+- `packages/pipeline/planner.py`: new `presentation_compose` stage (adapter
+  `presentation`) between `zoo_dressing_build` and `lux_apply`, depending on the
+  selected DC shell (collision truth) + the Zoo kit. `lux_apply` now depends on
+  `presentation_compose` and lights the COMPOSED themed scene, not the greybox.
+- `adapters/presentation/`: new adapter. Deli Counter is the source of collision
+  truth, so composition uses DC's OWN composer (`portable_building.build_package`
+  -> `themed_tscn` fit-to-greybox rotation) rather than a reimplementation: it
+  strips the greybox to its floors+collision base (walkable shell), fits each
+  themed module onto its slot footprint, bakes markers, and runs a placement gate
+  + closure check. Surfaces a non-blocking placement-mismatch advisory and a
+  blocking dangling-ref finding.
+- `assets/scripts/run_presentation_compose.py`: thin LF driver that adds the DC
+  repo to `sys.path` and calls `build_package` out-of-process (bpy-free), with a
+  stable `building_id=site` so Lux resolves `presentation/site.tscn` without
+  reading DC's building_id at plan time. Clear pygltflib hint on missing dep.
+- `apps/cli/commands`: builds the compose job spec (DC slots/gameplay/greybox +
+  Zoo kit modules) and repoints `lux_apply.composed_scene` at the composed scene.
+- `packages/staging/godot_project.py`: `stage_godot_project` now carries sibling
+  SUBDIRECTORIES (skipping `addons`/`.godot`) so the themed scene's
+  `res://art/zoo/*.glb` refs resolve under Lux — the documented closure follow-up.
+- Composition uses Deli Counter's fit-to-collision composer as the single
+  source of truth (no LF-side naive/raw-`rot_y` composer).
+- Tests: planner locks `presentation_compose` presence + `lux_apply` dependency;
+  the P2 integration test asserts `presentation/site.tscn` is composed and lit.
+  Fast-suite `deli_counter` fixture gains a stub `portable_building.build_package`.
+  154 passed, 11 skipped.
+
 ## [0.11.4] - Export localizer: preset-dir trailing slash + bare res:// asset refs
 
 Two portable-export closure bugs, both found opening a real Category 5 export in

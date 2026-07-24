@@ -331,6 +331,27 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                     "art_mode": "vertex-color",
                     "theme": getattr(model, "patina_theme", "") or "default",
                 }
+        elif job.adapter_id == "presentation":
+            # Compose the themed scene with DC's own collision-fit composer.
+            # Inputs: DC slots + gameplay + greybox glb (collision truth), and
+            # the themed Zoo kit modules that fill the slots.
+            repos = ws.load_tools_local().get("repositories", {})
+            deli_out = jobs_dir / _deli_for(plan, job)
+            kit_job = next((d for d in job.depends_on if "zoo_kit_build" in d), None)
+            modules_dir = (str(_latest_output(jobs_dir / kit_job, "."))
+                           if kit_job else "")
+            specs[job.job_id] = {
+                "deli_repo": str(repos.get("deli_counter", "")),
+                "slots_path": str(_latest_output(deli_out, "shell.slots.json")),
+                "gameplay_path": str(_latest_output(deli_out, "shell.gameplay.json")),
+                "greybox_glb": str(_latest_output(deli_out, "shell.glb")),
+                "modules_dir": modules_dir,
+                "theme": model.theme or batch.get("theme_family", "") or "delco",
+                "style": 1,
+                # A partial kit (some slots keep greybox) is a quality finding,
+                # not a crash — the composer still emits a complete walkable scene.
+                "exit_advisory": True,
+            }
         elif job.adapter_id == "lux":
             if job.stage_id == "lux_fixture_gate":
                 repos = ws.load_tools_local().get("repositories", {})
@@ -345,10 +366,21 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                     "staging_dir": str(ws.internal_dir / "staging" / job.job_id),
                 }
                 continue
-            zoo_dress_job = job.depends_on[0]
+            # Lux now lights the COMPOSED themed presentation scene (DC's
+            # collision-fit composer output), not the raw greybox site. This is
+            # the fix for the --art contract: the compose stage produces
+            # <compose>/presentation/site.tscn with the themed modules on DC's
+            # collision, and Lux lights THAT.
+            compose_job = next((d for d in job.depends_on
+                                if "presentation_compose" in d), None)
             lot_job = next((j.job_id for j in plan.graph.jobs()
                             if j.stage_id == "lot_assemble"
                             and j.candidate_id == job.candidate_id), None)
+            if compose_job:
+                composed_scene = _latest_output(jobs_dir / compose_job,
+                                                "presentation/site.tscn")
+            else:  # graybox-only fallback (should not happen under LAYER_ART)
+                composed_scene = _latest_output(jobs_dir / lot_job, "site.tscn")
             repos = ws.load_tools_local().get("repositories", {})
             lux_repo = Path(str(repos.get("lux", "")))
             lot_repo = Path(str(repos.get("lot", "")))
@@ -356,8 +388,7 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
             specs[job.job_id] = {
                 "preset": _preset_for(model),
                 "quality_tier": "standard",
-                "composed_scene": str(_latest_output(jobs_dir / (lot_job or zoo_dress_job),
-                                                     "site.tscn")),
+                "composed_scene": str(composed_scene),
                 "addon_dir": str(lux_repo / "addons" / "lux"),
                 "extra_addon_dirs": [str(lot_repo / "godot" / "addons" / "lot")],
                 "driver_src": str(driver),
@@ -1119,6 +1150,64 @@ def cmd_certify(args) -> int:
         print(f"  {aid:<14} {v or '(no version reported)'}")
     print("\nReminder: certify only what the real-tool smoke has passed "
           "(LF_TOOLS_DIR=... pytest tests/real_tools).")
+    return EXIT_OK
+
+
+def cmd_walk(args) -> int:
+    """Build (and optionally open) a DEV-ONLY first-person walk preview that
+    wraps the composed themed level so you can walk it and make refinements.
+
+    This is deliberately NOT part of the drop-in package: the package is content
+    a stranger instances into their own project, so it stays project-agnostic. A
+    player needs its own project, so the preview is a separate, throwaway project
+    that instances the same content scene and adds LF's dependency-free player. It
+    is never exported.
+    """
+    import subprocess
+    from packages.preview.walk_preview import build_walk_preview
+
+    ws = _ws(args)
+    mission_id = args.mission_id
+    content_dir = (ws.jobs_dir / f"{mission_id}.presentation_compose" / "out"
+                   / "presentation")
+    if not content_dir.exists():
+        print(f"no composed level for {mission_id}; run `run {mission_id} --art` "
+              f"first (the walk preview wraps the presentation_compose output)",
+              file=sys.stderr)
+        return EXIT_BLOCKED
+
+    player_src = Path(__file__).resolve().parents[3] / "assets" / "godot"
+    dest = ws.internal_dir / "preview" / f"{mission_id}_walk"
+    try:
+        report = build_walk_preview(content_dir, player_src, dest, name=mission_id)
+    except FileNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return EXIT_BLOCKED
+
+    origin = report["spawn_transform"][9:]
+    print(f"walk preview: {report['dest']}")
+    print(f"  wraps {report['level_scene']} + player at {report['spawn_source']} "
+          f"(x={origin[0]}, y={origin[1]}, z={origin[2]})")
+
+    godot = str(ws.load_tools_local().get("godot_executable") or "")
+    launch = None
+    if getattr(args, "play", False):
+        launch = [godot, "--path", report["dest"]]
+    elif getattr(args, "open", False):
+        launch = [godot, "--path", report["dest"], "-e"]
+    if launch and godot:
+        print(f"launching Godot: {' '.join(launch)}")
+        try:
+            subprocess.Popen(launch)
+        except OSError as exc:
+            print(f"could not launch Godot: {exc}", file=sys.stderr)
+            return EXIT_CONFIG
+    else:
+        if launch and not godot:
+            print("godot_executable not configured in tools.local.json; "
+                  "open it manually:", file=sys.stderr)
+        print(f'  open:  & "{godot or "godot"}" --path "{report["dest"]}" -e')
+        print(f'  play:  & "{godot or "godot"}" --path "{report["dest"]}"')
     return EXIT_OK
 
 

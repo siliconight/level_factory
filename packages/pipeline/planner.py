@@ -63,6 +63,7 @@ _STAGE_ZOO_KIT = "zoo_kit_build"
 _STAGE_PATINA_BASE = "patina_apply"
 _STAGE_PATINA_DRESS = "patina_dressing"
 _STAGE_ZOO_DRESS = "zoo_dressing_build"
+_STAGE_COMPOSE = "presentation_compose"
 _STAGE_LUX = "lux_apply"
 _STAGE_ZOO_FIXTURES = "zoo_fixtures_build"
 _STAGE_LUX_FIXTURE_GATE = "lux_fixture_gate"
@@ -245,13 +246,31 @@ def plan_mission(
             depends_on=[patina_dress_jid, zoo_kit_jid],
             expected_outputs=[],  # zoo names by building_id at exec; adapter checks
         ))
-        # Lux apply (final PS2 look) over the composed presentation scene.
+        # Presentation compose — THE step that makes --art mean "themed level".
+        # Deli Counter is the source of collision truth, so its own composer
+        # (portable_building -> themed_tscn) fits each themed Zoo module onto the
+        # greybox slot footprint and keeps the greybox floors+collision as the
+        # walkable base. Without this, Lux would light the raw greybox and --art
+        # would ship a grey level (the contract gap this closes). Runs on DC's
+        # bpy-free scene serializer, so it's pure-Python (no Blender/Godot).
+        deli_sel_jid = job_id(brief.mission_id, _STAGE_DELI,
+                              candidate=selected_candidate)
+        compose_jid = job_id(brief.mission_id, _STAGE_COMPOSE)
+        plan.graph.add(Job(
+            job_id=compose_jid, mission_id=brief.mission_id,
+            stage_id=_STAGE_COMPOSE, adapter_id="presentation",
+            candidate_id=selected_candidate, resource_class="python_cpu",
+            depends_on=[deli_sel_jid, zoo_kit_jid, zoo_dress_jid],
+            expected_outputs=["presentation/site.tscn"],
+        ))
+        # Lux apply (final PS2 look) over the COMPOSED themed presentation scene
+        # (not the greybox site) — this is the wiring that was missing.
         lux_jid = job_id(brief.mission_id, _STAGE_LUX)
         plan.graph.add(Job(
             job_id=lux_jid, mission_id=brief.mission_id,
             stage_id=_STAGE_LUX, adapter_id="lux",
             candidate_id=selected_candidate, resource_class="godot_headless",
-            depends_on=[zoo_dress_jid],
+            depends_on=[compose_jid],
             expected_outputs=["lux.applied.tscn", "lux.quality.json",
                               "lux.validation.json"],
         ))

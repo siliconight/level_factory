@@ -83,8 +83,26 @@ def test_graybox_base_is_just_deli_lot_laser():
 def test_art_layer_has_full_art_pass_but_no_dispatch():
     st = _stages(frozenset({LAYER_ART}))
     assert {"pixelcoat_build", "zoo_kit_build", "patina_apply", "patina_dressing",
-            "zoo_dressing_build", "lux_apply"} <= st
+            "zoo_dressing_build", "presentation_compose", "lux_apply"} <= st
     assert "dispatch_handoff" not in st  # art alone never runs the gameplay layer
+
+
+def test_art_layer_composes_before_lux():
+    """The --art contract: Lux must light the COMPOSED themed scene, not the
+    greybox. So a presentation_compose stage exists and lux_apply depends on it,
+    and compose depends on the DC shell + the themed Zoo kit."""
+    plan = plan_mission(_brief(), seed_base=1997, layers=frozenset({LAYER_ART}),
+                        selected_candidate=_SEL)
+    jobs = {j.stage_id: j for j in plan.graph.jobs()}
+    assert "presentation_compose" in jobs
+    compose = jobs["presentation_compose"]
+    assert compose.adapter_id == "presentation"
+    # Compose is fed by the DC shell (collision truth) and the Zoo kit.
+    assert any("deli_generate" in d for d in compose.depends_on)
+    assert any("zoo_kit_build" in d for d in compose.depends_on)
+    # Lux lights the composed scene, not the greybox/dressing directly.
+    lux = jobs["lux_apply"]
+    assert lux.depends_on == [compose.job_id]
 
 
 def test_gameplay_layer_alone_puts_dispatch_on_graybox():
