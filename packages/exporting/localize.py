@@ -57,6 +57,7 @@ class LocalizeReport:
     stripped_scenes: list[str] = field(default_factory=list)
     sanitized_json: list[str] = field(default_factory=list)
     unresolved: list[str] = field(default_factory=list)
+    repaired_bare_refs: list[str] = field(default_factory=list)
     entry_scene: str | None = None
 
     def as_dict(self) -> dict:
@@ -67,6 +68,7 @@ class LocalizeReport:
             "stripped_scenes": sorted(self.stripped_scenes),
             "sanitized_json": sorted(self.sanitized_json),
             "unresolved": sorted(self.unresolved),
+            "repaired_bare_refs": sorted(self.repaired_bare_refs),
             "entry_scene": self.entry_scene,
         }
 
@@ -118,7 +120,12 @@ def _localize_script(tool: str, rest: str, addon_sources: dict[str, Path],
     except OSError as exc:
         report.unresolved.append(f"addons/{tool}/{rest}: copy failed ({exc})")
         return None
-    return (Path(_RUNTIME_DIR) / tool / rest).as_posix()
+    rel = (Path(_RUNTIME_DIR) / tool / rest).as_posix()
+    # Preserve a trailing slash: lux_root.gd holds a preset-DIR path
+    # ("res://addons/lux/presets/") and appends filenames (dir + f). Path()
+    # normalizes the slash away, which produced "res://runtime/lux/presetsX.tres"
+    # (no separator) on hardware. Keep it a directory ref if <rest> was one.
+    return rel + "/" if rest.endswith("/") else rel
 
 
 def _rewrite_text(path: Path, export_dir: Path, addon_sources: dict[str, Path],
@@ -254,6 +261,34 @@ def localize_export(export_dir: Path, *, addon_sources: dict[str, Path],
                         f"{f.relative_to(export_dir).as_posix()}: rewrite failed ({exc})")
         if not changed:
             break
+
+    # Repair dangling bare res://<file> refs to their bundled assets/ copy.
+    # A presentation scene generated in a DIFFERENT staging context (Lux apply
+    # stages the building at res://<name>) can reference res://shell.glb while
+    # the SAME asset was bundled to res://assets/shell.glb from the site scene's
+    # absolute ref. The absolute-ref rewriter never sees a bare res:// path, so
+    # reconcile every root-level res://<name> against what actually landed in
+    # assets/. A ref that already points into assets/ can't match (it is not a
+    # root-level "res://<name>"), so this is idempotent.
+    assets_dir = export_dir / _ASSETS_DIR
+    if assets_dir.is_dir():
+        bundled = {a.name: f"{_ASSETS_DIR}/{a.name}"
+                   for a in assets_dir.iterdir() if a.is_file()}
+        for f in sorted(export_dir.rglob("*")):
+            if not (f.is_file() and f.suffix in _TEXT_SUFFIXES):
+                continue
+            try:
+                text = f.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            new = text
+            for name, rel in bundled.items():
+                new = re.sub(r'res://' + re.escape(name) + r'(?=["\'\s)])',
+                             f'res://{rel}', new)
+            if new != text:
+                f.write_text(new, encoding="utf-8")
+                report.repaired_bare_refs.append(
+                    f.relative_to(export_dir).as_posix())
     return report
 
 

@@ -3,6 +3,31 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.11.4] - Export localizer: preset-dir trailing slash + bare res:// asset refs
+
+Two portable-export closure bugs, both found opening a real Category 5 export in
+Godot 4.7 (the build/art pass was clean; these are export-localizer only).
+
+- `packages/exporting/localize.py`:
+  1. Localizing an addon DIRECTORY ref dropped its trailing slash
+     (`res://addons/lux/presets/` -> `res://runtime/lux/presets`), so
+     `lux_root.gd`'s `dir + filename` load produced
+     `res://runtime/lux/presetsX.tres` (no separator) and every Lux preset
+     failed to load. `_localize_script` now preserves the trailing slash when
+     `<rest>` is a directory ref.
+  2. A presentation scene (Lux apply) references the building as a bare
+     `res://shell.glb`, but the same asset was bundled to
+     `res://assets/shell.glb` from the site scene's absolute ref — and the
+     absolute-ref rewriter never sees a bare `res://` path. A new post-pass
+     reconciles every root-level `res://<name>` against what actually landed in
+     `assets/`. Idempotent (a ref already under `assets/` can't re-match).
+
+### Verified
+- Focused repro of both bugs now passes; fast suite 148 passed / 11 skipped.
+  The same two fixes, hand-applied to the existing Category 5 export, make it
+  open and instantiate in Godot 4.7 (site shells + Lux presets resolve); fresh
+  exports now apply them automatically.
+
 ## [0.11.3] - Staging runs a real Godot --import pass to register class_name types
 
 - `packages/staging/godot_project.py`: after staging the throwaway project, run
