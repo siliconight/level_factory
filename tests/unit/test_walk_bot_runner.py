@@ -136,7 +136,14 @@ def test_a_skipped_visual_pass_is_not_a_pass_and_not_a_failure():
         "a level that shipped unlooked-at must say so in the log")
 
 
+def _as_x11_host(monkeypatch):
+    """Pin the platform so the X-server tests below mean the same thing on a
+    Windows dev machine as they do in Linux CI."""
+    monkeypatch.setattr(walk_bot, "_needs_x_display", lambda: True)
+
+
 def test_headless_host_without_xvfb_reports_a_skip(tmp_path, monkeypatch):
+    _as_x11_host(monkeypatch)
     monkeypatch.delenv("DISPLAY", raising=False)
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
     monkeypatch.setattr(walk_bot.shutil, "which", lambda _n: None)
@@ -145,13 +152,39 @@ def test_headless_host_without_xvfb_reports_a_skip(tmp_path, monkeypatch):
 
 
 def test_an_existing_display_is_used_directly(monkeypatch):
+    _as_x11_host(monkeypatch)
     monkeypatch.setenv("DISPLAY", ":0")
     assert walk_bot.display_wrapper() == []
 
 
 def test_xvfb_is_allocated_a_free_server(tmp_path, monkeypatch):
+    _as_x11_host(monkeypatch)
     monkeypatch.delenv("DISPLAY", raising=False)
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
     monkeypatch.setattr(walk_bot.shutil, "which", lambda _n: "/usr/bin/xvfb-run")
     # -a matters: two missions checked at once must not fight over :99
     assert walk_bot.display_wrapper() == ["/usr/bin/xvfb-run", "-a"]
+
+
+@pytest.mark.parametrize("plat", ["win32", "darwin", "cygwin"])
+def test_a_desktop_os_without_DISPLAY_still_renders(monkeypatch, plat):
+    """DISPLAY is an X11 variable. A Windows or macOS session has a window
+    server and never sets it, so probing for it skipped the visual pass on
+    every Windows dev machine while reporting it as a host limitation.
+    """
+    monkeypatch.setattr(walk_bot.sys, "platform", plat)
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.setattr(walk_bot.shutil, "which", lambda _n: None)
+    assert walk_bot.display_wrapper() == [], (
+        "a desktop OS must not be mistaken for a headless host")
+
+
+def test_linux_is_still_probed(monkeypatch):
+    # the other half of the contract: real headless Linux must keep skipping
+    # rather than launching a renderer that cannot open a window
+    monkeypatch.setattr(walk_bot.sys, "platform", "linux")
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.setattr(walk_bot.shutil, "which", lambda _n: None)
+    assert walk_bot.display_wrapper() is None

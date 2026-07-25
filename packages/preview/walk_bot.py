@@ -27,6 +27,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 # The walk bot writes its verdict to a file and also exits non-zero on failure.
@@ -74,9 +75,28 @@ def run_walk_bot(godot_exe, project_dir, *, out_json=None, timeout=600) -> dict:
     return _read_verdict(out, proc, "walk bot")
 
 
+def _needs_x_display() -> bool:
+    """True where a renderer needs an X/Wayland server that we can go supply.
+
+    DISPLAY/WAYLAND_DISPLAY are X11 and Wayland concepts. Windows and macOS
+    desktop sessions always have a window server and expose no equivalent
+    variable to probe, so reading their absence as "no display" skips the visual
+    pass on every Windows dev machine -- permanently, while reporting it as a
+    property of the host rather than a bug. That is the worst failure mode a
+    gate has: it looks like it ran.
+
+    Where this is wrong it is wrong loudly. A Windows service account with no
+    desktop will fail to open a window and the engine's own error surfaces as
+    BotUnavailable, which is a message someone can act on.
+    """
+    return sys.platform.startswith(("linux", "freebsd", "openbsd", "netbsd"))
+
+
 def display_wrapper() -> list[str]:
     """Command prefix that gives the visual bot a display, or [] if it already
     has one, or None if there is no way to get one here."""
+    if not _needs_x_display():
+        return []
     if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
         return []
     xvfb = shutil.which("xvfb-run")

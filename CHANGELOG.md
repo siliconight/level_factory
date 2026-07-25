@@ -3,6 +3,31 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.13.7] - the visual pass no longer skips itself on Windows
+
+First run on a Windows dev machine reported `shot bot: SKIPPED -- no display and
+no xvfb-run`. The host had a display; the probe was asking the wrong question.
+
+`display_wrapper` decided whether a renderer was available by reading `DISPLAY`
+and `WAYLAND_DISPLAY`. Those are X11 and Wayland variables. Windows and macOS
+sessions have a window server and never set them, so the check concluded
+"headless" on every Windows machine and skipped the visual pass permanently —
+while phrasing the skip as a property of the host. A gate that reports a clean
+skip is worse than one that fails, because nothing about the log says to go
+look.
+
+- `packages/preview/walk_bot.py`: the X-server probe now runs only where an X
+  server is the thing in question (linux, the BSDs). Elsewhere the wrapper is
+  empty and the engine renders directly. Where that assumption is wrong — a
+  Windows service account with no desktop — the engine fails to open a window
+  and surfaces as `BotUnavailable`, which is an actionable message rather than a
+  silent pass.
+- `tests/unit/test_walk_bot_runner.py`: both halves pinned. A desktop OS without
+  `DISPLAY` must render (`win32`, `darwin`, `cygwin`); headless Linux without
+  xvfb must still skip rather than launch a renderer that cannot open a window.
+  The existing X-server tests now pin the platform, so they assert the same
+  thing on a Windows machine as they do in Linux CI.
+
 ## [0.13.6] - walk preview self-checks itself: traversal bot + visual bot
 
 The preview existed so a human could find out whether a level was broken. Now
