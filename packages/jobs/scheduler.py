@@ -262,6 +262,32 @@ class Scheduler:
         )
         job.build_fingerprint = fp.digest()
 
+        # FINGERPRINT RECEIPT (cache honesty): record WHAT this decision was
+        # based on -- the digest and every per-input hash -- next to the job,
+        # on every evaluation including cache hits. When a cache hit looks
+        # suspicious ("but I changed the slots!"), the receipt shows exactly
+        # which input hashes matched instead of leaving it to archaeology.
+        try:
+            import datetime as _dt
+            import json as _json
+            receipt_dir = self.jobs_dir / job.job_id
+            receipt_dir.mkdir(parents=True, exist_ok=True)
+            (receipt_dir / "fingerprint.last.json").write_text(_json.dumps({
+                "digest": job.build_fingerprint,
+                "adapter_version": adapter.adapter_version,
+                # The tool revision the artifact came from. Carries a
+                # "+dirty.<hash>" suffix when the tool repo has uncommitted
+                # tracked edits -- without it, an on-disk fix that has not
+                # been committed keeps cache-hitting the pre-fix artifact.
+                "tool_version": probe.tool_version,
+                "repository_commit": probe.repository_commit,
+                "inputs": raw_inputs,
+                "evaluated_utc": _dt.datetime.now(
+                    _dt.timezone.utc).isoformat(),
+            }, indent=2, sort_keys=True, default=str), encoding="utf-8")
+        except OSError:
+            pass  # a receipt must never break the build
+
         cached = self.cache.lookup(job.build_fingerprint)
         if cached is not None:
             self.cache.materialize(cached, work_dir)

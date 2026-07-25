@@ -43,7 +43,10 @@ def _driver_path() -> Path:
 
 class PresentationAdapter(BaseAdapter):
     adapter_id = "presentation"
-    adapter_version = "0.1.1"
+    # 0.1.2: compose gates (z-fight/ladder/lineage) + dressing/fixtures
+    # layers -- version participates in the build fingerprint, so bumping it
+    # guarantees every mission recomposes under the new gates.
+    adapter_version = "0.2.0"
     capabilities = frozenset(
         {"themed_compose", "collision_fit", "greybox_base", "placement_gate",
          "marker_bake", "closure_check"}
@@ -101,6 +104,13 @@ class PresentationAdapter(BaseAdapter):
                 g.name: hash_file(g)
                 for g in sorted(Path(str(mods)).rglob("*.glb"))
             }
+        # Content layers (dressing props / light fixtures) are compose inputs
+        # exactly like the kit: a changed layer MUST invalidate the compose,
+        # or a stale prop pass ships against fresh architecture.
+        for key in ("dressing_glb", "fixtures_glb"):
+            lp = job_spec.get(key)
+            if lp and Path(str(lp)).exists():
+                fp[key + "_hash"] = hash_file(Path(str(lp)))
         return fp
 
     def plan_commands(self, job_spec, context) -> Sequence[PlannedCommand]:
@@ -122,6 +132,12 @@ class PresentationAdapter(BaseAdapter):
         ]
         if job_spec.get("gameplay_path"):
             args += ["--gameplay", str(job_spec["gameplay_path"])]
+        # content layers: bundled + instanced by the composer, lineage-guarded
+        # by the driver (a layer from a different build fails the job).
+        if job_spec.get("dressing_glb"):
+            args += ["--dressing", str(job_spec["dressing_glb"])]
+        if job_spec.get("fixtures_glb"):
+            args += ["--fixtures", str(job_spec["fixtures_glb"])]
 
         return [PlannedCommand(
             executable=Path(str(py)), arguments=tuple(args),

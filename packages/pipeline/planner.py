@@ -260,7 +260,8 @@ def plan_mission(
             job_id=compose_jid, mission_id=brief.mission_id,
             stage_id=_STAGE_COMPOSE, adapter_id="presentation",
             candidate_id=selected_candidate, resource_class="python_cpu",
-            depends_on=[deli_sel_jid, zoo_kit_jid, zoo_dress_jid],
+            depends_on=[deli_sel_jid, zoo_kit_jid, zoo_dress_jid,
+                        job_id(brief.mission_id, _STAGE_ZOO_FIXTURES)],
             expected_outputs=["presentation/site.tscn"],
         ))
         # Lux apply (final PS2 look) over the COMPOSED themed presentation scene

@@ -6,6 +6,7 @@ That isolation (TDD 5.1, 44.1, 44.2) is the whole point of the adapter layer.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 from dataclasses import dataclass, field
@@ -174,14 +175,66 @@ class BaseAdapter:
                 return m.group(1)
         return None
 
+    # Cap on how much modified source is hashed into the dirty marker. A tool
+    # repo's tracked sources are small; anything past this is not source.
+    _DIRTY_BYTE_CAP = 8 * 1024 * 1024
+
     @staticmethod
     def _read_git_commit(repo: Path) -> str | None:
+        """The tool revision a build will actually run: HEAD, plus a marker
+        for uncommitted TRACKED changes.
+
+        HEAD alone is not the revision that runs. Editing a tool's source
+        changes its output while leaving HEAD where it was, so a fingerprint
+        keyed on HEAD alone keeps serving the pre-edit artifact from cache
+        until someone happens to commit -- silently, with no failure to
+        notice. That is not hypothetical: a shell whose ladder slab-hole had
+        been fixed to bias onto the approach side kept shipping the old
+        symmetric cut (an unclimbable ladder) because the fix was staged on
+        disk but not yet committed, and every rebuild cache-hit.
+
+        Only TRACKED modifications count. Untracked files are deliberately
+        excluded: pipelines write generated inputs (specs, work dirs) into
+        tool repos, and folding those in would change the revision on every
+        run and destroy caching altogether. The marker covers file CONTENT,
+        not just names, so reverting an edit restores the original digest.
+        """
+        head = BaseAdapter._git(repo, "rev-parse", "HEAD")
+        if head is None:
+            return None
+        # ``diff HEAD --name-only`` gives bare paths of tracked files that
+        # differ from HEAD, staged or not, and excludes untracked ones by
+        # construction -- unlike ``status --porcelain``, whose status column
+        # has to be sliced off (and whose leading space is easy to lose).
+        dirty = BaseAdapter._git(repo, "diff", "HEAD", "--name-only")
+        if not dirty:
+            return head
+        h = hashlib.sha256()
+        for rel in sorted(dirty.splitlines()):
+            rel = rel.strip()
+            if not rel:
+                continue
+            h.update(rel.encode("utf-8", "replace"))
+            h.update(b"\0")
+            path = repo / rel
+            try:
+                if path.is_file() and path.stat().st_size <= \
+                        BaseAdapter._DIRTY_BYTE_CAP:
+                    h.update(path.read_bytes())
+                else:
+                    h.update(b"<absent-or-oversized>")
+            except OSError:
+                h.update(b"<unreadable>")
+        return f"{head}+dirty.{h.hexdigest()[:16]}"
+
+    @staticmethod
+    def _git(repo: Path, *args: str) -> str | None:
         try:
             out = subprocess.run(
-                ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                ["git", "-C", str(repo), *args],
                 capture_output=True,
                 text=True,
-                timeout=10,
+                timeout=20,
             )
         except (OSError, subprocess.SubprocessError):
             return None

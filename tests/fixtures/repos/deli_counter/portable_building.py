@@ -15,11 +15,24 @@ import shutil
 
 
 def build_package(slots_path, gameplay_path, module_dir, out_dir, *,
-                  theme, style=1, building_id=None, greybox_glb=None):
+                  theme, style=1, building_id=None, greybox_glb=None,
+                  dressing_glb=None, fixtures_glb=None):
     if os.path.exists(out_dir):
         shutil.rmtree(out_dir)
     art = os.path.join(out_dir, "art", "zoo")
     os.makedirs(art, exist_ok=True)
+
+    # content layers (real DC >= 0.88 bundles these to art/<layer>/ and
+    # instances them at identity; the stub just records the bundling).
+    content_layers = {}
+    for layer_name, layer_glb in (("dressing", dressing_glb),
+                                  ("fixtures", fixtures_glb)):
+        if layer_glb and os.path.exists(layer_glb):
+            ldir = os.path.join(out_dir, "art", layer_name)
+            os.makedirs(ldir, exist_ok=True)
+            shutil.copy2(layer_glb, os.path.join(
+                ldir, os.path.basename(layer_glb)))
+            content_layers[layer_name] = os.path.basename(layer_glb)
 
     slots = json.load(open(slots_path, encoding="utf-8"))
     bid = building_id or slots.get("building_id") or "building"
@@ -105,6 +118,13 @@ def build_package(slots_path, gameplay_path, module_dir, out_dir, *,
                        "module_instances": len(bundled)},
         "closure": {"absolute_path_count": 0, "absolute_paths": [],
                     "dangling_refs": [], "portable": True},
+        # real DC >= 0.88 manifest keys the LF compose driver gates on:
+        # a composer that doesn't report its z-fight check doesn't ship.
+        "zfight_check": {"ok": True, "pairs": 0,
+                         "solids": len(bundled) + (1 if walkable else 0)},
+        "ladder_climb_volumes": 0,
+        "style_fallback_to_01": 0,
+        "content_layers": content_layers,
     }
     open(os.path.join(out_dir, "portable_resource_manifest.json"), "w",
          encoding="utf-8").write(json.dumps(manifest, indent=2, sort_keys=True))
