@@ -124,6 +124,11 @@ def build_parser() -> argparse.ArgumentParser:
                     help="launch Godot editor on the preview project")
     sp.add_argument("--play", action="store_true",
                     help="launch Godot and run the preview (walk immediately)")
+    sp.add_argument("--no-bot", action="store_true",
+                    help="skip the headless traversal+visual self-check")
+    sp.add_argument("--no-shots", action="store_true",
+                    help="run the traversal check but skip the visual pass "
+                         "(the visual pass needs a display)")
     sp.set_defaults(func=cmd_walk)
 
     sp = sub.add_parser("export", help="export a portable mission package")

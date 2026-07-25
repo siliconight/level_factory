@@ -3,6 +3,67 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.13.6] - walk preview self-checks itself: traversal bot + visual bot
+
+The preview existed so a human could find out whether a level was broken. Now
+the level finds out first, and the human is only asked to look at something that
+already has a name.
+
+- `assets/godot/walk_bot.gd`: a stalled climb is diagnosed instead of merely
+  reported. The bot names the collider in the way, measures the slab aperture in
+  ladder-local axes, compares it against the climb column the capsule needs
+  (`CLIMB_STANDOFF +/- CAPSULE_R`), and states the fix. Its capsule and standoff
+  are now pinned to the same constants as the player and DC's climb contract —
+  a bot of a different size proves nothing about the player.
+- `assets/godot/shot_bot.gd` (new): the visual pass. Renders canonical stations
+  (exterior, each ladder's approach, each ladder's top-of-climb) and measures two
+  things physics cannot see. VOID FRACTION: the camera environment is overridden
+  to a flat magenta no material produces, so leftover background pixels are
+  places the camera looked and found nothing. JITTER DIFF: each station renders
+  twice, one millimetre apart — solid geometry does not change at that scale,
+  but coplanar surfaces flip which one wins the depth test, so a z-fighting pair
+  lights up. No golden baselines: both measurements compare a frame against
+  another frame of the same build, so the pass is meaningful the first time it
+  runs on a level nobody has seen.
+- `packages/preview/walk_bot.py` (new): runs both bots and folds their verdicts
+  into a pass/fail. Reads the verdict FILE rather than the engine's exit code
+  (Godot exits non-zero over a missing audio device; that is not a level
+  defect), and reports engine trouble as engine trouble. The visual pass needs a
+  display — where there is none it is SKIPPED and says so in the log, never
+  silently counted as a pass.
+- `packages/preview/walk_preview.py`: copies the bots into the preview project
+  alongside the player; reports them as `bots`.
+- `apps/cli`: `walk` runs the self-check after the import pass and returns
+  EXIT_FINDINGS when it fails — the preview is still built and handed over,
+  because a failing check is exactly when you want to go look. `--no-bot` and
+  `--no-shots` opt out.
+
+Calibration, both directions, on the same mission: a correctly composed package
+scored 0.68% jitter at worst (edge aliasing on ladder rungs) and passed; the
+same package rebuilt with un-stripped greybox walls under the themed modules
+scored 30.67% and failed. The threshold sits at 2%.
+
+## [0.13.5] - build fingerprint: uncommitted tool edits invalidate the cache
+
+A Deli Counter fix to the ladder slab-hole never reached a shipped package. The
+fix was on disk but not committed, so `git rev-parse HEAD` was unchanged, so the
+build fingerprint was unchanged, so every rebuild cache-hit the pre-fix shell and
+the ladder stayed unclimbable. Nothing failed — the pipeline just kept handing
+back the old artifact. This is the compose fingerprint anomaly, root-caused.
+
+- `packages/adapters/sdk.py`: `_read_git_commit` now returns HEAD plus a
+  `+dirty.<sha16>` marker over the CONTENT of tracked files that differ from
+  HEAD, so an on-disk edit changes the revision the fingerprint is keyed on and
+  reverting it restores the original digest. Untracked files are deliberately
+  excluded: pipelines write generated specs and work dirs into tool repos, and
+  folding those in would churn the revision on every run and destroy caching.
+- `packages/jobs/scheduler.py`: the per-job fingerprint receipt records
+  `tool_version` and `repository_commit`, so a stale artifact can be traced to
+  the revision that produced it.
+- `tests/unit/test_tool_revision_dirty.py` (new): pins the contract — clean tree
+  is the bare sha, a tracked edit changes it, a revert restores it, untracked
+  generated inputs do not touch it.
+
 ## [0.13.4] - `run --force`: re-evaluate stages when an upstream changed
 
 The scheduler's crash-resume pre-skips any already-succeeded job by recorded

@@ -340,12 +340,28 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
             kit_job = next((d for d in job.depends_on if "zoo_kit_build" in d), None)
             modules_dir = (str(_latest_output(jobs_dir / kit_job, "."))
                            if kit_job else "")
+
+            def _layer_glb(dep_key: str, suffix: str) -> str:
+                """The dressing/fixtures GLB a dependency job published --
+                the CONTENT LAYERS the composed scene instances (props +
+                light-fixture hardware). Resolved by suffix because the
+                filename carries the building id."""
+                dep = next((d for d in job.depends_on if dep_key in d), None)
+                if not dep:
+                    return ""
+                hits = sorted((jobs_dir / dep / "out").glob(f"*{suffix}"))
+                return str(hits[-1]) if hits else ""
+
+            dressing_glb = _layer_glb("zoo_dressing_build", "_dressing.glb")
+            fixtures_glb = _layer_glb("zoo_fixtures_build", "_fixtures.glb")
             specs[job.job_id] = {
                 "deli_repo": str(repos.get("deli_counter", "")),
                 "slots_path": str(_latest_output(deli_out, "shell.slots.json")),
                 "gameplay_path": str(_latest_output(deli_out, "shell.gameplay.json")),
                 "greybox_glb": str(_latest_output(deli_out, "shell.glb")),
                 "modules_dir": modules_dir,
+                "dressing_glb": dressing_glb,
+                "fixtures_glb": fixtures_glb,
                 "theme": model.theme or batch.get("theme_family", "") or "delco",
                 "style": 1,
                 # A partial kit (some slots keep greybox) is a quality finding,
@@ -1185,10 +1201,57 @@ def cmd_walk(args) -> int:
         print(str(exc), file=sys.stderr)
         return EXIT_BLOCKED
 
+    # IMPORT GATE: a freshly built preview project has no .godot import
+    # artifacts, and Godot only imports resources through an editor/import
+    # pass -- launching straight into play loads NONE of the new module GLBs
+    # (invisible walls over live collision, dead ladders). Run the headless
+    # import HERE so the preview is playable the moment it is handed over;
+    # a human must never have to remember `-e` first.
+    godot_exe = str(ws.load_tools_local().get("godot_executable") or "")
+    if godot_exe:
+        try:
+            subprocess.run([godot_exe, "--headless", "--path", report["dest"],
+                            "--import"], capture_output=True, timeout=600)
+            print("  imported: resources ready (headless --import pass)")
+        except (OSError, subprocess.SubprocessError) as exc:
+            print(f"  WARNING: headless import failed ({exc}) -- open once "
+                  f"with -e before playing", file=sys.stderr)
+
     origin = report["spawn_transform"][9:]
     print(f"walk preview: {report['dest']}")
     print(f"  wraps {report['level_scene']} + player at {report['spawn_source']} "
           f"(x={origin[0]}, y={origin[1]}, z={origin[2]})")
+
+    # TRAVERSAL + VISUAL GATE. The preview exists so a human can find out whether
+    # the level is broken. The bots find that out first, in seconds, every time
+    # -- so the failure modes we already know how to detect (an unclimbable
+    # ladder, a wall fighting the greybox underneath it) stop being something a
+    # person has to notice. Requires the import pass above: the bots load the
+    # same resources the player would.
+    bot_rc = EXIT_OK
+    if godot_exe and report.get("bots") and not getattr(args, "no_bot", False):
+        from packages.preview import walk_bot as _bot
+        walk_v = shot_v = None
+        try:
+            if "walk_bot.gd" in report["bots"]:
+                walk_v = _bot.run_walk_bot(godot_exe, report["dest"])
+            if "shot_bot.gd" in report["bots"] and not getattr(
+                    args, "no_shots", False):
+                shot_v = _bot.run_shot_bot(godot_exe, report["dest"])
+        except _bot.BotUnavailable as exc:
+            # The engine failed, not the level. Say which -- reporting this as a
+            # level defect would train people to ignore the gate.
+            print(f"  WARNING: self-check could not run: {exc}", file=sys.stderr)
+        else:
+            ok, lines = _bot.summarize(walk_v, shot_v)
+            print("self-check:")
+            for line in lines:
+                print(line)
+            if not ok:
+                print("  the preview is built, but this level does not pass its "
+                      "own traversal/visual check -- walk it and confirm before "
+                      "shipping", file=sys.stderr)
+                bot_rc = EXIT_FINDINGS
 
     godot = str(ws.load_tools_local().get("godot_executable") or "")
     launch = None
@@ -1209,7 +1272,10 @@ def cmd_walk(args) -> int:
                   "open it manually:", file=sys.stderr)
         print(f'  open:  & "{godot or "godot"}" --path "{report["dest"]}" -e')
         print(f'  play:  & "{godot or "godot"}" --path "{report["dest"]}"')
-    return EXIT_OK
+    # The preview always gets built and handed over -- a failing self-check is
+    # exactly when you most want to go look at it. The exit code carries the
+    # verdict so a pipeline can gate on it; a human just reads the lines above.
+    return bot_rc
 
 
 def cmd_export(args) -> int:

@@ -166,6 +166,18 @@ def build_walk_preview(content_dir, player_src, dest, *, name="level"):
     shutil.copy2(ptscn, dest / "player_walk.tscn")
     shutil.copy2(pgd, dest / "player_walk.gd")
 
+    # 2b. The bots that walk and look at this preview without a human. They ride
+    # along in the preview project rather than the package for the same reason
+    # the player does: they are dev instrumentation, and the deliverable stays
+    # pure content. Copied opportunistically -- an older assets/godot without
+    # them still builds a usable preview, it just cannot self-check.
+    bots = []
+    for bot in ("walk_bot.gd", "shot_bot.gd"):
+        src = player_src / bot
+        if src.exists():
+            shutil.copy2(src, dest / bot)
+            bots.append(bot)
+
     # 3. spawn from the baked markers.
     spawn, spawn_src = _spawn_from_scene(dest / level)
     tf = ", ".join(str(v) for v in spawn)
@@ -226,4 +238,4 @@ def build_walk_preview(content_dir, player_src, dest, *, name="level"):
 
     return {"dest": str(dest), "level_scene": level, "walk_scene": "walk.tscn",
             "spawn_transform": list(spawn), "spawn_source": spawn_src,
-            "lighting": lighting, "content_copied": copied}
+            "lighting": lighting, "content_copied": copied, "bots": bots}
