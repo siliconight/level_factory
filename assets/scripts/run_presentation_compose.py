@@ -96,14 +96,23 @@ def main() -> int:
                   file=sys.stderr)
         return 2
 
+    # Content layers are OPTIONAL kwargs: only pass them when set, so this
+    # driver still works against a Deli Counter older than the layer contract
+    # (or the test-fixture stub) as long as no layers were requested. When a
+    # layer IS requested against an old DC, the TypeError below is the honest
+    # failure: the composer genuinely cannot bundle it.
+    layer_kwargs = {}
+    if a.dressing:
+        layer_kwargs["dressing_glb"] = a.dressing
+    if a.fixtures:
+        layer_kwargs["fixtures_glb"] = a.fixtures
     try:
         man = portable_building.build_package(
             a.slots, (a.gameplay or None), a.modules, a.out,
             theme=a.theme, style=a.style,
             building_id=(a.building_id or None),
             greybox_glb=(a.greybox or None),
-            dressing_glb=(a.dressing or None),
-            fixtures_glb=(a.fixtures or None),
+            **layer_kwargs,
         )
     except ModuleNotFoundError as exc:
         # DC's greybox base-strip + placement gate use pygltflib (a build dep).
@@ -155,6 +164,7 @@ def main() -> int:
         Path(a.out, "compose.summary.json").write_text(
             json.dumps({"building_id": bid, "placement_check": pc,
                         "closure": c, "zfight_check": z,
+                        "circulation_check": man.get("circulation_check"),
                         "walkable": man.get("walkable")},
                        indent=2, sort_keys=True), encoding="utf-8")
     except OSError:
@@ -186,6 +196,24 @@ def main() -> int:
               "missing -- the package would ship unclimbable ladders "
               "(docs/LADDER_CLIMB_CONTRACT.md).", file=sys.stderr)
         return 4
+    # CIRCULATION GATE: when a dressing layer was bundled, no prop may sit in
+    # a ladder climb volume, a doorway aperture, or a stair footprint -- a
+    # package whose props block circulation is unplayable, not "dressed".
+    circ = man.get("circulation_check")
+    if circ is not None:
+        ctag = "OK" if circ.get("ok") else "FAIL"
+        print(f"[compose] circulation gate [{ctag}]: "
+              f"{len(circ.get('conflicts') or [])} prop conflict(s) across "
+              f"{circ.get('volumes', '?')} circulation volume(s)"
+              + (f" ({circ.get('error')})" if circ.get("error") else ""))
+        if not circ.get("ok"):
+            for c in (circ.get("conflicts") or [])[:10]:
+                print(f"[compose]   {c.get('prop')} intrudes "
+                      f"{c.get('penetration')}m into {c.get('volume')}",
+                      file=sys.stderr)
+            print("[compose] ERROR: dressing blocks circulation -- see "
+                  "circulation_check in the manifest.", file=sys.stderr)
+            return 6
     return 0
 
 
