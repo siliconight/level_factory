@@ -103,3 +103,45 @@ def test_failure_fails_fast_but_drains():
     assert summary.blocked_job == "bad"
     # downstream never runs because its dependency failed.
     assert "downstream" not in [o.job.job_id for o in summary.outcomes]
+
+
+def test_force_reruns_already_succeeded_job():
+    """A normal re-run pre-skips already-succeeded jobs (crash-resume). With
+    force=True the pre-skip is disabled so a stale job (e.g. one whose upstream
+    changed) is re-evaluated instead of silently reused."""
+    executed = []
+
+    def _make():
+        s = _RecordingScheduler({"python_cpu": 2})
+        done = Job(job_id="a", mission_id="m", stage_id="s", adapter_id="a",
+                   resource_class="python_cpu")
+        done.status = states.SUCCEEDED
+
+        class _Idx:
+            def get_job(self, jid):
+                return done if jid == "a" else None
+
+            def upsert_job(self, job):
+                pass
+
+        s.index = _Idx()
+        _orig = s._execute_job
+
+        def _rec(job, job_spec, cancel):
+            executed.append(job.job_id)
+            return _orig(job, job_spec, cancel)
+
+        s._execute_job = _rec
+        return s
+
+    g = JobGraph()
+    g.add(Job(job_id="a", mission_id="m", stage_id="s", adapter_id="a",
+              resource_class="python_cpu"))
+
+    executed.clear()
+    _make().run(g, job_specs={}, mission_id="m")
+    assert "a" not in executed  # default: pre-skipped as already succeeded
+
+    executed.clear()
+    _make().run(g, job_specs={}, mission_id="m", force=True)
+    assert "a" in executed  # force: re-evaluated

@@ -60,12 +60,18 @@ def test_preview_is_a_separate_project_wrapping_the_content(content_dir, tmp_pat
     proj = (dest / "project.godot").read_text(encoding="utf-8")
     assert 'run/main_scene="res://walk.tscn"' in proj
     assert 'config/features=PackedStringArray("4.7")' in proj
+    assert 'rendering_method="gl_compatibility"' in proj  # readable flat greybox (forward+ over-shadowed it)
 
     # The walk scene instances the SAME content scene + the player.
     walk = (dest / "walk.tscn").read_text(encoding="utf-8")
     assert 'path="res://site.tscn"' in walk
     assert 'path="res://player_walk.tscn"' in walk
     assert '[node name="Player"' in walk
+
+    # And a preview light rig, so the (pre-Lux, unlit) content isn't pitch black.
+    assert 'type="WorldEnvironment"' in walk
+    assert 'type="DirectionalLight3D"' in walk
+    assert "ambient_light_energy" in walk
 
     # Player controller + content came along so res:// refs resolve.
     assert (dest / "player_walk.tscn").exists()

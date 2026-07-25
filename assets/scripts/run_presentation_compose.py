@@ -42,8 +42,42 @@ def main() -> int:
                     help="DC greybox .glb -> floors+collision base (walkable)")
     ap.add_argument("--building-id", default=None,
                     help="stable scene id (default: DC's building_id)")
+    ap.add_argument("--dressing", default="",
+                    help="zoo dressing GLB (props layer) to bundle + instance")
+    ap.add_argument("--fixtures", default="",
+                    help="zoo fixtures GLB (light fixtures + LuxEmit markers)")
     ap.add_argument("--out", required=True, help="output dir for the composed scene")
     a = ap.parse_args()
+
+    # LINEAGE GUARD: dressing/fixtures are Patina-placed against ONE specific
+    # build's walls and roof. Mixing a layer from a different build variant
+    # embeds props inside the wrong geometry (z-fighting roofs, blocked
+    # ladders). Refuse when a layer's sibling .built.json names a different
+    # spec content than the slots manifest.
+    import hashlib
+    def _spec_sha(path):
+        try:
+            man = json.loads(Path(path).read_text(encoding="utf-8"))
+            return man.get("spec_sha256_16") or man.get("source_spec_sha")
+        except (OSError, json.JSONDecodeError):
+            return None
+    slots_sha = None
+    try:
+        slots_sha = json.loads(Path(a.slots).read_text(
+            encoding="utf-8")).get("spec_sha256_16")
+    except (OSError, json.JSONDecodeError):
+        pass
+    for layer in (a.dressing, a.fixtures):
+        if not layer:
+            continue
+        side = Path(layer).with_suffix("").as_posix() + ".built.json"
+        lsha = _spec_sha(side)
+        if slots_sha and lsha and lsha != slots_sha:
+            print(f"[compose] ERROR: layer {Path(layer).name} was built for a "
+                  f"DIFFERENT build (spec {lsha} != slots {slots_sha}) -- "
+                  f"mixing lineages embeds props in the wrong geometry.",
+                  file=sys.stderr)
+            return 5
 
     deli_repo = Path(a.deli_repo)
     if not (deli_repo / "portable_building.py").exists():
@@ -68,6 +102,8 @@ def main() -> int:
             theme=a.theme, style=a.style,
             building_id=(a.building_id or None),
             greybox_glb=(a.greybox or None),
+            dressing_glb=(a.dressing or None),
+            fixtures_glb=(a.fixtures or None),
         )
     except ModuleNotFoundError as exc:
         # DC's greybox base-strip + placement gate use pygltflib (a build dep).
@@ -109,14 +145,47 @@ def main() -> int:
     print(f"[compose] closure: portable={c.get('portable')} "
           f"(absolute_paths={c.get('absolute_path_count')}, "
           f"dangling={len(c.get('dangling_refs') or [])})")
+    z = man.get("zfight_check") or {}
+    ztag = "OK" if z.get("ok") else "FAIL"
+    print(f"[compose] z-fight gate [{ztag}]: {z.get('pairs', '?')} coplanar "
+          f"pair(s) across {z.get('solids', '?')} solids"
+          + (f" ({z.get('error')})" if z.get("error") else ""))
     # Persist a compact compose summary alongside the package for the adapter.
     try:
         Path(a.out, "compose.summary.json").write_text(
             json.dumps({"building_id": bid, "placement_check": pc,
-                        "closure": c, "walkable": man.get("walkable")},
+                        "closure": c, "zfight_check": z,
+                        "walkable": man.get("walkable")},
                        indent=2, sort_keys=True), encoding="utf-8")
     except OSError:
         pass
+    # A package that z-fights must not ship: fail the compose job so the
+    # pipeline (and its cache) records a red, not a flickering deliverable.
+    if not z.get("ok"):
+        print("[compose] ERROR: coplanar surfaces detected -- the package "
+              "would flicker. See zfight_check in the manifest.",
+              file=sys.stderr)
+        return 3
+    # LADDER GATE: every ladder in the gameplay export must have baked a
+    # climb volume (the climb contract) -- a level whose ladders regressed
+    # to inert geometry must not ship as "composed".
+    n_ladders = 0
+    if a.gameplay:
+        try:
+            g = json.loads(Path(a.gameplay).read_text(encoding="utf-8"))
+            n_ladders = sum(1 for m in (g.get("markers") or [])
+                            if m.get("type") == "ladder")
+        except (OSError, json.JSONDecodeError):
+            pass
+    n_baked = int(man.get("ladder_climb_volumes") or 0)
+    print(f"[compose] ladder gate "
+          f"[{'OK' if n_baked >= n_ladders else 'FAIL'}]: "
+          f"{n_baked}/{n_ladders} climb volume(s) baked")
+    if n_baked < n_ladders:
+        print("[compose] ERROR: ladder(s) present but climb volume(s) "
+              "missing -- the package would ship unclimbable ladders "
+              "(docs/LADDER_CLIMB_CONTRACT.md).", file=sys.stderr)
+        return 4
     return 0
 
 

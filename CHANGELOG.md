@@ -3,6 +3,62 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.13.4] - `run --force`: re-evaluate stages when an upstream changed
+
+The scheduler's crash-resume pre-skips any already-succeeded job by recorded
+status WITHOUT re-checking inputs. That is unsafe when an upstream changes — e.g.
+after `presentation_compose` was inserted, `lux_apply` (already succeeded on the
+pre-compose greybox) was skipped on re-run, so Lux kept lighting the greybox
+instead of the composed themed scene.
+
+- `packages/jobs/scheduler.py`: `run(..., force=False)`. With `force`, the
+  resume pre-skip is disabled and every job goes through the normal
+  fingerprint->cache path: unchanged stages still cache-hit instantly (no tool
+  re-run), only stages whose inputs actually changed rebuild.
+- `apps/cli`: `run <mission> --art --force`. Use after inserting/altering an
+  upstream stage to make stale downstream (Lux, Dispatch) re-light the new scene.
+
+## [0.13.3] - walk preview: fix stair speed lurch + restore readable greybox
+
+Two follow-ups from the walkthrough.
+
+- `assets/godot/player_walk.gd`: the stair step-up moved a FIXED 0.35 m forward
+  each frame on top of the normal move, so near a step the player rocketed ~4x.
+  It now completes only the blocked REMAINDER of the frame's intended move, so
+  total horizontal displacement is exactly one frame's worth — no speed boost.
+- `packages/preview/walk_preview.py`: reverted the preview renderer to
+  `gl_compatibility` (0.13.2's `forward_plus` dropped the material-less greybox
+  base into hard shadow -- "anti-graybox"). With flat, brighter ambient and the
+  sun shadow off, the un-themed base renders as clean, readable DC greybox again.
+  (The greybox base carries 0 materials by design; theming those surfaces is a
+  separate pipeline lever, tracked below.)
+
+## [0.13.2] - walk preview: stair-stepping + forward+ renderer
+
+Two preview fixes from a live walkthrough. Both are preview-only (never shipped).
+
+- `assets/godot/player_walk.gd`: adds basic STAIR-STEPPING (raise-forward-settle
+  via `test_move`) so the player climbs greybox stairs instead of getting stuck
+  on the first riser; sets `floor_snap_length`/`floor_max_angle` so descending
+  stairs is smooth. A real wall still blocks (only climbs when lifting a step
+  clears the way).
+- `packages/preview/walk_preview.py`: the preview project now uses the
+  `forward_plus` renderer instead of `gl_compatibility`, so the themed PBR
+  materials render as intended rather than dull/flat.
+
+## [0.13.1] - walk preview: light the scene (was pitch black)
+
+The walk preview wraps the pre-Lux content scene, which carries no lighting
+(Lux lights the level downstream in the pipeline), so the preview rendered pitch
+black. The walk scene now includes a preview-only light rig: a sky + strong
+colour ambient (visible regardless of renderer/sky quirks) + a shadow-casting
+sun. It's dev chrome — never shipped, and not Lux's final look, just enough light
+to walk and inspect the geometry.
+
+- `packages/preview/walk_preview.py`: `walk.tscn` now emits a `WorldEnvironment`
+  (sky background + colour ambient) and a `DirectionalLight3D` under a
+  `PreviewLighting` node, alongside the level + player.
+
 ## [0.13.0] - `walk` preview: walk the themed level without polluting the package
 
 Adds a dev-only first-person walk preview so you can walk the composed themed

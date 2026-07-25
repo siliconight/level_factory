@@ -101,6 +101,7 @@ class Scheduler:
         job_specs: Mapping[str, dict],
         mission_id: str,
         cancel: Cancellation | None = None,
+        force: bool = False,
     ) -> RunSummary:
         """Execute the DAG with real parallelism, honoring per-resource-class
         concurrency caps (TDD 19.2). Independent jobs run concurrently; a job
@@ -119,14 +120,22 @@ class Scheduler:
         }
         completed: set[str] = set()
 
-        # Resume: pre-mark already-succeeded jobs and drop them from deps.
-        for jid, job in jobs_by_id.items():
-            existing = self.index.get_job(jid)
-            if existing and states.job_succeeded(existing.status):
-                completed.add(jid)
-                summary.outcomes.append(JobOutcome(
-                    job=existing,
-                    cache_hit=existing.status == states.SKIPPED_CACHE_HIT))
+        # Resume: pre-mark already-succeeded jobs and drop them from deps, so a
+        # re-run after a crash skips finished work. This pre-skip trusts the
+        # recorded status and does NOT re-check inputs, so it is UNSAFE when an
+        # upstream changed (e.g. a new stage was inserted): the stale downstream
+        # would never re-run. `force` disables the pre-skip, routing every job
+        # through the normal fingerprint->cache path instead — unchanged jobs
+        # still cache-hit instantly (no tool re-run); only jobs whose inputs
+        # actually changed rebuild.
+        if not force:
+            for jid, job in jobs_by_id.items():
+                existing = self.index.get_job(jid)
+                if existing and states.job_succeeded(existing.status):
+                    completed.add(jid)
+                    summary.outcomes.append(JobOutcome(
+                        job=existing,
+                        cache_hit=existing.status == states.SKIPPED_CACHE_HIT))
         for deps in remaining.values():
             deps -= completed
 

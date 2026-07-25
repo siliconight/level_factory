@@ -88,6 +88,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--target", default=None,
                     choices=["functional-lock", "dispatch-handoff", "presentation"],
                     help="legacy alias for a layer set; --art/--gameplay take precedence")
+    sp.add_argument("--force", action="store_true",
+                    help="re-evaluate every stage against the cache instead of "
+                         "skipping already-succeeded jobs; unchanged stages still "
+                         "cache-hit, only changed ones (e.g. after new upstream) rebuild")
     sp.set_defaults(func=cmd_run)
 
     sp = sub.add_parser("status", help="show mission/job status")

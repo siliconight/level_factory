@@ -51,7 +51,17 @@ func _initialize() -> void:
 	get_root().add_child(scene)
 
 	# Attach LuxRoot; its _ready loads the preset library from the addon.
-	var lux := LuxRoot.new()
+	# Load the script BY PATH (same pattern as run_fixture_gate.gd): the
+	# class_name TYPE resolves only from an editor-generated global class
+	# cache, which a fresh checkout staged headlessly does not have -- and a
+	# failed construction here aborts _initialize() before quit(), leaving
+	# the headless process hung with no output.
+	var lux_root_script: GDScript = load("res://addons/lux/runtime/lux_root.gd")
+	if lux_root_script == null:
+		push_error("run_lux_apply: lux addon script missing at res://addons/lux/runtime/lux_root.gd")
+		quit(2)
+		return
+	var lux: Node = lux_root_script.new()
 	lux.name = "LuxRoot"
 	scene.add_child(lux)
 	lux.owner = scene
@@ -64,7 +74,13 @@ func _initialize() -> void:
 		# blend_to_preset a silent no-op. Check and report instead.
 		var lib: Variant = lux.get("_preset_library")
 		if typeof(lib) == TYPE_DICTIONARY:
-			preset_known = (lib as Dictionary).has(StringName(preset_name))
+			preset_known = (lib as Dictionary).has(String(preset_name))
+			# Pin the preset resource on the node BEFORE packing: blend_to_preset
+			# only mutates runtime state, so a packed scene without active_preset
+			# set would reload with no look. With it set, apply_on_ready restores
+			# the applied look in any project that carries the lux addon.
+			if preset_known:
+				lux.set("active_preset", (lib as Dictionary)[String(preset_name)])
 		lux.blend_to_preset(StringName(preset_name), 0.0)
 	await process_frame
 

@@ -24,8 +24,15 @@ from pathlib import Path
 
 # Marker groups worth spawning the player at, best first. These are the groups
 # portable_building bakes onto the marker nodes (``groups=["<type>", ...]``).
+# Extraction/objective/loot are ground-level gameplay points -- fine spawns
+# when a level carries no explicit spawn/entrance markers.
 _SPAWN_PRIORITY = ("player_start", "spawn", "attacker_spawn", "entrance",
-                   "door", "front_door")
+                   "door", "front_door", "extraction", "objective", "loot")
+
+# Never spawn AT a vertical anchor: a ladder marker sits at the ladder's own
+# base (inside its collision plane -- the player wedges and can't move), and
+# hatch/camera markers hang in the air or in a ceiling.
+_SPAWN_EXCLUDE = {"ladder", "hatch", "camera_socket", "floor_hole"}
 
 # Package-harness / metadata files we do NOT copy into the preview: we write our
 # own project.godot + walk main scene, and the package's *_main.tscn / manifests
@@ -58,6 +65,10 @@ def _find_level_scene(content_dir: Path) -> str | None:
     tscns = [p.name for p in sorted(content_dir.glob("*.tscn"))
              if not p.name.endswith("_main.tscn")
              and not p.name.endswith("_walk.tscn")]
+    # Prefer the Lux-applied scene when the art pass produced one: walking the
+    # final runtime look beats walking the unlit compose intermediate.
+    if "site_lux.tscn" in tscns:
+        return "site_lux.tscn"
     if "site.tscn" in tscns:
         return "site.tscn"
     return tscns[0] if tscns else None
@@ -103,8 +114,12 @@ def _spawn_from_scene(scene_path: Path):
             src = want
             break
     if chosen is None:
-        chosen = found[0][1]
-        src = "first marker"
+        # No spawn-class marker: take the LOWEST non-vertical marker (ground
+        # floor beats a rooftop camera), never a ladder/hatch anchor.
+        pool = [o for g, o in found if not (g & _SPAWN_EXCLUDE)] \
+            or [o for _, o in found]
+        chosen = min(pool, key=lambda o: o[1])
+        src = "lowest ground marker"
     gx, gy, gz = chosen
     return ((1, 0, 0, 0, 1, 0, 0, 0, 1, round(gx, 3), round(gy + 0.6, 3),
              round(gz, 3)), f"marker:{src}")
@@ -155,15 +170,55 @@ def build_walk_preview(content_dir, player_src, dest, *, name="level"):
     spawn, spawn_src = _spawn_from_scene(dest / level)
     tf = ", ".join(str(v) for v in spawn)
 
-    # 4. the walk scene: content instance + player at the spawn.
-    (dest / "walk.tscn").write_text(
-        "[gd_scene load_steps=3 format=3]\n\n"
-        f'[ext_resource type="PackedScene" path="res://{level}" id="1_lvl"]\n'
-        '[ext_resource type="PackedScene" path="res://player_walk.tscn" id="2_ply"]\n\n'
-        '[node name="Walk" type="Node3D"]\n\n'
-        f'[node name="Level" parent="." instance=ExtResource("1_lvl")]\n\n'
-        '[node name="Player" parent="." instance=ExtResource("2_ply")]\n'
-        f"transform = Transform3D({tf})\n", encoding="utf-8")
+    # 4. the walk scene: content instance + player at the spawn. Lighting depends
+    # on what the content carries:
+    #   - A Lux-applied scene (LuxRoot inside) lights itself on ready — adding a
+    #     preview rig on top would fight Lux's WorldEnvironment and wash out the
+    #     applied look, so the preview stands down and lets Lux own the light.
+    #   - Pre-Lux content carries no lighting and renders pitch black, so the
+    #     preview adds a basic dev rig: sky + strong colour ambient (geometry is
+    #     always visible, independent of renderer/sky quirks) + a sun for
+    #     definition. Preview-only chrome — never ships, not Lux's final look.
+    has_lux = False
+    try:
+        has_lux = "addons/lux" in (dest / level).read_text(encoding="utf-8")
+    except OSError:
+        pass
+    if has_lux:
+        (dest / "walk.tscn").write_text(
+            "[gd_scene load_steps=3 format=3]\n\n"
+            f'[ext_resource type="PackedScene" path="res://{level}" id="1_lvl"]\n'
+            '[ext_resource type="PackedScene" path="res://player_walk.tscn" id="2_ply"]\n\n'
+            '[node name="Walk" type="Node3D"]\n\n'
+            f'[node name="Level" parent="." instance=ExtResource("1_lvl")]\n\n'
+            '[node name="Player" parent="." instance=ExtResource("2_ply")]\n'
+            f"transform = Transform3D({tf})\n", encoding="utf-8")
+    else:
+        (dest / "walk.tscn").write_text(
+            "[gd_scene load_steps=5 format=3]\n\n"
+            f'[ext_resource type="PackedScene" path="res://{level}" id="1_lvl"]\n'
+            '[ext_resource type="PackedScene" path="res://player_walk.tscn" id="2_ply"]\n\n'
+            '[sub_resource type="ProceduralSkyMaterial" id="Sky_mat"]\n\n'
+            '[sub_resource type="Sky" id="Sky"]\n'
+            'sky_material = SubResource("Sky_mat")\n\n'
+            '[sub_resource type="Environment" id="Env"]\n'
+            'background_mode = 2\n'
+            'sky = SubResource("Sky")\n'
+            'ambient_light_source = 2\n'
+            'ambient_light_color = Color(0.72, 0.73, 0.77, 1)\n'
+            'ambient_light_energy = 1.4\n\n'
+            '[node name="Walk" type="Node3D"]\n\n'
+            '[node name="PreviewLighting" type="Node3D" parent="."]\n\n'
+            '[node name="WorldEnvironment" type="WorldEnvironment" parent="PreviewLighting"]\n'
+            'environment = SubResource("Env")\n\n'
+            '[node name="Sun" type="DirectionalLight3D" parent="PreviewLighting"]\n'
+            'transform = Transform3D(1, 0, 0, 0, 0.4, -0.9, 0, 0.9, 0.4, 0, 15, 0)\n'
+            'light_energy = 0.6\n'
+            'shadow_enabled = false\n\n'
+            f'[node name="Level" parent="." instance=ExtResource("1_lvl")]\n\n'
+            '[node name="Player" parent="." instance=ExtResource("2_ply")]\n'
+            f"transform = Transform3D({tf})\n", encoding="utf-8")
+    lighting = "lux (content-owned)" if has_lux else "preview rig"
 
     # 5. the preview project (main scene = walk.tscn).
     (dest / "project.godot").write_text(
@@ -171,4 +226,4 @@ def build_walk_preview(content_dir, player_src, dest, *, name="level"):
 
     return {"dest": str(dest), "level_scene": level, "walk_scene": "walk.tscn",
             "spawn_transform": list(spawn), "spawn_source": spawn_src,
-            "content_copied": copied}
+            "lighting": lighting, "content_copied": copied}

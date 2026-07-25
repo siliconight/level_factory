@@ -592,7 +592,8 @@ def cmd_run(args) -> int:
     specs = _job_specs_for_plan(ws, batch, model, plan)
     scheduler = _build_scheduler(ws, index)
 
-    summary = scheduler.run(plan.graph, job_specs=specs, mission_id=args.mission_id)
+    summary = scheduler.run(plan.graph, job_specs=specs, mission_id=args.mission_id,
+                            force=bool(getattr(args, "force", False)))
 
     # Persist normalized issues for `validate`.
     issue_dicts = [i.as_dict() for i in summary.all_issues]
