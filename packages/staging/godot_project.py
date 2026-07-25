@@ -14,10 +14,13 @@ reuses the exporting/closure module and is the documented follow-up.
 """
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
 from pathlib import Path
+
+from packages.staging.tscn_names import sanitize_node_names
 
 
 def _project_godot(name: str, addon_plugins: list[str]) -> str:
@@ -89,6 +92,7 @@ def stage_godot_project(
     dest: Path, *, addon_dirs: list[Path], scene_src: Path,
     plugins: list[str], scene_res_name: str = "level.tscn",
     godot_executable: str | None = None,
+    scene_post_process=None,
 ) -> tuple[Path, str]:
     """Create a project at ``dest`` with the addons + the scene at res://.
 
@@ -148,8 +152,27 @@ def stage_godot_project(
     # shell.glb", which Godot can't load). Copy each such file into the project
     # and rewrite the reference to a real res:// path. Applied to every staged
     # .tscn so site.tscn's building ref (and any other absolute ref) resolves.
+    staged_notes: dict[str, object] = {}
     for tscn in dest.glob("*.tscn"):
         _resolve_absolute_refs(tscn, dest)
+        # Node names Godot cannot represent (a '/' in a ladder volume's name)
+        # drop their children on load, so repair them here rather than shipping
+        # a scene whose collision shapes silently never arrive.
+        renamed = _sanitize_names(tscn)
+        if renamed:
+            staged_notes.setdefault("renamed_nodes", []).extend(
+                f"{tscn.name}: {a} -> {b}" for a, b in renamed)
+    # Tool-specific scene work (e.g. baking the Laser Tag hook nodes) runs on
+    # the staged scene, after the refs resolve and the names are legal.
+    if scene_post_process is not None and (dest / scene_res_name).exists():
+        target = dest / scene_res_name
+        text, note = scene_post_process(target.read_text(encoding="utf-8"))
+        target.write_text(text, encoding="utf-8")
+        if note:
+            staged_notes["scene_post_process"] = note
+    if staged_notes:
+        (dest / "staging.notes.json").write_text(
+            json.dumps(staged_notes, indent=2, sort_keys=True), encoding="utf-8")
     (dest / "project.godot").write_text(
         _project_godot(dest.name, plugins), encoding="utf-8")
     # Register the addon's global class_name TYPES the way Godot actually trusts:
@@ -169,6 +192,17 @@ def stage_godot_project(
         except (OSError, subprocess.SubprocessError):
             pass
     return dest, f"res://{scene_res_name}"
+
+
+def _sanitize_names(tscn: Path) -> list[tuple[str, str]]:
+    try:
+        text = tscn.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    new, renames = sanitize_node_names(text)
+    if renames:
+        tscn.write_text(new, encoding="utf-8")
+    return renames
 
 
 _ABS_REF = re.compile(r'path="res://((?:[A-Za-z]:[\\/]|/)[^"]+)"')

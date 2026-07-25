@@ -42,8 +42,29 @@ def main():
         seed = int(_opt(uargs, "--seed", "0"))
         runs = int(_opt(uargs, "--runs", "25"))
         jp = Path(out); jp.parent.mkdir(parents=True, exist_ok=True)
-        jp.write_text(json.dumps({"score": 70 + (seed % 20), "grade": "B",
-                                  "runs": runs, "overexposed_zones": [],
+        # The real harness discovers its hooks by node name and, finding none,
+        # short-circuits before a single run. A stub that always reported a
+        # grade would pass while the pipeline shipped maps Laser Tag could not
+        # play -- which is exactly what happened -- so mirror the refusal.
+        proj = Path(argv[argv.index("--path") + 1]) if "--path" in argv else Path(".")
+        scene = proj / str(_opt(uargs, "--map", "res://level.tscn")).replace("res://", "")
+        text = scene.read_text(encoding="utf-8", errors="replace") if scene.exists() else ""
+        missing = [h for h in ("LT_PlayerSpawn", "LT_EnemySpawnPoints",
+                               "LT_ObjectivePoint") if h not in text]
+        if missing:
+            jp.write_text(json.dumps({
+                "grade": "BROKEN", "overall_score": 0, "runs": 0,
+                "map": scene.name, "seed": seed,
+                "findings": [{"severity": "FAIL", "type": f"MISSING_{m.upper()}",
+                              "message": f"No {m} node found."} for m in missing]
+                + [{"severity": "FAIL", "type": "NO_RUNS",
+                    "message": "No runs completed — map could not be evaluated."}],
+            }, sort_keys=True))
+            print(f"[LT] map invalid ({', '.join(missing)}): {jp}")
+            return 0
+        jp.write_text(json.dumps({"overall_score": 70 + (seed % 20), "grade": "B",
+                                  "runs": runs, "findings": [],
+                                  "overexposed_zones": [],
                                   "blind_zones": []}, sort_keys=True))
         csv = Path(str(jp)[:-5] + ".csv" if str(jp).endswith(".json") else str(jp) + ".csv")
         csv.write_text("run,score\n0,70\n")

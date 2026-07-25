@@ -14,7 +14,7 @@ from packages.adapters.sdk import BaseAdapter, PlannedCommand
 
 class LaserTagAdapter(BaseAdapter):
     adapter_id = "laser_tag"
-    adapter_version = "0.2.0"
+    adapter_version = "0.3.0"
     capabilities = frozenset(
         {
             "manual_firefight_preview",
@@ -29,12 +29,21 @@ class LaserTagAdapter(BaseAdapter):
     def validate_configuration(
         self, job_spec: Mapping[str, object], context: Mapping[str, object]
     ) -> Sequence[str]:
+        from packages.staging.lt_hooks import check_scene_hooks
+
         problems: list[str] = []
         scene = job_spec.get("evaluation_scene")
         if not scene:
             problems.append("laser_tag job requires an evaluation scene (Lot walkable)")
         elif not Path(str(scene)).exists():
             problems.append(f"evaluation scene missing: {scene}")
+        else:
+            # Pre-flight the map contract (TDD 8). Without the LT_* hooks --
+            # or the root positions staging derives them from -- the run
+            # completes zero firefights and reports a grade for a match it
+            # never played. Better to say so before spending 900 seconds.
+            problems.extend(check_scene_hooks(
+                Path(str(scene)).read_text(encoding="utf-8", errors="replace")))
         if not context.get("godot_executable"):
             problems.append("godot_executable is not configured (headless run)")
         return problems
@@ -48,6 +57,11 @@ class LaserTagAdapter(BaseAdapter):
             "seed": job_spec.get("seed"),
             "run_count": job_spec.get("run_count", 8),
             "scenario": job_spec.get("scenario", "default"),
+            # The evaluated scene is the STAGED one, not the source: the hooks
+            # are baked in at staging. Without this the source scene hash alone
+            # would call a run cached whose map contract had changed underneath.
+            "map_contract": "lt_hooks.v1",
+            "enemy_count": job_spec.get("enemy_count", 6),
         }
         scene = job_spec.get("evaluation_scene")
         if scene and Path(str(scene)).exists():
@@ -72,12 +86,23 @@ class LaserTagAdapter(BaseAdapter):
         scene_src = job_spec.get("evaluation_scene")
         if addon and scene_src and job_spec.get("staging_dir"):
             from packages.staging.godot_project import stage_godot_project
+            from packages.staging.lt_hooks import inject_lt_hooks
+
+            enemies = int(job_spec.get("enemy_count", 6))
+
+            def _bake_hooks(text: str):
+                # Laser Tag discovers spawns/objective by node name; Lot's
+                # walkable scene carries the positions but not the nodes, so
+                # staging is where the contract gets met.
+                return inject_lt_hooks(text, enemy_count=enemies)
+
             proj, map_res = stage_godot_project(
                 Path(str(job_spec["staging_dir"])),
                 addon_dirs=[Path(str(addon))] + [Path(str(a)) for a in job_spec.get("extra_addon_dirs", [])],
                 scene_src=Path(str(scene_src)),
                 plugins=["laser_tag_tool"],
-                godot_executable=str(godot))
+                godot_executable=str(godot),
+                scene_post_process=_bake_hooks)
             project = str(proj)
 
         scenario = str(job_spec.get(
@@ -120,6 +145,11 @@ class LaserTagAdapter(BaseAdapter):
     ) -> Sequence[Mapping[str, object]]:
         import json
 
+        from packages.validation.lasertag_report import normalize_report
+
+        # The grade/score is a READINESS SIGNAL ONLY (TDD 5.5) — non-blocking,
+        # never a claim the map is fun/balanced/verified. "Laser Tag never ran"
+        # is a different statement and blocks; see packages/validation.
         issues: list[dict] = []
         for p in output_paths:
             if not p.name.lower().endswith("report.json"):
@@ -128,51 +158,17 @@ class LaserTagAdapter(BaseAdapter):
                 data = json.loads(p.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 continue
-            # The grade/score is a READINESS SIGNAL ONLY (TDD 5.5) — surfaced as
-            # a non-blocking finding for the human at candidate selection, never
-            # a blocker and never a claim the map is fun/balanced/verified.
-            grade = str(data.get("grade", "")).upper()
-            score = data.get("score")
-            if grade in ("BROKEN", "FAIL") or (isinstance(score, (int, float)) and score < 40):
-                issues.append({
-                    "code": "LT_LOW_READINESS",
-                    "severity": "moderate", "category": "combat_structure",
-                    "message": (f"Laser Tag readiness grade {grade or '?'} "
-                                f"(score {score}); evaluation completed — "
-                                f"readiness signal only, review at selection."),
-                    "blocking": False, "raw_source_path": str(p),
-                })
-            # Overexposed / blind zones surface as informational structure notes.
-            for zone in data.get("overexposed_zones", []):
-                issues.append({
-                    "code": "LT_OVEREXPOSED_ZONE",
-                    "severity": "minor",
-                    "category": "combat_structure",
-                    "message": f"Overexposed zone at {zone}",
-                    "blocking": False,
-                    "raw_source_path": str(p),
-                })
-            for zone in data.get("blind_zones", []):
-                issues.append({
-                    "code": "LT_BLIND_ZONE",
-                    "severity": "minor",
-                    "category": "combat_structure",
-                    "message": f"Blind zone at {zone}",
-                    "blocking": False,
-                    "raw_source_path": str(p),
-                })
+            issues.extend(normalize_report(data, raw_source_path=str(p)))
         return issues
 
     def read_metrics(self, report_json: Path) -> dict:
         """Extract the score/grade for candidate comparison (readiness only)."""
         import json
 
+        from packages.validation.lasertag_report import metrics
+
         try:
             data = json.loads(report_json.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return {}
-        return {
-            "lasertag_score": data.get("score"),
-            "lasertag_grade": data.get("grade"),
-            "lasertag_note": "readiness signal only; not fun/balance/network",
-        }
+        return metrics(data)

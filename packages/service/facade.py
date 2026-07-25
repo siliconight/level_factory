@@ -333,11 +333,17 @@ class FactoryService:
         for cand in plan.candidate_ids:
             seed = int(cand.rsplit("_", 1)[-1])
             lt_out = self._job_out(f"{mission_id}.laser_tag_evaluate.candidate.seed_{seed}")
+            # Laser Tag writes lasertag.report.json, and its score lives under
+            # `overall_score`. The card read a score.json that no version of the
+            # tool has ever written, so every candidate showed "score -" and
+            # nobody could tell a good evaluation from an absent one.
             metrics: dict = {}
-            score_json = lt_out / "score.json"
-            if score_json.exists():
+            report_json = lt_out / "lasertag.report.json"
+            if report_json.exists():
                 try:
-                    metrics = json.loads(score_json.read_text(encoding="utf-8"))
+                    from packages.validation.lasertag_report import metrics as lt_metrics
+                    metrics = dict(lt_metrics(
+                        json.loads(report_json.read_text(encoding="utf-8"))))
                 except (OSError, json.JSONDecodeError):
                     metrics = {}
             lot_out = self._job_out(f"{mission_id}.lot_assemble.candidate.seed_{seed}")
@@ -345,7 +351,10 @@ class FactoryService:
             shot = lot_out / "preview.png"
             cards.append(CandidateCard(
                 candidate_id=cand, seed=seed, metrics=metrics,
-                validation_summary=f"score {metrics.get('score', '-')}",
+                validation_summary=(
+                    f"score {metrics.get('lasertag_score', '-')}"
+                    if metrics.get("lasertag_evaluated")
+                    else "not evaluated"),
                 blocker_count=0,
                 floorplan_path=str(floor) if floor.exists() else None,
                 screenshot_path=str(shot) if shot.exists() else None,
