@@ -232,7 +232,9 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
         elif job.adapter_id == "lot":
             deli_job = job.depends_on[0]
             deli_out = jobs_dir / deli_job
-            site_spec = _write_site_spec(ws, model, deli_out)
+            site_spec = _write_site_spec(
+                ws, model, deli_out,
+                seed=int(str(job.candidate_id).rsplit("_", 1)[-1]))
             specs[job.job_id] = {
                 "site_spec_path": str(site_spec),
                 "walkable": True,
@@ -517,41 +519,66 @@ def _write_dispatch_spec(ws: Workspace, model: MissionBrief,
     return dest
 
 
-def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path) -> Path:
-    """Write a Lot site spec (named 'site.json' so Lot's stem-based outputs are
-    canonical: site.tscn / site_walk.tscn / site.site.gameplay.json).
+def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
+                     *, seed: int) -> Path:
+    """Write ONE candidate's Lot site spec (named 'site.json' so Lot's stem-based
+    outputs are canonical: site.tscn / site_walk.tscn / site.site.gameplay.json).
+
+    The destination is per-CANDIDATE, and that is the whole point. It used to be
+    per-mission, so every candidate's spec was written to the same path during
+    planning and the last one written won: all N Lot jobs read one spec and
+    produced byte-identical sites. The pipeline offered five choices that were
+    one choice, and nothing noticed because nothing compared two candidates.
+
+    Placement comes from ``site_variation``, keyed on the candidate seed. Deli
+    Counter is deterministic by design (no --seed flag), so the site assembly is
+    where candidates are supposed to diverge — per-building yaw, along-row nudge
+    and across-row stagger, plus which building carries spawn / objective /
+    extraction. Those role keys were never set either, so every candidate put the
+    player down on Lot's origin default.
 
     Matches the REAL Lot 0.18 schema: a top-level ``name`` (Lot reads
     site_spec["name"]) and per-building placement ``at`` [x, y] + ``rot`` (yaw
-    degrees). Buildings are spaced along a row so multi-building sites don't
-    overlap; a single building sits at the origin. Extra keys Lot ignores
-    (site_shape/route_shape/target_minutes) are kept for LF's own readers.
+    degrees). Extra keys Lot ignores (site_shape/route_shape/target_minutes) are
+    kept for LF's own readers.
     """
+    from packages.pipeline.site_variation import ground_size, site_placements
+
     count = max(1, int(getattr(model, "building_count", 1) or 1))
     spacing = 45  # metres between building origins (matches Lot's example scale)
     glb = str(_latest_output(deli_out, "shell.glb"))
     gameplay = str(_latest_output(deli_out, "shell.gameplay.json"))
+    placed = site_placements(seed, count, spacing=spacing)
     buildings = [
         {"id": f"b{i}", "glb": glb, "gameplay": gameplay,
-         "at": [i * spacing, 0], "rot": 0}
-        for i in range(count)
+         "at": p["at"], "rot": p["rot"]}
+        for i, p in enumerate(placed["buildings"])
     ]
-    span_x = max(spacing * count, 60)
+    span_x, span_y = ground_size(count, spacing=spacing)
     spec = {
         # Lot names its outputs from this field (site.tscn / site_walk.tscn /
         # site.site.gameplay.json), so it must be the canonical LF stem "site",
         # NOT the mission id — mission identity lives in the job/candidate ids.
         "name": "site",
-        "ground": {"size_x": span_x + 40, "size_y": 80},
+        "ground": {"size_x": span_x, "size_y": span_y},
         "buildings": buildings,
+        # Building ids Lot resolves into the walkable scene's spawn_pos /
+        # objective_pos / extraction_pos.
+        "spawn": placed["spawn"],
+        "objective": placed["objective"],
+        "extraction": placed["extraction"],
         # LF-only metadata (ignored by Lot, read by LF's own tooling):
         "schema": "lot.site.v0.18",
         "site_id": model.mission_id,
+        "candidate_seed": int(seed),
         "site_shape": model.site_shape,
         "route_shape": model.route_shape,
         "target_minutes": list(model.target_minutes),
     }
-    dest = ws.internal_dir / "temp" / model.mission_id / "site.json"
+    # One directory per candidate; the filename stays "site.json" so the Lot
+    # adapter's stem and Lot's spec["name"]-derived output names stay canonical.
+    dest = (ws.internal_dir / "temp" / model.mission_id
+            / f"candidate_seed_{int(seed)}" / "site.json")
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(pretty_dumps(spec), encoding="utf-8")
     return dest
@@ -599,6 +626,63 @@ def _write_pixelcoat_recipe(ws: Workspace, batch: dict, model: MissionBrief):
     return recipe_path, source
 
 
+# Outputs whose sameness means "the same level". The assembled site and the
+# building shell only: logs, provenance and timing differ between runs that
+# produced an identical level, and a gate that trips on those is a gate someone
+# turns off.
+_DIVERSITY_ARTIFACTS = (
+    ("lot_assemble", "site.tscn"),
+    ("deli_generate", "shell.glb"),
+)
+
+
+def candidate_artifact_hashes(ws: Workspace, candidate_ids, jobs) -> dict:
+    """``{candidate_id: {artifact_name: content_hash}}`` for one mission.
+
+    Candidates with no outputs stay in the mapping with an empty dict rather
+    than being dropped -- "this candidate never built" and "this candidate is a
+    copy" are different failures, and silently omitting the first would leave
+    the pipeline reporting a clean comparison of the survivors.
+    """
+    from packages.core.hashing import hash_file
+
+    by_candidate: dict[str, dict[str, str]] = {cid: {} for cid in candidate_ids}
+    wanted = dict(_DIVERSITY_ARTIFACTS)
+    for job in jobs:
+        cand = getattr(job, "candidate_id", None)
+        name = wanted.get(job.stage_id)
+        if not cand or not name or cand not in by_candidate:
+            continue
+        path = _latest_output(ws.jobs_dir / job.job_id, name)
+        if path.exists():
+            by_candidate[cand][name] = hash_file(path)
+    return by_candidate
+
+
+def _candidate_diversity_issues(ws: Workspace, candidate_ids, jobs,
+                                mission_id: str):
+    """Compare a mission's candidates against each other and report copies.
+
+    Every other check in the pipeline looks at one candidate at a time, which is
+    precisely why five identical candidates passed validation five times. This
+    is the only check that can see the difference between "N candidates" and
+    "one candidate, N times", so it is the only place that failure can be
+    caught. Returns ``(issues, one_line_summary)``.
+    """
+    from packages.validation.candidate_diversity import (
+        check_candidate_diversity, summarize,
+    )
+
+    by_candidate = candidate_artifact_hashes(ws, candidate_ids, jobs)
+    issues = []
+    for n, raw in enumerate(check_candidate_diversity(by_candidate)):
+        raw = {**raw, "issue_id": f"level_factory:{raw['code']}:{mission_id}:{n}"}
+        issues.append(issue_from_normalized(
+            raw, source_tool="level_factory", mission_id=mission_id,
+            candidate_id=None, stage_id="candidate_diversity"))
+    return issues, summarize(by_candidate)
+
+
 def cmd_run(args) -> int:
     ws = _ws(args)
     index = _open_index(ws)
@@ -610,6 +694,13 @@ def cmd_run(args) -> int:
 
     summary = scheduler.run(plan.graph, job_specs=specs, mission_id=args.mission_id,
                             force=bool(getattr(args, "force", False)))
+
+    # A mission generates N candidates so a human can choose between them; that
+    # only means something if the N are different. Nothing had ever compared
+    # two, so five copies passed validation five times.
+    diversity_issues, diversity_line = _candidate_diversity_issues(
+        ws, plan.candidate_ids, plan.graph.jobs(), args.mission_id)
+    summary.all_issues.extend(diversity_issues)
 
     # Persist normalized issues for `validate`.
     issue_dicts = [i.as_dict() for i in summary.all_issues]
@@ -623,7 +714,18 @@ def cmd_run(args) -> int:
         tag = "cache" if o.cache_hit else o.job.status.lower()
         print(f"  {o.job.job_id:<48} {tag}")
 
+    print(f"\n{diversity_line}")
     agg = aggregate(summary.all_issues)
+
+    # Record what this run left the mission in. Nothing wrote the missions table
+    # before, so `status` with no mission id listed nothing and `batch report`
+    # showed every mission as "draft" no matter how many times it had been
+    # built -- an empty answer that looks exactly like a quiet one.
+    index.upsert_mission(
+        args.mission_id, batch_id,
+        "blocked" if summary.blocked_job
+        else ("findings" if agg["total"] else "built"),
+        _now())
     print(f"\n{readiness_label(agg)}  "
           f"(blockers open: {len(agg['blocking_open'])}, total findings: {agg['total']})")
 
@@ -704,6 +806,16 @@ def cmd_batch_run(args) -> int:
     summary = scheduler.run(batch_plan.graph, job_specs=specs,
                             mission_id=f"batch:{args.batch_id}")
 
+    # Same comparison as `run`, per mission: a batch that quietly built the same
+    # level N times for every mission in it is the same fiction at scale.
+    diversity_lines: list[str] = []
+    for mid in batch_plan.mission_ids:
+        mjobs = [j for j in batch_plan.graph.jobs() if j.mission_id == mid]
+        mcands = sorted({j.candidate_id for j in mjobs if getattr(j, "candidate_id", None)})
+        issues, line = _candidate_diversity_issues(ws, mcands, mjobs, mid)
+        summary.all_issues.extend(issues)
+        diversity_lines.append(f"  {mid}: {line}")
+
     # Persist per-mission validation for `validate` / reports.
     vdir = ws.internal_dir / "validation"; vdir.mkdir(parents=True, exist_ok=True)
     by_mission: dict[str, list] = {}
@@ -713,11 +825,20 @@ def cmd_batch_run(args) -> int:
         (vdir / f"{mid}.json").write_text(
             pretty_dumps({"mission_id": mid, "issues": by_mission.get(mid, [])}),
             encoding="utf-8")
+        # Same reason as cmd_run: a mission built through a batch was invisible
+        # to `status` and reported as "draft" forever.
+        index.upsert_mission(
+            mid, args.batch_id,
+            "blocked" if summary.blocked_job
+            else ("findings" if by_mission.get(mid) else "built"),
+            _now())
 
     print(f"batch {args.batch_id}: {len(batch_plan.mission_ids)} mission(s), "
           f"{len(batch_plan.shared_job_ids)} shared job(s)")
     cache_hits = sum(1 for o in summary.outcomes if o.cache_hit)
     print(f"  jobs: {len(summary.outcomes)}  (cache reuse: {cache_hits})")
+    for line in diversity_lines:
+        print(line)
     if batch_plan.skipped_missions:
         print(f"  skipped (no selection): {', '.join(batch_plan.skipped_missions)}")
     if summary.blocked_job:
@@ -811,8 +932,14 @@ def cmd_status(args) -> int:
             extra = f" exit={j.exit_code}" if j.exit_code is not None else ""
             print(f"  {j.job_id:<48} {j.status}{extra}")
     else:
-        for m in index.list_missions():
-            print(f"  {m['mission_id']:<32} {m['state']}")
+        missions = index.list_missions()
+        if not missions:
+            # Silence here used to be ambiguous between "no missions" and
+            # "the listing is broken". It was the second one.
+            print("no missions have been run in this workspace yet")
+            return EXIT_OK
+        for m in missions:
+            print(f"  {m['mission_id']:<32} {m['state']:<10} {m['batch_id']}")
     return EXIT_OK
 
 
@@ -831,7 +958,37 @@ def cmd_validate(args) -> int:
         for i in data.get("issues", [])
     ]
     agg = aggregate(issues)
-    print(pretty_dumps(agg))
+    if getattr(args, "json", False):
+        # Machine output carries the findings too, not just the histogram: a
+        # caller that has to re-read the raw file to learn WHAT was found is
+        # being handed a number, not a result.
+        print(pretty_dumps({"aggregate": agg,
+                            "issues": data.get("issues", [])}))
+        return EXIT_BLOCKED if agg["has_blockers"] else EXIT_OK
+
+    # Findings first, worst first. A count grouped by category tells you five
+    # things are wrong and nothing about what to do, so it reads as weather
+    # rather than as work -- which is how a finding count sits unchanged at 5
+    # across every run for weeks.
+    if not issues:
+        print(f"{args.mission_id}: no findings")
+        return EXIT_OK
+
+    from packages.validation.model import severity_rank
+    for issue in sorted(issues, key=lambda i: (severity_rank(i.severity),
+                                               i.code)):
+        mark = "BLOCKER" if issue.blocking else issue.severity.upper()
+        where = " ".join(x for x in (issue.candidate_id, issue.location) if x)
+        print(f"[{mark}] {issue.code} ({issue.category})"
+              + (f"  {where}" if where else ""))
+        if issue.message:
+            print(f"    {issue.message}")
+        if issue.suggested_fix:
+            print(f"    fix: {issue.suggested_fix}")
+
+    counts = ", ".join(f"{n} {sev}" for sev, n in agg["by_severity"].items() if n)
+    print(f"\n{agg['total']} finding(s): {counts}"
+          + ("  -- none blocking" if not agg["has_blockers"] else ""))
     return EXIT_BLOCKED if agg["has_blockers"] else EXIT_OK
 
 

@@ -100,6 +100,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("validate", help="show normalized validation for a mission")
     sp.add_argument("mission_id")
+    sp.add_argument("--json", action="store_true",
+                    help="machine output: the aggregate plus every finding")
     sp.set_defaults(func=cmd_validate)
 
     sp = sub.add_parser("approve", help="approve a gate")

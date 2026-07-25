@@ -3,6 +3,145 @@
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
 
+## [0.13.10] - laser_tag had never evaluated anything
+
+Every `validate` on the real workspace printed five `LT_LOW_READINESS` findings:
+grade BROKEN, score None. Read literally that says the pipeline built five
+levels whose firefights play badly. The actual report said something else
+entirely — `{"grade": "BROKEN", "overall_score": 0, "runs": 0, "findings":
+[{"type": "NO_RUNS", "message": "No runs completed — map could not be
+evaluated."}]}`. Zero runs. Not one firefight had ever been played, on any
+candidate, in the life of the pipeline, and the surface reporting it said
+"readiness grade" — a claim about the level rather than about the tool.
+
+Five independent defects were stacked behind that one line:
+
+1. **The map contract was never met.** Laser Tag's harness walks the tree for
+   nodes named `LT_PlayerSpawn`, `LT_EnemySpawnPoints`, `LT_ObjectivePoint`
+   (plus optional `LT_PlayerRoutePoints` / `LT_CoverTestPoints`); absent them
+   `validate_map()` fails and `run_evaluation` returns before the first run.
+   Nothing in the pipeline had ever written one of those nodes. Fixed at the
+   source in Lot 0.24.0 (`_lasertag_hook_nodes` in `write_walk_scene`), with
+   `packages/staging/lt_hooks.py` as Level Factory's staging-time net for
+   scenes that arrive without them — derived from the `spawn_pos` /
+   `objective_pos` / `extraction_pos` the walk scene already carries.
+2. **The score was read from a key the report does not write.** The 0.7
+   contract is `overall_score`; the adapter read `score`. Every candidate card
+   said `score -`. `report_score()` reads the real key and keeps `score` as a
+   fallback.
+3. **Laser Tag's own `findings` array was read by nothing** — the list that says
+   *why* the map could not be played. Now surfaced verbatim as
+   `LT_MAP_<TYPE>` findings, so the pipeline can say what is wrong rather than
+   only that something is.
+4. **"Could not evaluate" was filed as "evaluated poorly."** These are different
+   statements. A readiness score never blocks (TDD 5.5) and still does not —
+   but a tool that reports a grade for a match it never played is a contract
+   failure, the same class as reporting five candidates it did not build, and
+   `LT_NOT_EVALUATED` blocks. A report that omits `runs` entirely counts as
+   never evaluated: silence is not a pass.
+5. **`facade.py` read a `score.json` no version of Laser Tag has ever written**,
+   which is why every candidate card showed a blank score even when a report
+   existed. It reads `lasertag.report.json` through the same module now.
+
+Also fixed on the way through, because staging is where it could be caught:
+Godot rewrites `. : @ / " %` in a node name to `_` at load time, so Lot's
+`[node name="b0/LADDER_0_climb"]` became `b0_LADDER_0_climb` while its
+CollisionShape3D's `parent="b0/LADDER_0_climb"` was parsed as a *path*, matched
+nothing, and the child was dropped. Every ladder volume in every level shipped
+without collision. `packages/staging/tscn_names.py` applies Godot's own rule to
+names and to every path referencing them, and reports each repair in
+`staging.notes.json` rather than fixing it invisibly. (Source fix: Lot 0.24.0.)
+
+The Laser Tag fingerprint now includes `map_contract` and `enemy_count`. The
+evaluator reads the *staged* scene but the fingerprint hashed only the *source*
+scene, so baking hooks in at staging would have been called a cache hit and
+never re-run — the fix would have shipped and changed nothing.
+
+The stub godot in `tests/fixtures/bin/` used to write a grade-B report no matter
+what scene it was handed, so no test could ever observe an unmet contract. It
+now reads the staged scene and refuses exactly as the real harness does, and the
+stub Lot fixture emits both the root positions and the illegal ladder name on
+purpose — a net is only proven by a scene that needs it.
+`test_laser_tag_actually_evaluates_the_map` asserts `runs > 0` end to end.
+
+## [0.13.9] - five candidates that were one candidate
+
+Running the pipeline on the real workspace showed five candidates for
+`category5_baie_dore_001`. All five `site.tscn` were md5-identical, every
+building in every one of them instanced seed_5421's shell, and the whole mission
+had exactly one site spec on disk.
+
+`_write_site_spec` wrote to `.level_factory/temp/<mission>/site.json` — one path
+per *mission*. Job specs are all built up front, so the five calls clobbered one
+file and the last candidate planned won; all five Lot jobs then read that spec
+and assembled the same site. The candidate mechanism was decorative: five
+choices presented to a human that were one choice.
+
+Underneath it, nothing was ever varying in the first place. Deli Counter is
+deterministic by design — `new_level.py` has no `--seed`, and the adapter's own
+comment says variation is supposed to come from Lot's site assembly. Lot has the
+vocabulary for it (per-building `rot` is honoured through placement, marker
+rotation, the Godot transforms and the site audit; `spawn`/`objective`/
+`extraction` name the buildings the walkable scene starts, targets and exits
+from). LF used none of it, handing every candidate the same evenly-spaced,
+zero-rotation row with the role keys unset, so every candidate also spawned the
+player at Lot's origin default.
+
+It survived for the life of the pipeline because nothing had ever compared two
+candidates to each other. Per-candidate validation ran five times and passed
+five times — which is exactly what it does when the candidates are real.
+
+- `packages/pipeline/site_variation.py` (new): `site_placements(seed, count)`
+  derives per-building cardinal yaw, along-row nudge and across-row stagger from
+  the candidate seed, plus which building carries spawn / objective /
+  extraction. The variation is structural on purpose — a metre of jitter would
+  make the hashes differ while leaving the level identical to play, and passing
+  the gate is not the goal. Deterministic without `random` so the builder, the
+  cache fingerprint and the gate all re-derive the same site.
+- `packages/validation/candidate_diversity.py` (new): compares a mission's
+  candidates against each other. Byte-identical candidates are a **blocking**
+  `CANDIDATES_NOT_DISTINCT`; a candidate with no outputs is a separate,
+  non-blocking `CANDIDATES_MISSING_ARTIFACTS`, because "never built" and
+  "duplicate" are different problems and collapsing them hides the rarer one.
+  Blocking is consistent with TDD 5.5: this is not a claim about whether a level
+  is good, it is the pipeline reporting that it did something it did not do.
+- `apps/cli/commands/__init__.py`: `_write_site_spec` takes the candidate seed
+  and writes to `temp/<mission>/candidate_seed_<n>/site.json` (filename kept as
+  `site.json` so Lot's stem-derived output names stay canonical). `run` and
+  `batch run` compare the candidates they built and print how many distinct
+  levels came out, so "5 candidates" can never again be printed for one level
+  built five times.
+- `tests/fixtures/repos/lot/lot.py`: the stub bakes `at`/`rot` into the scene as
+  real Lot does — a stub that ignores placement emits one scene for every
+  candidate and hides the exact bug the gate exists to catch.
+
+## [0.13.8] - findings you can read, runs you can see
+
+Two reporting surfaces were quietly empty, in the same way the Windows display
+probe was: they rendered "nothing to say" identically to "nothing happened".
+
+`validate` printed a histogram. `"combat_structure": 5` is a number, not a
+finding — there is nothing in it to go fix, so the same 5 sat on every run for
+weeks and read as weather rather than as work. It now prints the findings
+themselves, worst first, each with its code, the candidate and location it
+belongs to, the message, and the suggested fix. `--json` is new and carries the
+aggregate *plus* every finding, so a caller no longer has to re-read the raw
+file to learn what was found.
+
+`status` with no mission id printed nothing at all. The cause was that
+`Index.upsert_mission` had no callers anywhere in the codebase — the missions
+table was never written, so the listing was empty forever and `batch report`
+showed every mission as "draft" no matter how many times it had been built.
+
+- `apps/cli/commands/__init__.py`: `cmd_run` and `cmd_batch_run` now record the
+  state a run leaves behind (`built` / `findings` / `blocked`) against the
+  mission's batch. `cmd_status` prints batch and state, and says so explicitly
+  when a workspace genuinely has no runs rather than exiting silent.
+- `apps/cli/main.py`: `validate --json`.
+- `tests/integration/test_end_to_end.py`: a run must leave a trace both surfaces
+  can show — the mission listed and attributed to its batch, and findings
+  rendered as text with the machine output carrying them one for one.
+
 ## [0.13.7] - the visual pass no longer skips itself on Windows
 
 First run on a Windows dev machine reported `shot bot: SKIPPED -- no display and
