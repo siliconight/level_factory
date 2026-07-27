@@ -3,9 +3,16 @@
 Phase 1 implements the *functional* pipeline plus the Dispatch shell-handoff
 tail:
 
-    brief -> deli(seed) x N -> lot(per candidate) -> laser_tag(per candidate)
+    brief -> deli(seed) x N -> lot(per candidate) -> walktest(per candidate)
+                                                  -> laser_tag(per candidate)
           -> [candidate_selected gate] -> [functional_shell_locked gate]
           -> dispatch(shell-handoff)
+
+Walktest and Laser Tag both depend on Lot and neither depends on the other, so
+they run concurrently under the godot_headless cap. They answer different
+questions and only one of them is a gate: walktest asks whether the site is
+navigable, which this stack certifies; Laser Tag grades a firefight, which it
+does not.
 
 Deterministic seeds are derived from the batch seed base and candidate index so
 the same brief always plans the same candidates.
@@ -54,6 +61,7 @@ def label_for_layers(layers) -> str:
 
 _STAGE_DELI = "deli_generate"
 _STAGE_LOT = "lot_assemble"
+_STAGE_WALKTEST = "walktest_navqa"
 _STAGE_LASER = "laser_tag_evaluate"
 _STAGE_DISPATCH = "dispatch_handoff"
 
@@ -119,8 +127,11 @@ def plan_mission(
 ) -> Plan:
     """Build the composable DAG for one mission.
 
-    Graybox (DC greybox+collision assembled by Lot, with Laser Tag nav QA) is the
-    always-on base. ``layers`` selects the optional layers on top:
+    Graybox -- DC greybox+collision assembled by Lot, nav QA by walktest, and a
+    Laser Tag firefight grade beside it -- is the always-on base. (That line
+    used to read "with Laser Tag nav QA", which is how a firefight ended up
+    being the only evidence for every navigation claim in the roadmap.)
+    ``layers`` selects the optional layers on top:
       * LAYER_ART      -> Pixelcoat + Zoo (kit swaps + props/dressing) + Patina + Lux
       * LAYER_GAMEPLAY -> Dispatch objective/nav/spawn suggestions (advisory)
     Layers are independent and apply only once a candidate is selected + locked.
@@ -165,6 +176,21 @@ def plan_mission(
         )
         plan.graph.add(lot)
         lot_job_ids_by_candidate[cand] = lot_jid
+
+        # Navigability, answered by walking. Sibling of the Laser Tag job, not
+        # downstream of it: nothing about a firefight is an input to "is the
+        # mission spine pathable, and can a body walk it".
+        walktest_jid = job_id(brief.mission_id, _STAGE_WALKTEST, candidate=cand)
+        plan.graph.add(Job(
+            job_id=walktest_jid,
+            mission_id=brief.mission_id,
+            stage_id=_STAGE_WALKTEST,
+            adapter_id="walktest",
+            candidate_id=cand,
+            resource_class="godot_headless",
+            depends_on=[lot_jid],
+            expected_outputs=["site_navqa.walktest.json"],
+        ))
 
         laser_jid = job_id(brief.mission_id, _STAGE_LASER, candidate=cand)
         laser = Job(
@@ -317,7 +343,5 @@ def plan_mission(
                               "build.lock.json", "HANDOFF.md"],
         )
         plan.graph.add(dispatch)
-
-    return plan
 
     return plan

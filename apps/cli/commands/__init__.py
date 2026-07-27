@@ -238,7 +238,32 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
             specs[job.job_id] = {
                 "site_spec_path": str(site_spec),
                 "walkable": True,
+                # Emit <stem>_navqa.tscn, the scene the walktest stage runs.
+                # The Lot adapter has supported --navqa since it was written and
+                # nothing had ever set the flag, so the nav QA scene was never
+                # produced and the only navigation evidence in this pipeline
+                # came from a firefight.
+                "navqa": True,
                 "building_glbs": [str(_latest_output(deli_out, "shell.glb"))],
+            }
+        elif job.adapter_id == "walktest":
+            lot_job = job.depends_on[0]
+            lot_out = jobs_dir / lot_job
+            repos = ws.load_tools_local().get("repositories", {})
+            specs[job.job_id] = {
+                "navqa_scene": str(_latest_output(lot_out, "site_navqa.tscn")),
+                # walktest.py and the heist_nav_qa director both ship with Lot,
+                # so the QA that judges a Lot site is always the version that
+                # Lot built it with.
+                "lot_repository": str(repos.get("lot", "")),
+                "staging_dir": str(ws.internal_dir / "staging" / job.job_id),
+                # walktest.py exits 1 when a leg is unpathable or a walker
+                # stalls. That is a finding about the site, not a crash, and the
+                # report is on disk to prove it ran -- so the job completes with
+                # findings. A run that could NOT happen is a different thing
+                # entirely: --require makes a missing Godot exit 1 with no
+                # report, and the output contract fails the job for that.
+                "exit_advisory": True,
             }
         elif job.adapter_id == "laser_tag":
             lot_job = job.depends_on[0]

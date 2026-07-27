@@ -18,11 +18,13 @@ def build_default_registry() -> dict[str, ToolAdapter]:
     from adapters.patina import PatinaAdapter
     from adapters.pixelcoat import PixelcoatAdapter
     from adapters.presentation import PresentationAdapter
+    from adapters.walktest import WalktestAdapter
     from adapters.zoo import ZooAdapter
 
     instances: list[ToolAdapter] = [
         DeliCounterAdapter(),
         LotAdapter(),
+        WalktestAdapter(),
         LaserTagAdapter(),
         PixelcoatAdapter(),
         ZooAdapter(),

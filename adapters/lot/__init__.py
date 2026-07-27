@@ -93,6 +93,12 @@ class LotAdapter(BaseAdapter):
                     f"{stem}.site.lights.json"]
         if job_spec.get("walkable", True):
             expected.append(f"{stem}_walk.tscn")
+        # Ask for what the flag was passed for. Without this the navqa scene is
+        # requested and its absence is discovered downstream, by the walktest
+        # stage failing its own pre-flight -- one stage further from the tool
+        # that was supposed to write it.
+        if job_spec.get("navqa"):
+            expected.append(f"{stem}_navqa.tscn")
 
         return [
             PlannedCommand(

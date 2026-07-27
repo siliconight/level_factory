@@ -27,8 +27,8 @@ def test_functional_plan_has_no_dispatch():
     adapters = {j.adapter_id for j in plan.graph.jobs()}
     assert "dispatch" not in adapters
     assert len(plan.candidate_ids) == 3
-    # 3 candidates x (deli + lot + laser) = 9 jobs.
-    assert len(plan.graph.jobs()) == 9
+    # 3 candidates x (deli + lot + walktest + laser) = 12 jobs.
+    assert len(plan.graph.jobs()) == 12
 
 
 def test_handoff_plan_requires_selected_candidate():
@@ -75,9 +75,37 @@ def _stages(layers):
     return {j.stage_id for j in plan.graph.jobs()}
 
 
-def test_graybox_base_is_just_deli_lot_laser():
+def test_graybox_base_is_deli_lot_walktest_laser():
     st = _stages(frozenset())
-    assert st == {"deli_generate", "lot_assemble", "laser_tag_evaluate"}
+    assert st == {"deli_generate", "lot_assemble", "walktest_navqa",
+                  "laser_tag_evaluate"}
+
+
+def test_walktest_is_a_sibling_of_laser_tag_not_a_dependent():
+    """Both hang off Lot and neither feeds the other.
+
+    Nothing about a firefight is an input to "is the mission spine pathable",
+    and chaining them would serialise two long headless Godot runs that can
+    share the resource-class cap instead.
+    """
+    plan = plan_mission(_brief(1), seed_base=1997, target=TARGET_FUNCTIONAL_LOCK)
+    jobs = {j.stage_id: j for j in plan.graph.jobs()}
+    walk, laser = jobs["walktest_navqa"], jobs["laser_tag_evaluate"]
+    assert walk.depends_on == laser.depends_on          # both: [lot]
+    assert "lot_assemble" in walk.depends_on[0]
+    assert walk.job_id not in laser.depends_on
+    assert laser.job_id not in walk.depends_on
+    assert walk.resource_class == "godot_headless"
+    assert walk.candidate_id == laser.candidate_id
+
+
+def test_walktest_declares_the_report_as_its_output():
+    """The output contract is what tells a run that never happened from one
+    that happened and found nothing."""
+    plan = plan_mission(_brief(1), seed_base=1997, target=TARGET_FUNCTIONAL_LOCK)
+    walk = next(j for j in plan.graph.jobs() if j.stage_id == "walktest_navqa")
+    assert walk.expected_outputs == ["site_navqa.walktest.json"]
+    assert walk.adapter_id == "walktest"
 
 
 def test_art_layer_has_full_art_pass_but_no_dispatch():

@@ -1,3 +1,80 @@
+## [0.15.0] - navigability answered by walking
+
+Every navigation conclusion this pipeline had drawn was inferred from a Laser
+Tag firefight. Nineteen timeouts on seed 5219 is not an answer to "is the route
+pathable?"; it is a symptom with several possible causes, arrived at through an
+instrument confounded by combat. The planner's own docstring said the graybox
+base was "DC greybox+collision assembled by Lot, with Laser Tag nav QA", which
+is how a firefight became the only evidence for a claim about geometry.
+
+`walktest.py` and the `heist_nav_qa` director have shipped with Lot the whole
+time. They bake the navmesh, prove a path along the mission spine leg by leg,
+then spawn physical walkers and drive them. No enemies, no weapons, no scoring.
+On seed 5219 this says in one run whether the route is pathable.
+
+### the stage
+
+`walktest_navqa`, one job per candidate, `depends_on=[lot]` -- a SIBLING of the
+Laser Tag job, not a dependent. Nothing about a firefight is an input to "can a
+body walk this", and chaining them would serialise two long headless Godot runs
+that can share the `godot_headless` cap instead.
+
+`adapters/walktest/` stages a throwaway project the way the Laser Tag adapter
+does, outside `work_dir` so the project's copies of the building GLBs are not
+collected as this job's outputs and cached twice, then runs Lot's runner against
+it. `probe()` points at the Lot checkout: there is no walktest repository, and
+left to the default the adapter would report unavailable and contribute no tool
+version, so the fingerprint would forget which Lot ran the QA. The director's
+sources are hashed into `fingerprint_inputs` for the same reason the Laser Tag
+addon is -- Lot's VERSION moves for reasons unrelated to the nav QA scripts, and
+the scripts change without Lot's VERSION moving.
+
+### the flag nothing had ever set
+
+`LotAdapter` has supported `--navqa` since it was written, and no job spec had
+ever passed it, so `<stem>_navqa.tscn` was never emitted. The `lot` branch of
+the job-spec builder now sets `navqa=True`, and the Lot adapter adds the navqa
+scene to its expected outputs when the flag is on -- otherwise its absence is
+discovered one stage downstream, by walktest failing its own pre-flight, rather
+than by the tool that was asked to write it.
+
+### two ways a nav check can be silent, and neither is allowed
+
+`walktest.py` treats a missing Godot 4 binary as a SKIP and returns 0 without
+writing a report. That is right for a hand-run and catastrophic for a pipeline
+stage: a navigation check that never happened, reported as success -- the exact
+defect 0.14.0 removed from the scheduler, offered back through a runner flag.
+The adapter passes `--require`, so the run fails, no report is written, and the
+output contract fails the job for the honest reason.
+
+The other silence is a report that says `ok=false` and itemises nothing.
+Anything counting findings reads that as a pass, so it gets its own code,
+`WALKTEST_FAILED_WITHOUT_DETAIL`, rather than an empty list.
+
+### findings that will block, but not yet
+
+Laser Tag grades a map and never refuses one, because the combat model it
+measures belongs to the consumer. Navigability is not like that: reachability
+and closure are exactly what this stack certifies about the asset it ships. A
+site whose objective cannot be reached is broken output, not a design note.
+
+So the findings are built to block, behind `WALKTEST_ENFORCED`, currently False.
+The existing library has never been checked this way and promoting on day one
+would fail missions wholesale before anyone has looked at one. This is the same
+rollout `deli_counter.stairwell.CONTAINMENT_ENFORCED` uses: warn while the
+library is remediated, flip the flag once it is clean. The finding itself --
+code, message, location -- is identical either way, so the flag changes what
+happens to a bad site and never whether it is noticed.
+
+Codes: `WALKTEST_LEG_UNPATHABLE` (reachability, names the leg and the director's
+detail), `WALKTEST_WALKER_STUCK` (traversal, carries the coordinates the
+director records for a walker that ran out the clock), `WALKTEST_NAVMESH_EMPTY`
+and `WALKTEST_NO_SPAWNS` (the director's early-outs -- "there was nothing to
+walk on" is a different failure with a different fix than "the route is
+blocked"), `WALKTEST_FAILED_WITHOUT_DETAIL`, `WALKTEST_REPORT_UNREADABLE`.
+
+Requires Lot 0.25.0 for `--report-dir`.
+
 ## [0.14.1] - laser_tag stops reporting UNKNOWN, for a boring reason
 
 `verify-manifest` had said `no comparable version (certified=None,
