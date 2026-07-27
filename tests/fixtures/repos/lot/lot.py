@@ -27,7 +27,39 @@ def main():
     # Real Lot bakes each building's `at`/`rot` into the scene transform, so a
     # stub that ignores placement would emit the same scene for every candidate
     # and quietly hide exactly the bug the diversity gate exists to catch.
-    rows = ['[gd_scene format=3]', '[node name="Site" type="Node3D"]']
+    bl = spec.get("buildings", [])
+
+    def _mission_xz():
+        """The three mission points in Godot XZ, shared by the site's ground
+        slab and the walk scene's root properties so they cannot drift apart."""
+        def _at(i, dx, dy):
+            at = list(bl[i % len(bl)].get("at", [0, 0])) + [0, 0] if bl else [0, 0, 0, 0]
+            return (float(at[0]) + dx, -(float(at[1]) + dy))
+        return [_at(0, 0, 0), _at(1, 12, 8), _at(2, -10, 20)]
+
+    pts = _mission_xz()
+    # Real Lot lays the walkable surface as StaticBody3D + BoxShape3D slabs, and
+    # Laser Tag's validate_map() rays straight down from the spawn onto them. A
+    # stub that emitted no floor would be refused by the ground-contact
+    # pre-flight before any of the pipeline behaviour under test ran; a stub
+    # that floors its own mission is the honest stand-in. The unfloored case is
+    # covered directly in tests/unit/test_ground_contact.py.
+    xs = [p[0] for p in pts] or [0.0]
+    zs = [p[1] for p in pts] or [0.0]
+    cx, cz = (min(xs) + max(xs)) / 2.0, (min(zs) + max(zs)) / 2.0
+    sx, sz = max(xs) - min(xs) + 60.0, max(zs) - min(zs) + 60.0
+    rows = ['[gd_scene load_steps=2 format=3]',
+            '',
+            '[sub_resource type="BoxShape3D" id="BoxShape_Ground"]',
+            f'size = Vector3({sx:g}, 0.5, {sz:g})',
+            '',
+            '[node name="Site" type="Node3D"]',
+            '',
+            '[node name="Ground" type="StaticBody3D" parent="."]',
+            f'transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, {cx:g}, -0.25, {cz:g})',
+            '',
+            '[node name="col" type="CollisionShape3D" parent="./Ground"]',
+            'shape = SubResource("BoxShape_Ground")']
     for i, b in enumerate(spec.get("buildings", [])):
         at = list(b.get("at", [0, 0])) + [0, 0]
         rows.append(f'\n[node name="{b.get("id", f"b{i}")}" parent="." type="Node3D"]')
@@ -44,20 +76,23 @@ def main():
         # pipeline shipped maps the evaluator refuses to play -- which is
         # exactly what shipped. Derive them from the site so the staged scene
         # has something real to build the LT_* hooks from.
-        bl = spec.get("buildings", [])
-        def _at(i, dx, dy):
-            at = list(bl[i % len(bl)].get("at", [0, 0])) + [0, 0] if bl else [0, 0, 0, 0]
-            return f"Vector3({float(at[0]) + dx:g}, 1, {-(float(at[1]) + dy):g})"
+        def _v(p):
+            return f"Vector3({p[0]:g}, 1, {p[1]:g})"
         # A name Godot cannot keep: `/` is rewritten to `_` at load, so the
         # child below is dropped unless staging sanitizes both sides. The stub
         # reproduces Lot's old defect on purpose -- the staging net is only
         # proven by a scene that actually needs it.
+        #
+        # The walk scene instances the site rather than restating it, the way
+        # real Lot does: the ground the mission stands on lives in the site.
         (out / f"{stem}_walk.tscn").write_text(
-            '[gd_scene format=3]\n\n'
+            '[gd_scene load_steps=2 format=3]\n\n'
+            f'[ext_resource type="PackedScene" path="res://{stem}.tscn" id="site"]\n\n'
             '[node name="SiteWalk" type="Node3D"]\n'
-            f'spawn_pos = {_at(0, 0, 0)}\n'
-            f'objective_pos = {_at(1, 12, 8)}\n'
-            f'extraction_pos = {_at(2, -10, 20)}\n\n'
+            f'spawn_pos = {_v(pts[0])}\n'
+            f'objective_pos = {_v(pts[1])}\n'
+            f'extraction_pos = {_v(pts[2])}\n\n'
+            '[node name="Site" parent="." instance=ExtResource("site")]\n\n'
             '[node name="b0/LADDER_0_climb" type="Area3D" parent="." groups=["ladder"]]\n\n'
             '[node name="shape" type="CollisionShape3D" parent="b0/LADDER_0_climb"]\n')
     if navqa:

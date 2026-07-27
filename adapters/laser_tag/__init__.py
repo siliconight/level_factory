@@ -30,6 +30,8 @@ class LaserTagAdapter(BaseAdapter):
         self, job_spec: Mapping[str, object], context: Mapping[str, object]
     ) -> Sequence[str]:
         from packages.staging.lt_hooks import check_scene_hooks
+        from packages.validation.ground_contact import check_ground_contact
+        from packages.validation.spawn_placement import check_spawn_placement
 
         problems: list[str] = []
         scene = job_spec.get("evaluation_scene")
@@ -44,9 +46,58 @@ class LaserTagAdapter(BaseAdapter):
             # never played. Better to say so before spending 900 seconds.
             problems.extend(check_scene_hooks(
                 Path(str(scene)).read_text(encoding="utf-8", errors="replace")))
+            # Meeting the contract is not enough if the hooks stand over a
+            # hole: validate_map() rays down from the spawn and refuses the
+            # map with NO_WORLD_COLLISION, which also comes back as zero runs.
+            problems.extend(check_ground_contact(Path(str(scene))))
+            # And a floor is not enough either. validate_map() asks every enemy
+            # to path to the crew before it plays a single run and refuses the
+            # whole map with UNREACHABLE_SPAWN when one cannot -- so a spawn
+            # sealed inside a building costs the same 900 seconds as a spawn
+            # over a void, and reads as a level review rather than a placement
+            # bug when the report finally lands.
+            #
+            # Only the refusals. The tactical findings this module also produces
+            # -- an unfair opening, a marker hanging over its floor -- describe a
+            # map Laser Tag will play and mark down, and a firefight evaluator
+            # marking a map down is a design signal rather than a build failure
+            # (TDD 5.5). Those come back from `advise_spawn_placement` and are
+            # reported next to the score, where they can be acted on without
+            # having stopped the level from existing.
+            problems.extend(check_spawn_placement(Path(str(scene))))
         if not context.get("godot_executable"):
             problems.append("godot_executable is not configured (headless run)")
         return problems
+
+    def advise_configuration(
+        self, job_spec: Mapping[str, object], context: Mapping[str, object]
+    ) -> Sequence[Mapping[str, object]]:
+        """The tactical half of the pre-flight: never a reason to refuse.
+
+        Laser Tag is a soft gate. It grades a map; it does not certify one, and
+        the things it grades down -- an opening engagement that starts before
+        the crew has moved, a street two markers can shoot the length of -- are
+        design signals about a level that exists and plays. So they come back
+        here, beside the score, rather than through `validate_configuration`,
+        where the same sentence would stop the level being built at all.
+
+        Read against the real Laser Tag checkout when there is one. The range
+        the map has to be built against is a fact about the evaluator's own
+        files -- the crew's sight range is an ``@export`` default ten metres
+        past the enemy's, and the crew shoots first -- and a pre-flight that
+        carried its own copy of that number would be checking its memory.
+        """
+        from packages.validation import lasertag_contract, tactical
+
+        engagement = lasertag_contract.read_engagement_from(
+            context.get("repository"))
+        return tactical.advise_scene(
+            job_spec.get("evaluation_scene"),
+            engagement=engagement,
+            # Lot's stated opening range, checked against the evaluator's real
+            # one. Neither tool can do this alone: Lot cannot import Level
+            # Factory, and Laser Tag has never heard of Lot.
+            lot_repository=(context.get("repositories") or {}).get("lot"))
 
     def fingerprint_inputs(
         self, job_spec: Mapping[str, object], context: Mapping[str, object]
@@ -66,6 +117,45 @@ class LaserTagAdapter(BaseAdapter):
         scene = job_spec.get("evaluation_scene")
         if scene and Path(str(scene)).exists():
             fp["scene_hash"] = hash_file(Path(str(scene)))
+        # The evaluator itself is an input, and until now it was not one.
+        #
+        # Everything above describes the MAP. The rest of the fingerprint comes
+        # from `probe()` -- `tool_version` and `repository_commit` -- and Laser
+        # Tag publishes neither: the factory manifest pins it "unpinned", noting
+        # "no VERSION source yet - reports UNKNOWN by design". So a fingerprint
+        # meant to answer "would this job produce the same output?" was blind to
+        # every line of the tool producing it. Editing the addon and re-running
+        # served the previous grade back, reported the job as succeeded, and
+        # left a report on disk that predated the change with nothing on the
+        # filesystem to say so.
+        #
+        # Hashing the addon sources closes it without depending on Laser Tag
+        # ever growing a VERSION file, which is the right shape here: the
+        # question is whether the code changed, and the code is the thing to
+        # ask. Sources only -- `.godot/`, `.uid` sidecars and generated reports
+        # are editor and run artifacts whose churn would invalidate the cache
+        # for no behavioural reason. Keyed by path RELATIVE to the addon root,
+        # not by bare filename: this tree has same-named files at different
+        # depths, and a flat key would let one silently mask another.
+        addon_hashes: dict[str, str] = {}
+        addons = [job_spec.get("addon_dir"), *job_spec.get("extra_addon_dirs", [])]
+        for addon in addons:
+            if not addon:
+                continue
+            root = Path(str(addon))
+            if not root.is_dir():
+                continue
+            for f in sorted(root.rglob("*")):
+                if not f.is_file():
+                    continue
+                if f.suffix not in (".gd", ".tres", ".tscn", ".cfg", ".json"):
+                    continue
+                if any(part == ".godot" for part in f.parts):
+                    continue
+                addon_hashes[f"{root.name}/{f.relative_to(root).as_posix()}"] = \
+                    hash_file(f)
+        if addon_hashes:
+            fp["addon_hashes"] = addon_hashes
         return fp
 
     def plan_commands(
@@ -112,10 +202,14 @@ class LaserTagAdapter(BaseAdapter):
         # Real headless runner (SceneTree script). Everything after `--` is a
         # user arg. The harness writes <out>.json + <out>.csv (same basename)
         # and accepts an absolute --output via ProjectSettings.globalize_path.
+        # --bake-nav matches what Laser Tag's own CI passes. Lot ships the
+        # NavigationRegion3D with parameters but no polygons, and without a
+        # bake every reachability test in the harness reads as unreachable.
         args = [
             "--headless", "--path", str(project),
             "-s", "res://addons/laser_tag_tool/runners/run_map_eval.gd",
             "--",
+            "--bake-nav",
             "--map", map_res,
             "--scenario", scenario,
             "--runs", str(runs),

@@ -123,6 +123,27 @@ class BaseAdapter:
     ) -> Sequence[str]:
         return []
 
+    def advise_configuration(
+        self, job_spec: Mapping[str, object], context: Mapping[str, object]
+    ) -> Sequence[Mapping[str, object]]:
+        """Findings about the inputs that are never a reason to refuse them.
+
+        The companion to `validate_configuration`, and the split between the two
+        is authority rather than subject. A refusal says the tool cannot produce
+        information from these inputs -- the scene has no floor, the destination
+        is sealed, the executable is not configured -- and spending the run
+        would buy a report about nothing. An advisory says the tool will run
+        fine and mark the result down, which is a design signal and belongs
+        beside the score rather than in front of the build.
+
+        Returns normalized finding dicts, the same shape `normalize_validation`
+        speaks. The scheduler forces every one of them non-blocking, so an
+        adapter cannot promote an advisory into a gate by mislabelling its
+        severity; if something here really should stop a build, it belongs in
+        `validate_configuration` where the reason travels with the refusal.
+        """
+        return []
+
     def fingerprint_inputs(
         self, job_spec: Mapping[str, object], context: Mapping[str, object]
     ) -> Mapping[str, object]:

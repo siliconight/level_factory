@@ -1,7 +1,604 @@
+## [0.13.19] - a firefight evaluator grades a map, it does not certify one
+
+Every tactical thing Laser Tag's pre-flight knew how to say, it said by refusing
+to build. An enemy standing too close to the crew spawn, a marker hanging three
+metres over its floor, two markers with ninety-two metres of open street between
+them -- all of them came back as `JOB_PREFLIGHT_REFUSED`, and all of them
+describe a level that loads, bakes, plays and comes back with a mediocre score.
+Trading a level somebody can put cover into for no level at all is the wrong
+trade, and the finding that mattered most is not a complaint about the map. It
+is a coordinate. Somebody just has to be handed it.
+
+### the advisory channel, and why the forcing lives in the scheduler
+
+`BaseAdapter.advise_configuration` is the companion to `validate_configuration`,
+and the split between them is authority rather than subject. A refusal says the
+tool cannot produce information from these inputs -- no floor, sealed
+destination, no executable configured -- and spending 900 seconds of Godot would
+buy a report about a match nobody played. An advisory says the tool will run
+fine and mark the result down, which belongs beside the score.
+
+`Scheduler._advise` forces every advisory non-blocking and demotes a `blocker`
+severity to `major`, so an adapter cannot promote a design signal into a gate by
+mislabelling it. That is an architectural rule rather than an adapter's manners,
+which is why it is enforced somewhere no adapter can reach.
+
+Two properties that only look like details until a run goes wrong:
+
+* Advisories are collected **before** the pre-flight and prepended on every
+  return path, so a refused or timed-out job still carries them. Losing them on
+  the failure path would mean the only runs that never explain what is wrong
+  with a map are the runs that went worst.
+* They are slice-assigned rather than appended, and the transient-retry
+  recursion routes through `_attempt_job` rather than `_execute_job`, so a retry
+  cannot report the same finding twice.
+
+An `advise_configuration` that raises comes back as one INFO `ADVISORY_FAILED`
+finding and the build completes. Nothing on this channel is allowed to be the
+reason a level does not get made, including a bug in the channel. The
+`ToolAdapter` protocol is unchanged and the scheduler reaches the method by
+`getattr`, so the channel is opt-in and every adapter written before it is
+unaffected.
+
+### `packages/validation/tactical.py`
+
+Composes three sources that had never been in the same room into normalized
+findings:
+
+* `spawn_placement`'s advisory pass, now returning `(code, message)` pairs --
+  `LT_OPENING_STANDOFF` and `LT_MARKER_OFF_FLOOR` are fixed by different people
+  in different files, and a caller telling them apart by matching prose is
+  coupled to a sentence that lasts until somebody improves it;
+* `sightlines`, now splitting `(what is open, what to do about it)` so the
+  coordinate reaches `ValidationIssue.suggested_fix` rather than being buried in
+  the tail of a message -- `LT_OPEN_SIGHTLINE`;
+* `lasertag_contract` -- `LT_ENGAGEMENT_DRIFT` when Lot's stated
+  `OPENING_RANGE` stops matching the evaluator's real one, and
+  `LT_ENGAGEMENT_NOT_CONFIGURABLE` because the number that decides first contact
+  is an `@export` default with no field in the scenario resource anybody would
+  go looking in.
+
+The drift check is the only check in either repository that can catch those two
+numbers separating, because Level Factory is the only place that can see both
+checkouts at once: Lot cannot import Level Factory and Laser Tag has never heard
+of Lot. `Scheduler` now passes the whole `repositories` map in the adapter
+context rather than only the adapter's own, which is what makes the question
+askable at all.
+
+### the duplicate street
+
+Writing the tests found a real defect. `spawn_placement.classify` collapses
+destinations sharing a position -- Lot emits its objective a second time as
+`Route_1` -- but the crew spawn is not a destination and escaped it. A
+defend-style mission, objective on the crew spawn, drew every street twice at
+identical lengths with identical cover proposals. That does not read as a
+duplicate. It reads as a site twice as open as it is, which is the wrong number
+to hand somebody deciding how much cover to build. `_one_name_per_position`
+collapses them and keeps the spawn's name, because "LT_ObjectivePoint sees
+Enemy_0" sends the reader looking at the objective.
+
+428 tests, 11 skipped.
+
+## [0.13.18] - the good news was filed as damage, and the map that nobody walked shipped clean
+
+Three separate readings of the same Laser Tag report were wrong in three
+different directions. Two of them made the report louder than the truth and one
+made it quieter, and the quiet one is the one that let a level ship.
+
+**A pass was being filed as a defect.** `LT_ScoreCalculator` emits its verdicts
+into a single `findings` array and tells the good ones apart only by
+`severity: "PASS"` -- the same array carries "Bot rarely completed the route
+[FAIL]" and "World collision blocked 40% of shots [PASS]". `_SEVERITY` had no
+`PASS` key, so `.get(..., "minor")` turned every pass into a MINOR problem with
+the level. In the 56-finding run the user was reading, roughly a dozen entries
+were good news wearing a problem's clothes, and one of them -- cover blocking --
+was the map doing exactly what a cover-heavy map is supposed to do.
+
+Passes now skip the issue loop entirely. They are not deleted: `passing_findings()`
+returns them, `metrics()["lasertag_passes"]` counts them, and `failure_summary()`
+-- which is pasted verbatim into the `LT_NOT_EVALUATED` blocker as "Laser Tag
+said:" -- now quotes only the failures, so a blocker can no longer cite a pass as
+a reason the map failed.
+
+**An unrecognised severity defaulted to minor.** Same `.get()` call, other half.
+A severity string this module has never seen is a report format that moved, and
+the cost of the two guesses is not symmetric: guessing low buries a real defect
+in the minor pile where nobody looks, guessing high is a false alarm someone
+closes in a minute. `UNKNOWN_SEVERITY` is `"moderate"` now, the same asymmetry
+`NAV_DERIVED_TYPES` already follows.
+
+### the fourth state, and where TDD 5.5 actually stops
+
+TDD 5.5 says a readiness score must never block a build, and this module has been
+applying that to everything Laser Tag says. Three states had already been carved
+out of it -- the evaluator never ran (blocks), it ran without navigation (blocks),
+it graded the map (never blocks). The first run that got past all three produced
+a fourth, and nothing was watching for it.
+
+Seed 5320: navigation baked, 1025 polygons, 25 matches played, every number in
+the report real for the first time. Route completion 0% on every seed. The build
+passed with **none blocking**.
+
+That reading of 5.5 is too broad. A *score* is a judgement -- 50/100, grade WARN,
+"is this map good" -- and it stays non-blocking forever. "The crew was given the
+full clock, nobody killed them, and they still never reached the objective" is
+not a judgement. It is the same statement the pre-flight already blocks on when
+it reads the scene text and finds the destination sealed off, arrived at by
+measurement instead of by geometry, and there is no defensible reason for the
+static form of a fact to block while the measured form of it ships.
+
+The gate turns on whether a run had the *time* to prove the route walkable:
+
+  - `LT_ROUTE_NEVER_COMPLETED` (blocker, reachability) -- completion is 0 and at
+    least one run ran the full clock out. Nothing was stopping the crew walking
+    except the map.
+  - `LT_ROUTE_UNPROVEN` (moderate, non-blocking) -- completion is 0 but every run
+    was cut short by a team wipe. That is difficulty, not geometry, and the route
+    is simply untested; the finding says so rather than implying a verdict.
+
+An absent `route_completion_rate` is never read as zero -- `route_completion_rate()`
+returns `None` when the report does not say, because absent is not zero and the
+whole reason this file exists is that those two kept being confused. A degraded
+run raises neither, since `LT_EVALUATED_DEGRADED` already blocks and already names
+the cause.
+
+For seed 5320 -- completion 0.0, four timeouts -- the blocker fires. The next real
+run is expected to *gain* a blocker rather than lose one. That is the point.
+
+### ENEMY_PATHING joined the pathfinding demotions
+
+`NAV_DERIVED_TYPES` lists the finding types whose numbers are meaningless without
+a baked navmesh, so they are demoted rather than reported at face value.
+`ENEMY_STUCK` and `PLAYER_STUCK` were on it; `ENEMY_PATHING` -- which on an
+unbaked map cheerfully reports "No enemy stuck events recorded" because nothing
+ever moved -- was not. It is now.
+
+Ten tests in `tests/unit/test_lasertag_readiness.py`, built on a fixture modelled
+directly on the seed 5320 report rather than an invented one.
+
+## [0.13.17] - the pipeline was guessing how big its own buildings are
+
+Lot 0.30.0 made the ground plate survive the spec Level Factory writes. This is
+the other half: Level Factory stops writing that spec. Two numbers were made up
+rather than measured, and both of them are consequences of the same fact -- how
+big the shell is -- which the pipeline has been able to read all along and never
+did.
+
+**The row was not centred and the plate was.** `site_placements` anchored the
+first building at the origin and marched +x, so four buildings 45 m apart ran
+x 0..135 before nudges. `ground_size` returned a span from the building count and
+Lot centred it on the origin. Nothing reconciled the two. The row now starts at
+`-(count - 1) * spacing // 2`, which is centred for the same reason the plate is:
+a reader that halves `size_x` and a reader that resolves the true extent then give
+the same answer, and neither can be wrong on its own.
+
+**The spacing was a hardcoded 45 m and the shells are 44 m wide.** With +/- 6 m of
+along-axis nudge available to the variation, a candidate whose neighbours nudged
+toward each other placed origins 42 m apart -- two metres of one building standing
+inside the other, on every seed, since the row existed. `row_spacing()` now
+derives it: the measured shell span, plus twice the nudge range, plus an 8 m
+street. For the shipped 44 m shell that is 64 m rather than 45, and the closest
+pair across the five real seeds sits 52 m apart -- an 8 m street, as asked.
+
+### shell_footprint()
+
+The extent of the shell about its own origin, in site XY metres, read out of
+`shell.glb` through the existing `packages.validation.glb_collision`. Reported as
+the extent *about the origin* -- twice the furthest face -- and not as the collider
+bounding box, because Lot places a building by its origin: a shell modelled 30 m
+off-origin needs 80 m of clearance, not 20.
+
+It returns `None` when the geometry cannot be read, and that distinction is the
+point. A shell that could not be measured is not a shell of size zero; returning
+`(0, 0)` would have every downstream consumer confidently size a plate for
+nothing. Callers fall back to `DEFAULT_FOOTPRINT` explicitly, which is a stated
+assumption rather than a silent one. This is the same "silent emptiness" shape
+that Lot 0.30.0's `_ground_tiles` clip had, caught before it could be written.
+
+### the self-check that runs on every write
+
+`_write_site_spec` measures the shell once, derives the spacing and the plate from
+it, and then -- before the spec leaves the building -- runs
+`site_variation.uncovered()` and `site_variation.overlapping()` over what it just
+produced and raises if either says anything. A guardrail nobody runs is
+decoration, so this one runs on the real seed, on every write, not only under
+pytest.
+
+These are deliberately the producer's own readers, distinct from Lot's
+`site_extent.resolve()` and `overlap_findings()` on the far side of the gate --
+the same arrangement as `glb_collision.py` and Lot's `site_collision.py`. One
+shared implementation would mean a bug in it blinds the producer and the check
+meant to catch the producer in the same instant. They agree because the contract
+is written down: for the shipped footprint the producer's plate and Lot's derived
+requirement coincide exactly at the worst-case bound, half_x 99.5 m both sides,
+and all five real seeds now resolve in Lot with `extended=False` and zero
+findings.
+
+### two tests that were measuring the wrong thing
+
+`test_the_ground_plate_covers_the_placed_row` asserted
+`abs(b["at"][0]) <= span_x / 2 + 90`. The `+ 90` was added to make a real
+coverage failure go green, and it checks *origins* against the plate, which is
+not the claim -- a building's walls stand where its footprint reaches, not where
+its origin is. It now asserts `abs(x) + reach <= span_x / 2` on both axes.
+
+`test_buildings_never_overlap_their_neighbours` asserted `min(gaps) >= 30` while
+the spacing was 45 and the shells were 44 m wide. A 30 m origin gap between 44 m
+shells is fourteen metres of interpenetration; the test measured what was easy to
+measure and passed for years while the thing it is named after was false on every
+seed. It now calls `overlapping()` and requires `min(gaps) >= max(footprint) +
+STREET`.
+
+Seven tests added, including the shell measured out of a fixture GLB, a shell
+modelled off its origin, the unmeasurable shell returning `None`, and the
+pre-0.13.17 spec (232 x 100 plate, buildings at -6/39/93/138) asserted to produce
+exactly one fault naming `b3` -- guarding the guard, so the fixture can still
+express the failure the fix removed.
+
+## [0.13.16] - the obvious way to start the CLI now works
+
+`python -m level_factory -C <factory-root> run <mission> --art` is the command
+that gets typed, and both halves of it were wrong in a way the tool did nothing
+to help with.
+
+**No module named level_factory.** The CLI lives at `apps/cli/main.py` and ships
+as a `level-factory` console script for installed copies. A source checkout with
+nothing installed had neither: the natural guess failed with a bare import error
+that named what you asked for and said nothing about where the CLI actually is.
+The factory root now carries a `__main__.py` that resolves the repo root from
+its own location and delegates to `apps.cli.main`. The directory has no
+`__init__.py`, so Python treats it as a namespace package -- which means this
+works for any checkout directory name, and the test asserts it that way rather
+than hard-coding `level_factory`.
+
+**-C pointed at the wrong tree.** The workspace is the folder holding
+`.level_factory/`, not the factory root that contains the tool repos. Workspace
+discovery searches at and above the given path and never below, so aiming it at
+`gabagool_factory` while the workspace sits in `gabagool_factory/rockay-ws`
+cannot find anything. That path already failed loudly -- `error: no Level
+Factory workspace found at or above ...` -- and a test now pins that it keeps
+doing so, because the failure mode worth guarding is a future version quietly
+guessing a workspace instead.
+
+Neither of these is a pipeline bug; both cost a run. `tests/unit/test_cli_entrypoint.py`
+covers the shim by path, the checkout as a module from its parent, and the
+non-workspace error. README's quick start now names all three spellings of the
+CLI and what `-C` expects.
+
+Suite: 337 passing, 11 skipped (was 333).
+
+## [0.13.15] - a fix verified against a reconstruction was not verified
+
+No code changed here. What changed is a claim that should not have been made.
+
+0.13.14 and Lot 0.28.0 both ended by reporting that the rebuilt scene "checks
+clean -- 0 findings, down from 3". That was measured by running
+`check_spawn_placement` against a hand-built Python reconstruction of the
+seed's geometry rather than against the scene the pipeline shipped. The next
+real run disagreed, and the run is the thing that counts:
+
+    [BLOCKER] JOB_PREFLIGHT_REFUSED
+      1 of 3 mission destination(s) cannot be walked to from the player spawn:
+      LT_ObjectivePoint is sealed off from the crew spawn
+
+Both entries now carry corrections. The dedupe in 0.13.14 and the height
+seating in Lot 0.28.0 are real and did what they said; neither cleared the
+blocker, because the marker's *footprint* was still on the counter. Lot 0.29.0
+is the fix that does clear it.
+
+The reconstruction was not a shortcut taken knowingly -- it was written to
+stand in for artifacts that were awkward to reach, and then trusted as though
+it were them. A reconstruction can only reproduce the geometry its author
+already believes is there, which makes it exactly the wrong instrument for
+finding out that the geometry is not what its author believes. From here a
+"verified" claim about a scene means the bytes of that scene were read.
+
+### How the real fix was measured instead
+
+`check_spawn_placement` -- the production function, unmodified -- run against
+the byte-verified `site_walk.tscn` and `shell.glb` from the shipped pack,
+before and after applying exactly the move Lot 0.29.0 now computes:
+
+    --- as shipped
+      findings: 1
+       * 1 of 3 mission destination(s) cannot be walked to from the player
+         spawn: LT_ObjectivePoint is sealed off from the crew spawn ...
+    --- objective resolved 1.5 m
+      findings: 0
+
+Staged files are byte-checked before use: the device mount can serve a stale
+copy while reporting the device's true size, so `stat` and the reported byte
+count have to agree or the file is discarded. The stale copy of this scene was
+3336 bytes against the real 5347, and it was the smaller one that made the
+reconstruction look right.
+
+## [0.13.14] - one unreachable marker should read as one unreachable marker
+
+The 0.13.13 gate did its job on its first real run: it refused
+`laser_tag_evaluate.candidate.seed_5118` at pre-flight instead of spending 900
+seconds discovering the same thing and reporting it as a level-design grade.
+What it said was "2 of 4 mission destination(s) cannot be walked to ...
+LT_ObjectivePoint is sealed off; Route_1 is sealed off".
+
+Route_1 is LT_ObjectivePoint. Lot builds its route as `[spawn, objective,
+extraction]`, so the second waypoint is the objective's own coordinate emitted
+a second time under the name LaserTag's traversal test reads. One misplaced
+marker was being counted twice, which turns a single placement defect into a
+map that looks riddled with them -- the wrong signal to hand someone deciding
+what to fix first, and a denominator ("of 4") that overstates how much of the
+mission is broken.
+
+`classify` now collapses destinations that share a position. Which name
+survives is not cosmetic: `LT_ObjectivePoint` says what is wrong with the map,
+while `Route_1` says only that the second waypoint of something is unreachable
+and sends whoever reads it looking for a route generator that is working fine.
+So the objective outranks an index-named waypoint at its own position.
+
+On the real seed_5118 scene the finding goes from "2 of 4" naming both to "1 of
+3" naming the objective.
+
+**Correction (0.13.15).** This entry originally ended by claiming that with Lot
+0.28.0's seating fix applied the scene "checks clean -- 0 findings, down from
+3". That claim was produced against a Python reconstruction of the seed's
+geometry, not against the shipped scene, and it was wrong: the real run came
+back blocked with "1 of 3 mission destination(s) cannot be walked to from the
+player spawn: LT_ObjectivePoint is sealed off from the crew spawn". The dedupe
+described above is real and is what changed "2 of 4" into "1 of 3"; the
+blocker's disappearance was not. See 0.13.15 for what the marker was actually
+standing on.
+
 # Changelog
 
 All notable changes to Level Factory are documented here. Commit messages stay
 short (< 200 chars); detail lives here.
+
+## [0.13.13] - a floor under your feet is not a route to you
+
+The navmesh fix in 0.13.12 let Laser Tag bake and play for real, and the first
+thing a real bake produced was a refusal:
+
+    seed_5118  UNREACHABLE_SPAWN x6, runs: 0, grade BROKEN
+    seed_5017  INSTANT_CONTACT 0.0s, NO_REACTION_TIME 3.0s, TRAVERSAL 0%
+
+`validate_map()` asks every enemy spawn to path to the crew before it plays a
+single run, and refuses the whole map when one cannot. All six of seed_5118's
+enemies were sealed inside building interiors -- and `check_ground_contact`
+had passed the scene without a word, because every one of them had a slab
+underneath it. "Standing on something" and "standing somewhere the crew can get
+to" are different claims. Only the second one is what the evaluator checks, and
+nothing in this pipeline was making it.
+
+### packages/validation/spawn_placement.py
+
+A 2.5-D walkability heightfield over the scene's box colliders plus a flood
+fill from the player spawn -- a coarse imitation of what Recast does during the
+bake, at 0.5 m cells with an `agent_max_climb` step rule. Deliberately
+*optimistic*: it does not erode by agent radius, so a gap a 0.4 m agent could
+not squeeze through still reads as open. Optimism is the safe direction for a
+check that blocks a build. This module under-reports rather than inventing a
+wall, and everything it does report the bake will refuse too.
+
+It answers three questions the same field is good for: is a spawn sealed off,
+embedded in a solid, or on a different storey; is a marker hanging in the air
+above the floor it names; and is an enemy close enough that first contact
+happens before the crew has moved -- measured as *walking* distance, because an
+enemy three metres away through a wall is not an ambush.
+
+On the real seed_5118 scene it returns in 0.6 s with three findings where the
+evaluation took 900 s to return one misattributed grade. It stays silent where
+another check already speaks: no hooks belongs to `check_scene_hooks`, no
+readable collision and no floor under the spawn belong to
+`check_ground_contact`. Wired into `adapters/laser_tag/validate_configuration`
+behind both of them.
+
+### ground_contact could not see a node that was in a group
+
+`_SECTION` matched a scene header with `[^\]]*`, which cannot span the bracket
+inside `groups=["ladder"]`. Those headers did not match at all -- so the node
+never entered the frame table or the type table, its children composed against
+the identity, and its body type was unknown. Concretely: Lot writes four ladder
+climb volumes as `Area3D` nodes in the `ladder` group, and every one of them
+read as a solid 1.3 x 5 x 1.3 floor slab standing at the world origin. Four
+trigger volumes counted as ground, 27 m from where the scene put them.
+
+A missing header is not a missing attribute. Greedy now, so the run backtracks
+to the last bracket on the line: 1509 boxes to 1505 on the real scene, and no
+ladder among them.
+
+## [0.13.12] - the evaluator played twenty-five matches and measured nothing
+
+The pre-flight gate cleared and Laser Tag played its first real firefights in
+the life of this pipeline. Then `run category5_baie_dore_001 --art` came back
+with sixteen findings, two of them blockers, and not one of them named the
+defect:
+
+    [BLOCKER] JOB_TIMEOUT (runtime_requirement) ... tool exited 3221225786
+    [BLOCKER] JOB_TIMEOUT (runtime_requirement) ... tool exited 3221225786
+    [MAJOR]   LT_MAP_NO_REACTION_TIME   player survives 9.4s
+    [MAJOR]   LT_MAP_TRAVERSAL          0% route completion
+    [MODERATE] LT_LOW_READINESS         grade FAIL, score 40, 25 runs
+    [MODERATE] LT_MAP_ENEMY_STUCK       57 times
+    [MODERATE] LT_MAP_INSTANT_CONTACT   0.0s
+    [MODERATE] LT_MAP_NAVIGATION_MISSING ...falling back to direct movement
+    [MINOR]    LT_MAP_COVER_BLOCKING    20% of shots blocked
+
+Fifteen of those describe a level. One describes the tool. The fifteen are the
+artifacts of the one, and it was printed sixth.
+
+### One bug, sixteen findings
+
+The map scene and the evaluation runner both bake the navmesh, and Godot's bake
+is threaded:
+
+1. `level.tscn` loads. Lot's `lot_site_walk.gd::_ready()` calls
+   `nav.bake_navigation_mesh()` -- dispatched to a thread pool, unawaited.
+2. The runner (invoked with `--bake-nav`, which is what Laser Tag's own CI
+   passes) takes *that same NavigationMesh resource* and calls
+   `NavigationServer3D.bake_from_source_geometry_data()` on it.
+3. Godot refuses: `ERROR: NavigationMesh is already baking. Wait for current
+   bake to finish.` The resource is left with zero polygons.
+4. The runner reads `get_polygon_count()` -> 0 and warns `Baked 0 polygons on
+   Nav -- no static colliders on layer 1 under site_walk?`
+
+Step 4 is the silent-emptiness family once more, and this time with a
+confabulated cause attached. A *refused* operation printed the same number as a
+*completed* operation that found nothing, and then guessed at a reason that was
+flatly false: the site carries 374 collision bodies, which 0.13.11 verified by
+reading the shell's bytes.
+
+Downstream the harness sees a zero-polygon region, reports
+`NAVIGATION_MISSING`, and falls back to direct movement (TDD 29.1) -- bots walk
+in straight lines into walls. `route_completion_rate 0.0`,
+`enemy_stuck_events 57`, and `first_contact_stddev` exactly `0.0` across
+twenty-five seeded runs. Zero variance over twenty-five runs is the tell: that
+is not a measurement of anything.
+
+The two `JOB_TIMEOUT` blockers are the same bug wearing a different hat. With
+no pathfinding, whether a run ends depends only on whether the player happens
+to die. Seed 5017's player died every time (9.4 s average), so 25 short runs
+fit inside the 900 s job cap and the job "succeeded" with grade FAIL and a full
+set of meaningless numbers. Seeds 5118 and 5219's players mostly did not die,
+so every run burned the 180 s in-sim cap (~47 s wall), only 19-20 of 25 fit,
+and Level Factory's own timeout killer fired -- exit 3221225786 is
+`STATUS_CONTROL_C_EXIT`, the process being killed by us. Same defect, sorted by
+luck.
+
+### The third state
+
+`packages/validation/lasertag_report.py` knew two states: the evaluator ran, or
+it never ran. This report is neither. Twenty-five runs completed, a complete
+130 KB report was written, `was_evaluated()` said yes -- and nothing was
+measured. So there is now a third:
+
+* **`LT_EVALUATED_DEGRADED`** -- blocker, category `tool_contract`. Emitted when
+  a report completed runs but carries a `DEGRADED_TYPES` finding
+  (`NAVIGATION_MISSING`). It names the run count, the cause, and states plainly
+  that the grade and every derived number describe the fallback rather than the
+  level. It does not fire when zero runs completed: `LT_NOT_EVALUATED` is the
+  earlier and more useful statement, and two blockers for one fault is noise.
+* **Pathfinding-derived findings are demoted to `info`** with the reason carried
+  on the finding text, so the line still reads correctly quoted on its own.
+  `NAV_DERIVED_TYPES` lists them explicitly. Sightline findings (`BLIND_MAP`,
+  `EXPOSURE`) are deliberately *not* in that set -- they ray between statically
+  sampled positions and never consult the navmesh, so they remain the one real
+  measurement in a degraded report. An unlisted finding type keeps the severity
+  Laser Tag gave it: overstating a finding is recoverable with the degraded
+  blocker sitting above it, whereas silently demoting a type this list has not
+  heard of would hide a real defect behind a bug in the list.
+* **`LT_LOW_READINESS` is suppressed when degraded.** Grade FAIL over a match
+  played without pathfinding is not a readiness signal, and printing it as one
+  sends someone off to tune combat pacing on a level whose only defect is a
+  missing navmesh.
+* **`metrics()` carries `lasertag_degraded`** so candidate selection never
+  ranks two candidates whose bots both walked into walls as if the comparison
+  meant something, and **`summarize()` stops printing `3/3 evaluated`** for
+  three navigation-less runs -- it now says `3/3 evaluated, 2 without
+  navigation`.
+
+TDD 5.5 is intact: a readiness score still never blocks a build. "The evaluator
+ran without the thing it measures with" is a contract failure, the same class
+as "the evaluator never started", and it blocks.
+
+Nine tests in `tests/unit/test_lasertag_readiness.py` (18 total in the file),
+including one that pins a healthy report passing through the degraded path with
+its severities untouched -- a gate that hides findings is just an outage.
+
+### Upstream, in the two tools that raced
+
+* **Lot** (`godot/addons/lot/lot_site_walk.gd`): the walkthrough bake now
+  returns early when `DisplayServer.get_name() == "headless"`. Headless means
+  nobody is walking the scene -- it was loaded by an evaluation runner that
+  bakes navigation itself, against its own agent parameters. When there is no
+  walker, the right amount of baking is none. Pinned by a Lot test that reads
+  the shipped `.gd` and asserts the guard precedes the call.
+* **Laser Tag** (`addons/laser_tag_tool/runners/run_map_eval.gd`): the runner
+  bakes into a *fresh* `NavigationMesh` rather than the region's own. It
+  overrode every parameter anyway, so reuse bought nothing but the race -- and
+  a new resource carries the engine-default `cell_size`/`cell_height`, which is
+  what the navigation map itself uses, so the rasterization-mismatch warnings
+  go with it. It also waits out an in-flight bake the map started (bounded, and
+  it says so if the wait runs out) and separates the two failures it used to
+  merge: `source.has_data()` false means no static colliders were parsed at
+  all, while zero polygons from a non-empty parse means geometry was found and
+  none of it is walkable at the configured agent radius, height and slope. Two
+  faults with different fixes; the old message guessed at the first and the
+  truth was usually neither.
+
+## [0.13.11] - the pre-flight refused a floored map because it would not open the shell
+
+`run category5_baie_dore_001 --art` stopped at the gate with:
+
+    [BLOCKER] JOB_PREFLIGHT_REFUSED (configuration)
+    12 of 15 mission point(s) have no ground beneath them: LT_CoverTestPoints/
+    Cover_0, ... (collision inside 5 instanced resource(s) is not readable from
+    the scene text); Laser Tag would refuse the map with NO_WORLD_COLLISION and
+    complete zero runs
+
+Read that sentence twice. The parenthesis says the check could not see inside
+the buildings; the verdict says there is no floor inside the buildings. A check
+gets one of those two positions, not both — and this one had picked the wrong
+one. The shell it declined to open, `shell.glb` from `deli_generate`, holds 855
+nodes of which 374 are `-col`-family colliders, including four
+`slab_col_*-colonly` floor slabs at 44 x 32 m, one per storey. Every one of the
+twelve "floating" points was standing on a slab. The map was walkable and the
+pipeline refused to build it.
+
+This is the silent-emptiness family again, in its purest form: *I cannot see it*
+rendered identically to *it is not there*. The previous entries in that family
+were surfaces that said nothing when they had nothing to say. This one says
+something, and what it says is false.
+
+The fix is that the binary describes itself. Godot's glTF importer generates a
+physics body for a node whose name ends in the `-col` family of suffixes, and
+the extent of that body is fully determined by the JSON chunk: the node
+hierarchy carries the transforms, and each mesh primitive's `POSITION` accessor
+carries `min`/`max`. A collider's world-space AABB can therefore be computed
+without decoding a single vertex buffer, without Blender and without Godot.
+
+- **New: `packages/validation/glb_collision.py`.** Pure stdlib, bytes in and
+  boxes out, importable with nothing else from Level Factory on the path — the
+  same question gets asked from Lot's side of the fence. Reads the container
+  (chunks in any order), the `-col` suffix family (case-insensitive, tolerating
+  Blender's `.001`), the `generate/physics=true` import setting that bodies
+  every mesh instead, `matrix` and TRS node transforms, and nested hierarchies
+  with a depth guard so a cyclic file cannot turn a pre-flight into an infinite
+  walk. Returns a tri-state `GlbReading`: parsed-with-colliders,
+  parsed-and-confidently-hollow, and could-not-be-read, which stay three
+  different answers all the way to the message.
+- **`ground_contact` now reads instanced `.glb`s** instead of recording them as
+  opaque, composes 3x4 matrices down the node path instead of adding origins,
+  and honours axis-aligned rotations exactly. That last part is load-bearing:
+  three of the four buildings on this site are placed at 90 degrees, so their
+  44 x 32 slab is a 32 x 44 footprint in site space, and the objective at
+  (-6, -16) only lands on it when the quarter turn is carried through. A basis
+  that is *not* axis-aligned is still reported opaque, because this reader
+  cannot state that footprint as a box without inventing area.
+- **`resolver()` finds a shell that lives in another job directory.** Three
+  reference forms land: `res://name`, a bare filename beside the scene, and the
+  `res://C:/...` absolute form Lot writes for a local preview. Without the
+  basename fallback a mission scene and its shell — which routinely sit in
+  different job dirs — would report opaque and re-open this bug from the side.
+- **A ladder's `Area3D` is no longer counted as floor.** Lot writes a climb
+  volume per ladder; an `Area3D` stops no ray and bakes into no navmesh, so
+  treating its box as ground would floor a point hanging in mid-air. Named
+  exclusion, not a whitelist of solid bodies — a whitelist drops the floor
+  under any body type not thought of here, and dropping a real floor is exactly
+  the direction that caused this defect.
+- **Whatever is still unreadable is named in the message**, with its shape type
+  where there is one (`Player/col (CapsuleShape3D)`). "N resources are
+  unreadable" tells an operator the verdict is partly a guess without telling
+  them which file to go and look at, which is most of the way back to saying
+  nothing at all.
+
+Pinned by 22 tests in `tests/unit/test_glb_collision.py` against real `.glb`
+binaries written by `tests/unit/glb_fixture.py` — a hand-rolled dict would test
+nothing that ships — plus a trimmed copy of the shell that produced the blocker
+at `tests/fixtures/glb/shell_slabs.glb`, and 8 more in
+`tests/unit/test_ground_contact.py` covering a floored instance, a genuinely
+hollow one that *must still* report the hole, the quarter-turned building, the
+shell found by name, the odd-angle instance that stays opaque, and the ladder
+trigger. Against the real failing scene the pre-flight now reads 1516 boxes and
+floors all 15 mission points.
 
 ## [0.13.10] - laser_tag had never evaluated anything
 

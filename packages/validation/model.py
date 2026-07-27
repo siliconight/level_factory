@@ -110,8 +110,18 @@ def aggregate(issues: list[ValidationIssue], accepted_issue_ids: frozenset[str] 
     }
 
 
-def readiness_label(aggregation: dict) -> str:
-    """A structural-only label. Never claims fun/balance/network (TDD 5.7)."""
+def readiness_label(aggregation: dict, *, run_completed: bool = True) -> str:
+    """A structural-only label. Never claims fun/balance/network (TDD 5.7).
+
+    `run_completed` is the second thing the label depends on and it is not
+    visible in the aggregate: a run that stopped at a failed stage has no
+    findings from the stages it never reached, so an empty aggregate means
+    "nothing was checked" just as readily as "everything checked out". Saying
+    "Structural checks passed" over a mission that has no level in it is the
+    one sentence this label must never produce.
+    """
+    if not run_completed:
+        return "Blocked: the run did not complete"
     if aggregation["has_blockers"]:
         return "Blocked: unresolved blocking issues"
     return "Structural checks passed"

@@ -36,6 +36,8 @@ from packages.core.models import Artifact, Job
 from packages.jobs.runner import Cancellation, run_command
 from packages.pipeline.graph import JobGraph
 from packages.project_store.index import Index
+from packages.validation import model
+from packages.validation.job_failure import issues_for_failure
 from packages.validation.model import issue_from_normalized
 
 # Default per-resource-class concurrency caps (TDD 19.2).
@@ -71,6 +73,28 @@ class RunSummary:
         return self.blocked_job is None and all(
             states.job_succeeded(o.job.status) for o in self.outcomes
         )
+
+
+#: Sidecar suffix for the record written next to each artifact.
+PROVENANCE_SUFFIX = ".provenance.json"
+
+
+def _without_provenance(paths):
+    """Drop provenance sidecars from a job's output set.
+
+    A sidecar is a record ABOUT an artifact, not an artifact, and treating it
+    as one compounds: `collect_outputs` rglobs the work dir, so every run swept
+    up the previous run's sidecars, wrote a sidecar for each, and added one
+    level of nesting per run --
+    `site.tscn.provenance.json.provenance.json...`.
+
+    It read as cosmetic for eleven levels. At seventeen it stopped being
+    cosmetic: the path passed Windows' MAX_PATH and the whole run died with
+    `[Errno 22] Invalid argument` on a filename nobody had chosen, before a
+    single stage had done any work. Filtering here rather than in each adapter
+    means an adapter cannot opt into the recursion by rglobbing honestly.
+    """
+    return [p for p in paths if not p.name.endswith(PROVENANCE_SUFFIX)]
 
 
 class Scheduler:
@@ -217,6 +241,24 @@ class Scheduler:
                 _shutil.copy2(src, dst)
 
     def _execute_job(self, job: Job, job_spec: dict, cancel: Cancellation | None) -> JobOutcome:
+        """Run a job and hand back its findings, advisories included.
+
+        The advisories are collected here rather than inside the attempt so a
+        retry cannot report them twice, and so they survive every way the
+        attempt can end -- including the ones that end it early. A tactical
+        finding about a scene is worth the same whether the job that would have
+        evaluated it succeeded, was refused at pre-flight or timed out; losing
+        it on the failure path would mean the only runs that never explain what
+        is wrong with a map are the runs that went worst.
+        """
+        advisories: list = []
+        outcome = self._attempt_job(job, job_spec, cancel, advisories)
+        if advisories:
+            outcome.issues = advisories + list(outcome.issues)
+        return outcome
+
+    def _attempt_job(self, job: Job, job_spec: dict,
+                     cancel: Cancellation | None, advisories: list) -> JobOutcome:
         adapter = self.registry.get(job.adapter_id)
         repo = self.installation.get("repositories", {}).get(job.adapter_id, "")
         # First execution is attempt 1; retries increment before recursing.
@@ -227,6 +269,12 @@ class Scheduler:
 
         context = {
             "repository": repo,
+            # Every configured tool checkout, not just this adapter's own. Some
+            # questions are only answerable across two repositories at once --
+            # whether the range Lot places enemies against is still the range
+            # Laser Tag opens fire at is one of them, and neither tool can
+            # answer it alone.
+            "repositories": dict(self.installation.get("repositories", {})),
             "work_dir": str(work_dir),
             "blender_executable": self.installation.get("blender_executable", ""),
             "godot_executable": self.installation.get("godot_executable", ""),
@@ -234,10 +282,19 @@ class Scheduler:
             "godot_project": str(self.godot_project or work_dir),
         }
 
+        # 0. Tactical advisories -- what the tool will build and grade badly,
+        # as opposed to what it will refuse. Collected before the pre-flight so
+        # a refused job still carries them, and replaced rather than appended
+        # so a transient retry does not double the list.
+        advisories[:] = self._advise(adapter, job_spec, context, job)
+
         # 1. Validate configuration -- no silent fixes (TDD 5.4).
         problems = list(adapter.validate_configuration(job_spec, context))
         if problems:
-            return self._fail(job, INPUT_VALIDATION_ERROR, "; ".join(problems))
+            # Pass the list, not the joined sentence: a pre-flight that
+            # objected four times is making four statements.
+            return self._fail(job, INPUT_VALIDATION_ERROR, "; ".join(problems),
+                              problems=problems)
 
         # 2. Build fingerprint + cache lookup.
         probe = adapter.probe({"repository": repo, **self.installation})
@@ -333,7 +390,7 @@ class Scheduler:
                         and job.attempt <= MAX_TRANSIENT_RETRIES
                         and job_spec.get("transient_ok")):
                     job.attempt += 1
-                    return self._execute_job(job, job_spec, cancel)
+                    return self._attempt_job(job, job_spec, cancel, advisories)
                 # A readiness EVALUATOR (e.g. Laser Tag) signals its verdict via
                 # exit code: a low/BROKEN grade exits nonzero but is EVIDENCE for
                 # the human at candidate selection, not a build crash. Fall
@@ -357,7 +414,8 @@ class Scheduler:
                               f"expected outputs missing: {', '.join(missing)}",
                               exit_code=result.exit_code if result else None)
 
-        outputs = [Path(p) for p in adapter.collect_outputs(job_spec, context)]
+        outputs = _without_provenance(
+            Path(p) for p in adapter.collect_outputs(job_spec, context))
 
         # 5. Normalize validation; block on any blocker.
         issues = self._normalize(adapter, outputs, job)
@@ -389,6 +447,52 @@ class Scheduler:
         return JobOutcome(job=job, issues=issues, artifacts=artifacts)
 
     # ------------------------------------------------------------------
+    def _advise(self, adapter, job_spec: dict, context: dict, job: Job) -> list:
+        """An adapter's tactical findings, forced non-blocking.
+
+        The forcing is the point, and it lives here rather than in the adapters
+        because it is an architectural rule and not an adapter's manners. A
+        firefight evaluator saying an opening is unfair, or that two markers can
+        see each other across ninety metres of empty street, is a design signal:
+        the map exists, the evaluator will happily play it, and it will grade it
+        down. Answering that by refusing to build stops the level existing long
+        enough to be improved, and the finding is worth far more pointed forward
+        -- at where cover belongs -- than backward as a refusal. So an adapter
+        cannot make an advisory block by mislabelling it, no matter what
+        severity it hands over.
+
+        An adapter that has nothing to say, or no advisory path at all, costs
+        nothing. An adapter whose advisory path raises says so as a finding
+        rather than taking the build down with it: the whole reason this channel
+        is separate from `validate_configuration` is that nothing on it is
+        allowed to be the reason a level does not get made.
+        """
+        advise = getattr(adapter, "advise_configuration", None)
+        if advise is None:
+            return []
+        try:
+            raws = list(advise(job_spec, context))
+        except Exception as exc:   # noqa: BLE001 - see the docstring
+            raws = [{
+                "code": "ADVISORY_FAILED",
+                "severity": model.INFO,
+                "category": "configuration",
+                "message": (f"the {adapter.adapter_id} advisory pass raised "
+                            f"{type(exc).__name__}: {exc} — the build was not "
+                            f"affected, but this run has no tactical findings "
+                            f"from it"),
+            }]
+        out = []
+        for raw in raws:
+            raw = dict(raw)
+            raw["blocking"] = False
+            if raw.get("severity") == model.BLOCKER:
+                raw["severity"] = model.MAJOR
+            out.append(issue_from_normalized(
+                raw, source_tool=adapter.adapter_id, mission_id=job.mission_id,
+                candidate_id=job.candidate_id, stage_id=job.stage_id))
+        return out
+
     def _normalize(self, adapter, outputs, job: Job) -> list:
         raws = adapter.normalize_validation(outputs)
         return [
@@ -400,6 +504,7 @@ class Scheduler:
         ]
 
     def _record_artifacts(self, job, adapter, probe, outputs, work_dir, val_status) -> list:
+        outputs = _without_provenance(outputs)
         artifacts = []
         for out in outputs:
             content_hash = hash_file(out)
@@ -436,7 +541,7 @@ class Scheduler:
         return artifacts
 
     def _fail(self, job: Job, failure_class: str, message: str,
-              *, issues=None, exit_code=None) -> JobOutcome:
+              *, issues=None, exit_code=None, problems=()) -> JobOutcome:
         job.status = states.BLOCKED if failure_class == VALIDATION_BLOCKER else states.FAILED
         if failure_class == "cancelled":
             job.status = states.CANCELLED
@@ -445,4 +550,21 @@ class Scheduler:
         if exit_code is not None:
             job.exit_code = exit_code
         self.index.upsert_job(job)
-        return JobOutcome(job=job, issues=issues or [])
+        # A stopped job wrote no report, so `normalize_validation` had nothing
+        # to read and the mission ended with zero findings -- which is what a
+        # clean build also reports. Translate the failure itself into findings
+        # so the reason travels with the run instead of dying on the job row.
+        out = list(issues or [])
+        if not out:
+            out = issues_for_failure(
+                failure_class=failure_class,
+                message=message,
+                problems=list(problems),
+                source_tool=job.adapter_id,
+                job_id=job.job_id,
+                mission_id=job.mission_id,
+                candidate_id=job.candidate_id,
+                stage_id=job.stage_id,
+                log_path=job.log_path,
+            )
+        return JobOutcome(job=job, issues=out)

@@ -542,19 +542,28 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
     degrees). Extra keys Lot ignores (site_shape/route_shape/target_minutes) are
     kept for LF's own readers.
     """
-    from packages.pipeline.site_variation import ground_size, site_placements
+    from packages.pipeline import site_variation
+    from packages.pipeline.site_variation import (
+        ground_size, row_spacing, shell_footprint, site_placements)
 
     count = max(1, int(getattr(model, "building_count", 1) or 1))
-    spacing = 45  # metres between building origins (matches Lot's example scale)
     glb = str(_latest_output(deli_out, "shell.glb"))
     gameplay = str(_latest_output(deli_out, "shell.gameplay.json"))
+    # Measure the shell once: the spacing between origins and the size of the
+    # plate under them are both consequences of how big the building is. Spacing
+    # was a hardcoded 45 m while the shells were 44 m wide, so a candidate whose
+    # nudges closed the gap assembled two buildings inside each other.
+    footprint = shell_footprint(glb)
+    spacing = row_spacing(footprint)
     placed = site_placements(seed, count, spacing=spacing)
     buildings = [
         {"id": f"b{i}", "glb": glb, "gameplay": gameplay,
          "at": p["at"], "rot": p["rot"]}
         for i, p in enumerate(placed["buildings"])
     ]
-    span_x, span_y = ground_size(count, spacing=spacing)
+    # Size the plate from the shell that is going to stand on it. Every candidate
+    # instances the same Deli Counter shell, so one measurement covers the row.
+    span_x, span_y = ground_size(count, spacing=spacing, footprint=footprint)
     spec = {
         # Lot names its outputs from this field (site.tscn / site_walk.tscn /
         # site.site.gameplay.json), so it must be the canonical LF stem "site",
@@ -575,6 +584,19 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         "route_shape": model.route_shape,
         "target_minutes": list(model.target_minutes),
     }
+    # Self-check before the spec leaves the building. This can only fire if the
+    # placement and the plate in site_variation have drifted apart, which is
+    # exactly what happened for the whole life of the module: a row marching out
+    # along +x under a plate centred on the origin, and a coverage test with a
+    # fudge factor in the assertion that let it pass. A guardrail nobody runs is
+    # decoration, so it runs here, on the real seed, on every write.
+    faults = (site_variation.uncovered(spec, footprint)
+              + site_variation.overlapping(spec, footprint))
+    if faults:
+        raise RuntimeError(
+            "site_variation placed a row its own ground plate and spacing cannot "
+            "carry — this is a bug in the pipeline, not in the brief:\n  - "
+            + "\n  - ".join(faults))
     # One directory per candidate; the filename stays "site.json" so the Lot
     # adapter's stem and Lot's spec["name"]-derived output names stay canonical.
     dest = (ws.internal_dir / "temp" / model.mission_id
@@ -726,7 +748,7 @@ def cmd_run(args) -> int:
         "blocked" if summary.blocked_job
         else ("findings" if agg["total"] else "built"),
         _now())
-    print(f"\n{readiness_label(agg)}  "
+    print(f"\n{readiness_label(agg, run_completed=not summary.blocked_job)}  "
           f"(blockers open: {len(agg['blocking_open'])}, total findings: {agg['total']})")
 
     if summary.blocked_job:

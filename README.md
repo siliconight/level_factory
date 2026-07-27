@@ -20,6 +20,19 @@ review layer: team approvals with quorum, accepted exceptions with stale
 detection, visual before/after comparison reports, CI templates, and a
 source-control release helper.
 
+## Where this sits
+
+Level Factory is the orchestrator, not a tenth tool. For the whole picture —
+every repo's role, the job DAG as `packages/pipeline/planner.py` defines it,
+what each stage is expected to emit, and where it all lands in a workspace —
+see **[`../PIPELINE_MAP.md`](../PIPELINE_MAP.md)** at the factory root. Its
+first section is the boundary this README's *Authority statement* below states
+in short: the package ships standalone into someone else's Godot project, and
+nothing here decides gameplay or networking.
+
+**[`../PIPELINE_ROADMAP.md`](../PIPELINE_ROADMAP.md)** carries the live state of
+the current investigation — fixed, known-broken, and next.
+
 ## Output layers
 
 The deliverable is a **Graybox** base plus optional layers, chosen per run. The
@@ -78,6 +91,15 @@ authoritative for gameplay, mission state, AI, replication, persistence,
 reconnection, and online correctness. A passing structural score is never
 labeled fun, balanced, multiplayer-verified, network-ready, or shipping-ready.
 
+The corollary, spelled out in [`../PIPELINE_MAP.md`](../PIPELINE_MAP.md): the
+handoff must open and work in the consumer's project with none of these tools
+present. Anything that only works because a repo here is on disk is an
+instrument, not a deliverable. That is why Laser Tag's addon is staged into a
+throwaway project and never enters the package, why `nav_qa_director.gd` and
+`mp_smoke.gd` stay disposable harnesses, and why a runtime finding is a request
+for a guardrail in the tool that BUILDS the level rather than a verdict to
+enforce on its output.
+
 ## Install / run
 
 Pure standard library at runtime (Python 3.11+). No install required:
@@ -94,6 +116,14 @@ level-factory --help
 ```
 
 ## Quick start
+
+Three spellings of the same CLI, in order of how little setup they need. From
+the factory root, `python -m level_factory ...` runs the checkout directly.
+From inside the checkout, `python apps/cli/main.py ...` does the same thing and
+is what the rest of this section uses. `level-factory ...` is the console script
+`pip install -e .` puts on PATH. `-C` must name the **workspace** — the folder
+holding `.level_factory/` — not the factory root; it searches at and above that
+path and never below, so pointing it at the repo checkout finds nothing.
 
 ```
 # 1. create a workspace

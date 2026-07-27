@@ -14,6 +14,7 @@ reuses the exporting/closure module and is the documented follow-up.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
@@ -136,23 +137,64 @@ def stage_godot_project(
     # themed presentation scene's res://art/zoo/*.glb) still resolves. We skip
     # 'addons' and '.godot' so a package's own copies never clobber the staged
     # addon(s) or the class cache written above.
+    # Whatever a previous run left at res://<scene> goes before anything else
+    # is decided about this one.
+    #
+    # The copy below is guarded on the source existing, and the post-process
+    # further down is guarded on the *destination* existing. A staging dir is
+    # reused across runs, so those two guards together used to mean: source
+    # missing -> no copy -> the previous run's scene is still sitting there ->
+    # the post-process reads it, rewrites it, and stamps it with the current
+    # time. Godot then loads a scene from a build nobody asked about, and every
+    # timestamp on disk agrees it is current. That is not a stale file anyone
+    # would find by looking; it is a stale file that looks fresh.
+    #
+    # It happened. `category5_baie_dore_001` seed 5320 was graded on a
+    # level.tscn whose two nearest enemies stood where an older placement rule
+    # had put them -- one of them 23 m from the crew spawn, down a clear street
+    # -- while the site_walk.tscn Lot had just written held them at 48 m. The
+    # report described a map that had not been built, and the sound fix for it
+    # is not a better guard on the post-process: it is refusing to keep a scene
+    # whose provenance this run cannot state.
+    staged_scene = dest / scene_res_name
+    if staged_scene.exists():
+        staged_scene.unlink()
     if scene_src.exists():
-        shutil.copy2(scene_src, dest / scene_res_name)
+        shutil.copy2(scene_src, staged_scene)
         for sib in scene_src.parent.iterdir():
             if sib == scene_src:
                 continue
             if sib.is_file():
                 shutil.copy2(sib, dest / sib.name)
             elif sib.is_dir() and sib.name not in ("addons", ".godot"):
+                # Replace, never keep. `if not dst.exists()` made a staged asset
+                # subtree immortal: copied once, then reused by every later run
+                # regardless of what the source became. That is the same defect
+                # as the scene above -- a staging dir is reused across runs, so
+                # "already there" means "left by a run nobody is looking at",
+                # not "current". The addons are handled this way a few lines up
+                # for exactly this reason; the siblings were the branch that
+                # got missed.
                 dst = dest / sib.name
-                if not dst.exists():
-                    shutil.copytree(sib, dst)
+                if dst.exists():
+                    shutil.rmtree(dst)
+                shutil.copytree(sib, dst)
     # Resolve closure: Lot bakes the building glb into site.tscn by ABSOLUTE
     # path (non-portable mode prepends res:// to it -> "res://C:/Users/.../
     # shell.glb", which Godot can't load). Copy each such file into the project
     # and rewrite the reference to a real res:// path. Applied to every staged
     # .tscn so site.tscn's building ref (and any other absolute ref) resolves.
-    staged_notes: dict[str, object] = {}
+    # What the graded scene came from, written next to it. A report about a map
+    # is only as good as the reader's ability to find the map, and "the file at
+    # res://level.tscn" stopped being an answer the moment staging began
+    # rewriting it in place.
+    staged_notes: dict[str, object] = {
+        "scene_source": str(scene_src),
+        "scene_source_sha256": (
+            hashlib.sha256(scene_src.read_bytes()).hexdigest()
+            if scene_src.exists() else None),
+        "scene_staged": staged_scene.exists(),
+    }
     for tscn in dest.glob("*.tscn"):
         _resolve_absolute_refs(tscn, dest)
         # Node names Godot cannot represent (a '/' in a ladder volume's name)
