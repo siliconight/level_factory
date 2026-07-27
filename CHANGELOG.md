@@ -1,3 +1,75 @@
+## [0.14.0] - a run that reports a grade has looked at one
+
+`--art` printed `Structural checks passed (blockers open: 0, total findings: 0)`
+over a mission whose reports on disk held six findings each, a FAIL on
+`TRAVERSAL` among them. Nothing was corrupt and nothing had crashed. The run
+simply never looked.
+
+### the resume pre-skip is gone
+
+`Scheduler.run` opened by reading every job's status out of the index and, for
+any it found already succeeded, marking it complete without dispatching it. The
+`JobOutcome` it fabricated took the default `issues=[]`. A pre-skipped job never
+reached `_attempt_job`, so `_normalize` never ran over its outputs and the
+findings in them were never replayed.
+
+Nothing downstream could recover them. The index has no findings table -- jobs,
+artifacts, missions, meta, and nothing else -- so a finding exists only in the
+run that produced it. `cmd_run` then wrote the empty `summary.all_issues` over
+`.level_factory/validation/<mission>.json` and stamped the mission `built`. The
+run that failed to notice the findings also destroyed the record left by the run
+that had found them.
+
+The tell was in the stage lines, and it read as reassurance. `cache_hit` was set
+only when the recorded status was literally `SKIPPED_CACHE_HIT`, so a job an
+earlier run had EXECUTED came back with `cache_hit=False` and the CLI printed
+`succeeded` -- a stage announcing work that did not happen. Two better-looking
+hypotheses were eliminated first: the cache-hit path does replay findings, and
+the execute path does carry them on the outcome. It was the third path, the one
+that runs before either.
+
+### what makes a re-run cheap now
+
+The content cache, which was always the right mechanism for this. It is keyed on
+the build fingerprint rather than on a recorded status, so it cannot be fooled by
+an upstream that moved underneath a stale success -- the failure mode the old
+comment here described and accepted. `_attempt_job` materialises the cached
+outputs, re-runs `_normalize` over them and returns the findings, and every
+successful execution publishes to it. An unchanged stage still skips its tool.
+What it no longer does is report a grade it never looked at.
+
+`--force` existed solely to opt out of the pre-skip, which means the honest
+behaviour was opt-in and the default was the one that could lie. The flag is
+still accepted, now changes nothing, and its help text says so.
+
+### the test that was green the whole time
+
+`test_force_reruns_already_succeeded_job` asserted `"a" not in executed`, and had
+passed every run since the pre-skip was written. The behaviour was not an
+oversight; it was specified, and the specification said a re-run may report a
+grade it never looked at. A green suite confirms the code matches the intent. It
+cannot tell you the intent was wrong.
+
+That test is now `test_a_recorded_success_is_still_dispatched`, which runs the
+same graph with `force` both ways and asserts the two results are identical --
+the new contract stated as an equality rather than a difference. Six more in
+`tests/unit/test_resume_replays_findings.py` cover the replay itself, that it
+costs no tool invocation, and that a second run labels itself `cache` rather
+than `succeeded`.
+
+### still open, and named here so it is not mistaken for fixed
+
+`cmd_run` overwrites the persisted validation file unconditionally, so a run
+that evaluates nothing still overwrites what the last run found. And the index
+still has nowhere to put a finding. Neither is the cause of this defect; both
+are what turned it from a wrong number into a lost record.
+
+### versions
+
+0.14.0 rather than 0.13.5, because `run` behaves differently. It also lands
+above this file's previous 0.13.19, so `VERSION`, `pyproject.toml` and the
+CHANGELOG agree again without anything being rewritten.
+
 ## [0.13.19] - a firefight evaluator grades a map, it does not certify one
 
 Every tactical thing Laser Tag's pre-flight knew how to say, it said by refusing

@@ -131,8 +131,12 @@ class Scheduler:
         concurrency caps (TDD 19.2). Independent jobs run concurrently; a job
         starts only once all its dependencies have succeeded. On the first
         failure the scheduler stops dispatching new work and drains in-flight
-        jobs (fail-fast, matching the sequential contract). Resumes by honoring
-        already-terminal successes recorded in the index."""
+        jobs (fail-fast, matching the sequential contract).
+
+        Resume is the cache's job, not the index's. Every job is dispatched;
+        an unchanged one hits the content cache, skips its tool, and replays
+        its findings. `force` is accepted for callers that still pass it and no
+        longer changes anything -- see the note in the body."""
         from collections import Counter, deque
         from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
@@ -144,24 +148,36 @@ class Scheduler:
         }
         completed: set[str] = set()
 
-        # Resume: pre-mark already-succeeded jobs and drop them from deps, so a
-        # re-run after a crash skips finished work. This pre-skip trusts the
-        # recorded status and does NOT re-check inputs, so it is UNSAFE when an
-        # upstream changed (e.g. a new stage was inserted): the stale downstream
-        # would never re-run. `force` disables the pre-skip, routing every job
-        # through the normal fingerprint->cache path instead — unchanged jobs
-        # still cache-hit instantly (no tool re-run); only jobs whose inputs
-        # actually changed rebuild.
-        if not force:
-            for jid, job in jobs_by_id.items():
-                existing = self.index.get_job(jid)
-                if existing and states.job_succeeded(existing.status):
-                    completed.add(jid)
-                    summary.outcomes.append(JobOutcome(
-                        job=existing,
-                        cache_hit=existing.status == states.SKIPPED_CACHE_HIT))
-        for deps in remaining.values():
-            deps -= completed
+        # There is deliberately NO resume pre-skip here.
+        #
+        # There used to be one: for every job, read the status recorded in the
+        # index and, if it said succeeded, mark it complete without dispatching
+        # it. It made a re-run cheap and it made the run dishonest.
+        #
+        # A pre-skipped job never reached `_attempt_job`, so `_normalize` never
+        # ran and its findings were never replayed -- the fabricated JobOutcome
+        # carried `issues=[]`. Nothing downstream could recover them: the index
+        # has no findings table, and `cmd_run` then wrote the empty
+        # `summary.all_issues` over `.level_factory/validation/<mission>.json`,
+        # destroying the previous run's record and stamping the mission `built`.
+        # `cache_hit` was set only for a recorded SKIPPED_CACHE_HIT, so a job an
+        # earlier run had EXECUTED printed `succeeded` -- a stage line claiming
+        # work that did not happen. That is how a run reported "blockers open:
+        # 0, total findings: 0" while six findings, a FAIL on TRAVERSAL among
+        # them, sat in the reports on disk.
+        #
+        # The content cache already does this work and does it honestly. It is
+        # keyed on the build fingerprint rather than on a recorded status, so it
+        # cannot be fooled by an upstream that changed underneath a stale
+        # success -- the failure mode the old comment here warned about and
+        # accepted. `_attempt_job` materialises the cached outputs, re-runs
+        # `_normalize` over them and returns the findings, and every successful
+        # execution publishes to the cache. Resume stays cheap: an unchanged
+        # stage still hits the cache without re-running its tool. What it no
+        # longer does is report a grade it never looked at.
+        #
+        # `force` is kept in the signature because `cmd_run` passes it. The
+        # behaviour it used to select is now the only behaviour.
 
         ready: deque[str] = deque(
             jid for jid in jobs_by_id

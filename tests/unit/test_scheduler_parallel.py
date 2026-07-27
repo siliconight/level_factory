@@ -105,10 +105,18 @@ def test_failure_fails_fast_but_drains():
     assert "downstream" not in [o.job.job_id for o in summary.outcomes]
 
 
-def test_force_reruns_already_succeeded_job():
-    """A normal re-run pre-skips already-succeeded jobs (crash-resume). With
-    force=True the pre-skip is disabled so a stale job (e.g. one whose upstream
-    changed) is re-evaluated instead of silently reused."""
+def test_a_recorded_success_is_still_dispatched():
+    """A job the index calls succeeded is still dispatched, force or not.
+
+    There used to be a pre-skip: a recorded SUCCEEDED marked the job complete
+    without dispatching it, and `force` was how you opted out. The outcome it
+    fabricated carried no findings, so a re-run of an already-built mission
+    reported zero findings over reports that held six, and then overwrote the
+    stored ones with an empty list. What makes a re-run cheap now is the content
+    cache, which is keyed on the build fingerprint rather than on a recorded
+    status and replays findings on the way through. See
+    tests/unit/test_resume_replays_findings.py for that half.
+    """
     executed = []
 
     def _make():
@@ -138,10 +146,11 @@ def test_force_reruns_already_succeeded_job():
     g.add(Job(job_id="a", mission_id="m", stage_id="s", adapter_id="a",
               resource_class="python_cpu"))
 
-    executed.clear()
-    _make().run(g, job_specs={}, mission_id="m")
-    assert "a" not in executed  # default: pre-skipped as already succeeded
-
-    executed.clear()
-    _make().run(g, job_specs={}, mission_id="m", force=True)
-    assert "a" in executed  # force: re-evaluated
+    for force in (False, True):
+        executed.clear()
+        summary = _make().run(g, job_specs={}, mission_id="m", force=force)
+        assert executed == ["a"], f"force={force}"
+        # Exactly once. The pre-skip appended its own outcome before the
+        # dispatch loop could append a real one, so the two paths together
+        # would have counted the job twice.
+        assert [o.job.job_id for o in summary.outcomes] == ["a"], f"force={force}"
