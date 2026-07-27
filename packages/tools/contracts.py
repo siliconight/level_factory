@@ -42,8 +42,13 @@ LOCK_SCHEMA = "level_factory.tools_lock.v0.1"
 GROUNDED: dict[str, dict] = {
     "deli_counter": {"version": "0.75.0", "source": "VERSION"},
     "lot":          {"version": "0.18.3", "source": "VERSION"},
-    "laser_tag":    {"version": None,     "source": None,
-                     "note": "Godot addon exposes no version string; unpinned"},
+    "laser_tag":    {"version": "0.8.0",  "source": "VERSION",
+                     "note": "was unpinned until 0.8.0 -- the addon declared a "
+                             "version in addons/laser_tag_tool/plugin.cfg but "
+                             "the repo had no root VERSION file, which is the "
+                             "only place installed_factory_versions looks. The "
+                             "two are mirrors and the repo's lint job fails if "
+                             "they disagree"},
     "pixelcoat":    {"version": "0.9.0",  "source": "version.py",
                      "note": "re-grounded 0.2.0->0.9.0; CLI/output contract "
                              "(pixelcoat-pack/1) verified unchanged by the smoke"},

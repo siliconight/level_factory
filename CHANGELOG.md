@@ -1,3 +1,49 @@
+## [0.14.1] - laser_tag stops reporting UNKNOWN, for a boring reason
+
+`verify-manifest` had said `no comparable version (certified=None,
+installed=None) -- cannot verify this tool` about Laser Tag since the manifest
+was written, and the manifest explained it as a property of the tool: "Godot
+addon exposes no version string; unpinned". That was never true. The addon
+declared `version="0.7.3"` in `addons/laser_tag_tool/plugin.cfg` the whole time.
+
+`contracts.installed_factory_versions` reads `<factory_root>/<path>/VERSION` and
+nothing else, and `BaseAdapter._read_tool_version` also looks there first. The
+repo simply had no root `VERSION` file, so both layers looked in the one place
+the version was not. Every other tool repo has one, including pixelcoat, whose
+real version lives in `version.py` and whose root `VERSION` is a mirror.
+
+Laser Tag now carries `VERSION` at 0.8.0 and no adapter code changed: `probe()`
+picks it up through the inherited helper. That is worth a test precisely because
+nothing in the adapter guards it -- `test_laser_tag_reports_a_version_now`, plus
+a companion asserting an empty repo still degrades to UNKNOWN rather than
+inheriting the grounded pin. A missing version has to look different from a
+matching one.
+
+### what still does the real work
+
+The addon-source hashing in `fingerprint_inputs` stays, and its comment now says
+why rather than describing a gap that is closed. A version string only moves
+when somebody remembers to move it; the question a build fingerprint asks is
+whether the CODE changed. A tool edited without a bump is exactly the case a
+version cannot see and a hash cannot miss. The version is for humans reading a
+receipt and for the lockstep check. The hash is what keeps a stale grade from
+being served.
+
+The two files that now carry the version are mirrors, and a mirror nobody
+enforces drifts -- see the Lot version disagreement this repo has carried as a
+known wart for weeks. The lasertag repo's `lint` job gains a step that fails
+with "VERSION says X, plugin.cfg says Y" if they diverge, in the repo that owns
+both files.
+
+### GROUNDED
+
+`laser_tag` moves from `{"version": None, "source": None}` to 0.8.0 from
+`VERSION`. 0.8.0 rather than 0.7.3 because the addon changed behaviour on the
+same day it got a version: the physics-frame clock in `LT_RunState`, two new
+published metrics in `LT_MetricsCollector`, different inputs to pacing and
+exposure in `LT_ScoreCalculator`, and a reachability bound on the bot's
+cover-seek.
+
 ## [0.14.0] - a run that reports a grade has looked at one
 
 `--art` printed `Structural checks passed (blockers open: 0, total findings: 0)`

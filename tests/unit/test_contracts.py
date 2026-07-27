@@ -38,7 +38,7 @@ def test_verify_flags_drift_and_incompat():
         "deli_counter": "Deli Counter 0.75.0",  # OK (re-grounded v0.9.0)
         "zoo": "0.27.0",                          # DRIFT vs grounded 0.30.1
         "dispatch": "1.0.0",                      # INCOMPATIBLE vs 0.3.0
-        "laser_tag": None,                        # UNKNOWN (unpinned)
+        "laser_tag": None,                        # UNKNOWN (nothing installed to read)
     }
     results = {r.adapter_id: r.status for r in C.verify(installed)}
     assert results["deli_counter"] == C.OK
@@ -65,3 +65,36 @@ def test_every_grounded_tool_is_an_adapter():
     from packages.adapters.registry import AdapterRegistry
     ids = set(AdapterRegistry().ids())
     assert set(C.GROUNDED) <= ids, set(C.GROUNDED) - ids
+
+
+def test_laser_tag_reports_a_version_now(tmp_path):
+    """Laser Tag reported UNKNOWN for one boring reason: no root VERSION file.
+
+    `installed_factory_versions` reads `<factory_root>/<path>/VERSION` and
+    nothing else, and `BaseAdapter._read_tool_version` looks there first too, so
+    the addon's own `plugin.cfg` version was invisible to both layers. Adding
+    the file was the whole fix -- no adapter code was needed, which is worth a
+    test precisely because it means nothing in the adapter guards it.
+    """
+    from adapters.laser_tag import LaserTagAdapter
+
+    (tmp_path / "VERSION").write_text("Laser Tag 0.8.0\n", encoding="utf-8")
+    probe = LaserTagAdapter().probe({"repository": str(tmp_path)})
+    assert probe.available
+    assert C.parse_semver(probe.tool_version) == (0, 8, 0)
+    # And the grounded pin agrees, so verify-contracts reads OK rather than
+    # UNKNOWN for a tool that is in fact perfectly identifiable.
+    assert C.compare(C.GROUNDED["laser_tag"]["version"], probe.tool_version) == C.OK
+
+
+def test_a_tool_without_a_version_file_still_degrades_to_unknown(tmp_path):
+    """The point of the VERSION file is that it is READ, not that it is assumed.
+
+    An empty repo must still come back UNKNOWN rather than inheriting the
+    grounded pin -- a missing version has to look different from a matching one.
+    """
+    from adapters.laser_tag import LaserTagAdapter
+
+    probe = LaserTagAdapter().probe({"repository": str(tmp_path)})
+    assert probe.tool_version is None
+    assert C.compare(C.GROUNDED["laser_tag"]["version"], probe.tool_version) == C.UNKNOWN

@@ -1,6 +1,6 @@
 """Laser Tag adapter (TDD 24.3).
 
-Bound to LaserTag v0.7.x: seeded headless firefight evaluation over a Lot
+Bound to LaserTag v0.8.x: seeded headless firefight evaluation over a Lot
 walkable scene. A passing score is a *readiness signal only* (TDD 5.5, 22.5) --
 the adapter labels it as such and never marks it fun/balanced/verified.
 """
@@ -120,17 +120,23 @@ class LaserTagAdapter(BaseAdapter):
         # The evaluator itself is an input, and until now it was not one.
         #
         # Everything above describes the MAP. The rest of the fingerprint comes
-        # from `probe()` -- `tool_version` and `repository_commit` -- and Laser
-        # Tag publishes neither: the factory manifest pins it "unpinned", noting
-        # "no VERSION source yet - reports UNKNOWN by design". So a fingerprint
-        # meant to answer "would this job produce the same output?" was blind to
-        # every line of the tool producing it. Editing the addon and re-running
-        # served the previous grade back, reported the job as succeeded, and
-        # left a report on disk that predated the change with nothing on the
-        # filesystem to say so.
+        # from `probe()` -- `tool_version` and `repository_commit` -- and when
+        # this was written Laser Tag published neither: the factory manifest
+        # pinned it "unpinned", noting "no VERSION source yet - reports UNKNOWN
+        # by design". So a fingerprint meant to answer "would this job produce
+        # the same output?" was blind to every line of the tool producing it.
+        # Editing the addon and re-running served the previous grade back,
+        # reported the job as succeeded, and left a report on disk that predated
+        # the change with nothing on the filesystem to say so.
         #
-        # Hashing the addon sources closes it without depending on Laser Tag
-        # ever growing a VERSION file, which is the right shape here: the
+        # Laser Tag now carries a VERSION file (0.8.0) and `probe()` reads it,
+        # so `tool_version` contributes again. The hashing below stays, and is
+        # still the load-bearing half: a version string only moves when somebody
+        # remembers to move it, and the question this fingerprint asks is
+        # whether the CODE changed. A tool edited without a bump is exactly the
+        # case a version cannot see and a hash cannot miss.
+        #
+        # Hashing the addon sources answers that question directly: the
         # question is whether the code changed, and the code is the thing to
         # ask. Sources only -- `.godot/`, `.uid` sidecars and generated reports
         # are editor and run artifacts whose churn would invalidate the cache
