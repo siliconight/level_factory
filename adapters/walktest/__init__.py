@@ -246,6 +246,33 @@ class WalktestAdapter(BaseAdapter):
         # because for a day this arrived only as its consequence: legs failing
         # with "disjoint islands", a true statement about the navmesh that reads
         # as a claim about the whole site rather than about one endpoint.
+        # An anchor whose nearest standing room was on a component nothing
+        # reaches, resolved to the nearest connected one instead. That is a
+        # marker behind something no body walks through -- the vault, whose only
+        # opening is a reinforceable concrete breach panel. The route was proved
+        # TO the barrier, not through it, and saying so is the whole point: this
+        # is the one place the walktest reports a pass over a substitution.
+        barrier = sorted(
+            (str(a.get("name", "?")), float(a.get("unreachable_stand_m") or 0.0),
+             float(a.get("snap_m") or 0.0))
+            for a in data.get("anchors") or []
+            if isinstance(a, dict) and float(a.get("unreachable_stand_m") or 0.0) > 0.0)
+        if barrier:
+            named = ", ".join(f"{n} ({u:.1f} m -> {s:.1f} m)"
+                              for n, u, s in barrier[:6])
+            issues.append(self._finding(
+                "WALKTEST_ANCHOR_BEHIND_BARRIER", "anchor",
+                f"{len(barrier)} anchor(s) sit behind something nothing walks "
+                f"through, so the route was proved to the barrier rather than "
+                f"through it: {named}",
+                location=str(report),
+                severity="minor",
+                suggested_fix="Expected for a vault or a locked room -- the "
+                              "barrier is the mission. Worth a look if the "
+                              "marker is not supposed to be sealed in, or if "
+                              "the connected standing position is far enough "
+                              "away to be somewhere else entirely."))
+
         stranded = set()
         for anchor in data.get("anchors") or []:
             if not isinstance(anchor, dict):
@@ -261,9 +288,28 @@ class WalktestAdapter(BaseAdapter):
                 # twenty-one anchors, because each still reached its own
                 # duplicate.
                 off_network = anchor.get("reaches") == 0
+            name = str(anchor.get("name", "?"))
+            if anchor.get("no_standing_room"):
+                # Distinct from "on a scrap": the director searched the anchor's
+                # own storey and found no walkable surface at all. That is a room
+                # that did not bake, and the fix is in the geometry, not in where
+                # the marker sits. Suppress the legs it poisons, same as stranded.
+                stranded.add(name)
+                raw = anchor.get("raw") or []
+                where = (f" around ({raw[0]}, {raw[1]}, {raw[2]})"
+                         if len(raw) >= 3 else "")
+                issues.append(self._finding(
+                    "WALKTEST_ANCHOR_NO_FLOOR", "anchor",
+                    f"anchor {name} has no walkable surface anywhere on its own "
+                    f"storey{where}: the room it stands in produced no navmesh",
+                    location=f"{report}#{name}",
+                    suggested_fix="Look at the room, not the marker. A storey "
+                                  "with no navmesh under an anchor either did "
+                                  "not bake (clearance below agent_height) or "
+                                  "has no floor collider at all."))
+                continue
             if not off_network:
                 continue
-            name = str(anchor.get("name", "?"))
             stranded.add(name)
             snap = anchor.get("snap") or []
             where = (f" at ({snap[0]}, {snap[1]}, {snap[2]})"
@@ -284,6 +330,26 @@ class WalktestAdapter(BaseAdapter):
                               "Distance-to-mesh already passes; what is missing "
                               "is a surface that connects to the rest of the "
                               "site."))
+
+        # A leg that PASSES but whose marker is metres from the nearest place a
+        # body fits is worth one line. The route is fine; the marker is inside
+        # the furniture -- LOOT_VAULT_CASH sits at the centre of an 8 x 6 m vault
+        # block, so the nearest standing position is 3 m away. That used to fail
+        # as "anchor off navmesh", which blamed the navmesh for a marker.
+        buried = sorted({str(p.get("leg", "?")).split("->")[-1]
+                         for p in data.get("path_proofs") or []
+                         if isinstance(p, dict) and p.get("marker_buried")})
+        if buried:
+            issues.append(self._finding(
+                "WALKTEST_MARKER_BURIED", "anchor",
+                f"{len(buried)} marker(s) sit further than the QA snap budget "
+                f"from anywhere a body fits ({', '.join(buried[:6])}): reachable, "
+                f"but a player interacts with them from several metres away",
+                location=str(report),
+                severity="minor",
+                suggested_fix="Deli Counter places these markers at the prop. If "
+                              "the prop is large, the marker wants to be at the "
+                              "face a player uses, not at the prop's centre."))
 
         for proof in data.get("path_proofs") or []:
             if not isinstance(proof, dict) or proof.get("ok"):
@@ -339,13 +405,23 @@ class WalktestAdapter(BaseAdapter):
 
     @staticmethod
     def _finding(code: str, category: str, message: str, *,
-                 location: str = "", suggested_fix: str = "") -> dict:
+                 location: str = "", suggested_fix: str = "",
+                 severity: str = "") -> dict:
+        # Most walktest findings ride the enforcement flag. `severity` is for the
+        # ones that are intel rather than a verdict -- a buried marker does not
+        # become a blocker when WALKTEST_ENFORCED flips.
         return {
             "code": code,
-            "severity": "blocker" if WALKTEST_ENFORCED else "major",
+            "severity": severity or ("blocker" if WALKTEST_ENFORCED else "major"),
             "category": category,
             "message": message,
-            "location": location,
+            # str() rather than trusting the annotation. Every other call site
+            # here builds an f-string, so one that passed the Path itself was
+            # indistinguishable by eye -- and it killed a whole four-seed run
+            # with "Object of type WindowsPath is not JSON serializable", after
+            # three seeds had already done their 200 s walker sims. A finding
+            # must not be able to destroy the run that produced it.
+            "location": str(location),
             "suggested_fix": suggested_fix,
-            "blocking": bool(WALKTEST_ENFORCED),
+            "blocking": bool(WALKTEST_ENFORCED) and not severity,
         }

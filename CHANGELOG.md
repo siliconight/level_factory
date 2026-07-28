@@ -1,3 +1,50 @@
+## [0.19.0] - the one pass that is a substitution says so
+
+`WALKTEST_ANCHOR_BEHIND_BARRIER`, minor and never blocking. Lot 0.37.0's
+director resolves an anchor whose nearest standing room is unreachable to the
+nearest connected one instead -- for the vault, the floor outside a reinforceable
+concrete breach panel. The leg then passes, and it passes over a substitution,
+which is the one thing this stack has been bitten by often enough to warrant a
+finding of its own. The message carries both distances.
+
+It fires instead of `WALKTEST_ANCHOR_ISOLATED`, not alongside it: after the
+resolution the anchor is on the main cluster by construction, and reporting both
+would tell the reader the same anchor is fine and broken.
+
+## [0.18.1] - a finding must not be able to kill the run that produced it
+
+`WALKTEST_MARKER_BURIED` passed `location=report` -- the `Path` -- where the
+other seven findings pass an f-string. It fires only when a buried marker
+exists, so it first fired on the run that proved the anchor fix, and the run
+died with `Object of type WindowsPath is not JSON serializable` after three of
+four seeds had already spent 200 s each on their walker sims.
+
+`_finding` now calls `str()` on `location` rather than trusting its own
+annotation, and a test serializes the findings from every payload in the suite.
+Every test in that file asserted codes and messages; not one had ever written
+the result out, which is the only thing the pipeline does with it.
+
+## [0.18.0] - a room that did not bake is not an anchor that drifted
+
+`WALKTEST_ANCHOR_ISOLATED` says an anchor stands somewhere real and connects to
+nothing. Lot 0.36.0's director can now report something different: it searched
+the anchor's own storey for anywhere a body fits and found nowhere at all. That
+is a room that produced no navmesh, and it sends a reader to different geometry
+than a placement defect does, so it gets its own code --
+`WALKTEST_ANCHOR_NO_FLOOR`. Like the isolated finding, it suppresses the legs it
+poisons, because a leg into a floorless room is that fact restated.
+
+`WALKTEST_MARKER_BURIED` is the other half. `LOOT_VAULT_CASH` sits at the centre
+of an 8 x 6 m vault block, so the nearest place a body fits is 3 m away; the
+route is fine and the marker is inside the furniture. The old proximity test
+failed this as an off-mesh anchor, which blamed the navmesh for where a marker
+was put. It is now one `minor` line naming the markers, and it does not become a
+blocker when `WALKTEST_ENFORCED` flips -- enforcement is about navigability, and
+a marker a player reaches from three metres away is a content note.
+
+`_finding` grows a `severity` override for exactly that case, and a finding that
+overrides its severity never sets `blocking`.
+
 ## [0.17.0] - off the network, not merely far from it
 
 `WALKTEST_ANCHOR_ISOLATED` fired on `reaches == 0` and found nothing on a site

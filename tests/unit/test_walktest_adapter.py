@@ -328,3 +328,158 @@ def test_an_older_report_falls_back_to_the_reaches_threshold(tmp_path):
     issues = WalktestAdapter().normalize_validation([_report(tmp_path, payload)])
     assert _codes(issues) == ["WALKTEST_ANCHOR_ISOLATED"]
     assert "reaching 0 of 20" in issues[0]["message"]
+
+
+# --- an anchor whose storey never baked --------------------------------------
+
+NO_FLOOR = {
+    "ok": False,
+    "anchors": [
+        {"name": "home", "raw": [0.0, 0.0, 0.0], "snap": [0.0, 0.2, 0.0],
+         "snap_m": 0.2, "no_standing_room": False, "reaches": 1, "of": 2,
+         "cluster_size": 2, "main_cluster_size": 2},
+        {"name": "proxy_0", "raw": [-88.0, 0.0, 6.0], "snap": [-88.0, 0.0, 6.0],
+         "snap_m": 0.0, "no_standing_room": True, "reaches": 0, "of": 2,
+         "cluster_size": 1, "main_cluster_size": 2},
+    ],
+    "path_proofs": [
+        {"leg": "home->proxy_0", "ok": False, "isolated_endpoint": "proxy_0",
+         "no_standing_room": True,
+         "detail": "no standing room on the anchor's own storey within 6 m"},
+    ],
+    "walkers": [],
+}
+
+
+def test_an_anchor_with_no_floor_is_its_own_code(tmp_path):
+    """Distinct from ANCHOR_ISOLATED, and the distinction is the whole point.
+    Isolated means the anchor stands somewhere real that connects to nothing;
+    this means the director searched the anchor's own storey and found nowhere
+    to stand at all. One is a placement defect, the other is a room that did
+    not bake, and they send a reader to different repos."""
+    issues = WalktestAdapter().normalize_validation([_report(tmp_path, NO_FLOOR)])
+    assert _codes(issues) == ["WALKTEST_ANCHOR_NO_FLOOR"]
+    assert "no walkable surface anywhere on its own storey" in issues[0]["message"]
+    assert "(-88.0, 0.0, 6.0)" in issues[0]["message"]
+
+
+def test_legs_into_a_floorless_anchor_are_not_reported_twice(tmp_path):
+    issues = WalktestAdapter().normalize_validation([_report(tmp_path, NO_FLOOR)])
+    assert "WALKTEST_LEG_UNPATHABLE" not in _codes(issues)
+
+
+# --- a marker a body cannot get close to -------------------------------------
+
+BURIED = {
+    "ok": True,
+    "anchors": [],
+    "path_proofs": [
+        {"leg": "home->proxy_0", "ok": True, "length_m": 20.0,
+         "stand_offset_m": 3.4, "marker_buried": True,
+         "detail": "path 20.0 m, 8 points; nearest standing room is 3.4 m "
+                   "from the marker"},
+        {"leg": "proxy_0->proxy_1", "ok": True, "length_m": 8.0,
+         "stand_offset_m": 0.2, "detail": "path 8.0 m, 4 points"},
+    ],
+    "walkers": [],
+}
+
+
+def test_a_buried_marker_is_intel_not_a_verdict(tmp_path):
+    """LOOT_VAULT_CASH sits at the centre of an 8 x 6 m vault block, so the
+    nearest place a body fits is 3 m away. The route is fine. The old
+    proximity test failed this as `anchor off navmesh`, which blamed the
+    navmesh for where a marker was put."""
+    issues = WalktestAdapter().normalize_validation([_report(tmp_path, BURIED)])
+    assert _codes(issues) == ["WALKTEST_MARKER_BURIED"]
+    assert issues[0]["severity"] == "minor"
+    assert issues[0]["blocking"] is False
+    assert "proxy_0" in issues[0]["message"]
+
+
+def test_a_buried_marker_does_not_block_even_once_enforced(tmp_path):
+    """Enforcement is about navigability. A marker inside the furniture is a
+    content note, and flipping the flag must not turn it into a gate."""
+    WT.WALKTEST_ENFORCED = True
+    try:
+        issues = WalktestAdapter().normalize_validation([_report(tmp_path, BURIED)])
+    finally:
+        WT.WALKTEST_ENFORCED = False
+    assert issues[0]["severity"] == "minor"
+    assert issues[0]["blocking"] is False
+
+
+def test_a_passing_run_with_no_buried_markers_stays_silent(tmp_path):
+    payload = {**BURIED, "path_proofs": [
+        {"leg": "home->proxy_0", "ok": True, "length_m": 20.0,
+         "stand_offset_m": 0.3, "detail": "path 20.0 m, 8 points"}]}
+    assert WalktestAdapter().normalize_validation(
+        [_report(tmp_path, payload)]) == []
+
+
+# --- findings have to survive the trip out of here ---------------------------
+
+def test_every_finding_this_adapter_can_emit_is_json_serializable(tmp_path):
+    """A whole four-seed run died on `Object of type WindowsPath is not JSON
+    serializable` after three seeds had finished their 200 s walker sims,
+    because one finding out of eight passed a Path where the others passed an
+    f-string. Every test above asserted codes and messages and not one of them
+    ever wrote the result out, which is the only thing the pipeline does with
+    it. Exercise every payload in this file through the serializer."""
+    payloads = {"PASSING": PASSING, "ISOLATED": ISOLATED,
+                "NO_FLOOR": NO_FLOOR, "BURIED": BURIED,
+                "BEHIND_BARRIER": BEHIND_BARRIER}
+    for name, payload in payloads.items():
+        issues = WalktestAdapter().normalize_validation(
+            [_report(tmp_path, payload)])
+        json.dumps(issues)  # raises TypeError on any non-primitive
+        for issue in issues:
+            assert isinstance(issue["location"], str), (name, issue["code"])
+
+
+# --- an anchor sealed in behind a breach panel -------------------------------
+
+BEHIND_BARRIER = {
+    "ok": True,
+    "anchors": [
+        {"name": "home", "raw": [0.0, 0.0, 0.0], "snap": [0.0, 0.2, 0.0],
+         "snap_m": 0.2, "unreachable_stand_m": 0.0, "no_standing_room": False,
+         "reaches": 1, "of": 2, "cluster_size": 2, "main_cluster_size": 2},
+        {"name": "proxy_3", "raw": [-94.0, -4.0, -10.0],
+         "snap": [-95.0, -3.7, -13.4], "snap_m": 3.55,
+         "unreachable_stand_m": 3.54, "no_standing_room": False,
+         "reaches": 1, "of": 2, "cluster_size": 2, "main_cluster_size": 2},
+    ],
+    "path_proofs": [{"leg": "home->proxy_3", "ok": True, "length_m": 40.0,
+                     "stand_offset_m": 3.55, "detail": "path 40.0 m, 12 points"}],
+    "walkers": [],
+}
+
+
+def test_a_sealed_anchor_reports_the_substitution(tmp_path):
+    """The one place the walktest passes over a substitution, so it has to say
+    so. The vault's only opening is a reinforceable concrete breach panel: the
+    nearest standing room is inside, unreachable, and the QA uses the nearest
+    connected one instead. Both distances belong in the finding."""
+    issues = WalktestAdapter().normalize_validation(
+        [_report(tmp_path, BEHIND_BARRIER)])
+    assert _codes(issues) == ["WALKTEST_ANCHOR_BEHIND_BARRIER"]
+    assert issues[0]["severity"] == "minor"
+    assert issues[0]["blocking"] is False
+    assert "proxy_3 (3.5 m -> 3.5 m)" in issues[0]["message"]
+    assert "proved to the barrier rather than through it" in issues[0]["message"]
+
+
+def test_a_sealed_anchor_is_not_also_reported_as_isolated(tmp_path):
+    """It is on the main cluster now, by construction. If both fired, the
+    reader would be told the same anchor is fine and broken."""
+    codes = _codes(WalktestAdapter().normalize_validation(
+        [_report(tmp_path, BEHIND_BARRIER)]))
+    assert "WALKTEST_ANCHOR_ISOLATED" not in codes
+
+
+def test_a_zero_barrier_distance_is_silence_not_a_finding(tmp_path):
+    payload = {**BEHIND_BARRIER, "anchors": [
+        {**BEHIND_BARRIER["anchors"][1], "unreachable_stand_m": 0.0}]}
+    assert WalktestAdapter().normalize_validation(
+        [_report(tmp_path, payload)]) == []
