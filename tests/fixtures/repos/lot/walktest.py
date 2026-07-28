@@ -46,6 +46,18 @@ def main(argv=None):
             {"name": "bot_1", "status": "ok", "targets_reached": 1,
              "targets_total": 1, "travelled_m": 44.8},
         ],
+        # Every anchor reaches every other. The isolated case is covered
+        # directly in tests/unit/test_walktest_adapter.py, which reads reports
+        # rather than producing them.
+        "anchors": [
+            {"name": "home", "raw": [0.0, 1.0, 0.0], "snap": [0.0, 0.2, 0.0],
+             "snap_m": 0.8, "reaches": 2, "of": 2},
+            {"name": "proxy_0", "raw": [10.0, 1.0, 0.0], "snap": [10.0, 0.2, 0.0],
+             "snap_m": 0.8, "reaches": 2, "of": 2},
+            {"name": "proxy_1", "raw": [20.0, 1.0, 0.0], "snap": [20.0, 0.2, 0.0],
+             "snap_m": 0.8, "reaches": 2, "of": 2},
+        ],
+        "stranded_anchors": 0,
         "proxies": 1, "bot_spawns": 2, "map_iteration": 3,
         "sim_seconds": 21.5,
     }

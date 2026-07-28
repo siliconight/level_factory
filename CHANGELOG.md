@@ -1,3 +1,26 @@
+## [0.16.0] - WALKTEST_ANCHOR_ISOLATED
+
+Lot 0.26.0's nav QA report carries an `anchors` array saying, per anchor, how
+many other anchors it can reach. Zero means it snapped onto a navmesh fragment:
+on the mesh by every distance check, and unable to appear in any route.
+
+`WALKTEST_ANCHOR_ISOLATED` (category `anchor`) reports each one with where it
+snapped, how far it moved, and how many anchors it failed to reach. Its
+suggested fix says the thing that took a day to establish: fix where the anchor
+is placed, not the navmesh.
+
+Legs the director blamed on a stranded anchor -- `isolated_endpoint` set -- no
+longer emit `WALKTEST_LEG_UNPATHABLE` as well. One defect, one finding.
+Otherwise the count grows with the size of the leg graph and every extra entry
+points the reader at routing. The suppression is deliberately narrow: it applies
+only where the director itself attributed the failure, so a route blocked
+between two healthy anchors still fails as before, and a report written by an
+older director with no `anchors` array behaves exactly as it did.
+
+Four tests cover the four cases that matter: the anchor is reported, its legs
+are not double-reported, a genuinely blocked leg still is, and an old report
+does not go quiet.
+
 ## [0.15.0] - navigability answered by walking
 
 Every navigation conclusion this pipeline had drawn was inferred from a Laser

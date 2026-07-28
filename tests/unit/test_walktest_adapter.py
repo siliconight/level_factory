@@ -242,3 +242,65 @@ def test_probe_reads_the_lot_checkout(tmp_path):
     probe = WalktestAdapter().probe({"repositories": {"lot": str(repo)}})
     assert probe.available
     assert "0.25.0" in str(probe.tool_version)
+
+
+# --- an anchor on a scrap is its own defect ----------------------------------
+
+ISOLATED = {
+    "ok": False,
+    "anchors": [
+        {"name": "home", "raw": [36.0, 1.0, 5.0], "snap": [35.6, 0.2, 5.2],
+         "snap_m": 0.92, "reaches": 20, "of": 20},
+        {"name": "proxy_1", "raw": [-90.0, 5.9, 2.0], "snap": [-90.6, 5.2, 0.4],
+         "snap_m": 1.85, "reaches": 0, "of": 20},
+    ],
+    "stranded_anchors": 1,
+    "path_proofs": [
+        {"leg": "proxy_0->proxy_1", "ok": False, "isolated_endpoint": "proxy_1",
+         "detail": "proxy_1 is isolated (reaches no other anchor); path stops "
+                   "32.71 m short (disjoint islands)"},
+        {"leg": "proxy_1->proxy_2", "ok": False, "isolated_endpoint": "proxy_1",
+         "detail": "proxy_1 is isolated (reaches no other anchor); path stops "
+                   "32.71 m short (disjoint islands)"},
+    ],
+    "walkers": [{"name": "bot_0", "status": "ok", "targets_reached": 1,
+                 "targets_total": 1}],
+}
+
+
+def test_an_isolated_anchor_is_reported_as_the_anchor(tmp_path):
+    """It passes every distance check -- it IS on the mesh -- and it reaches
+    nothing. That is not a fact about the route."""
+    issues = WalktestAdapter().normalize_validation([_report(tmp_path, ISOLATED)])
+    assert _codes(issues) == ["WALKTEST_ANCHOR_ISOLATED"]
+    assert "reaches 0 of 20" in issues[0]["message"]
+    assert "1.85" in issues[0]["message"]
+    assert issues[0]["category"] == "anchor"
+
+
+def test_legs_blamed_on_a_stranded_anchor_are_not_reported_twice(tmp_path):
+    """Two legs failed, both because the same anchor is stranded. One defect,
+    one finding -- otherwise the count grows with the graph and the reader
+    goes looking for a routing problem."""
+    issues = WalktestAdapter().normalize_validation([_report(tmp_path, ISOLATED)])
+    assert "WALKTEST_LEG_UNPATHABLE" not in _codes(issues)
+
+
+def test_a_genuinely_blocked_leg_is_still_reported(tmp_path):
+    """The suppression is narrow: only legs the director actually blamed on a
+    stranded anchor. A route blocked between two healthy anchors still fails."""
+    payload = {**ISOLATED, "path_proofs": [
+        {"leg": "proxy_0->proxy_1", "ok": False, "isolated_endpoint": "proxy_1",
+         "detail": "isolated"},
+        {"leg": "home->proxy_0", "ok": False, "detail": "no navmesh path"}]}
+    codes = _codes(WalktestAdapter().normalize_validation([_report(tmp_path, payload)]))
+    assert codes == ["WALKTEST_ANCHOR_ISOLATED", "WALKTEST_LEG_UNPATHABLE"]
+
+
+def test_a_report_without_the_anchors_array_still_reports_legs(tmp_path):
+    """Reports written by a director older than this change carry no `anchors`.
+    They must keep reporting exactly as before rather than going quiet."""
+    payload = {**PASSING, "ok": False,
+               "path_proofs": [{"leg": "a->b", "ok": False, "detail": "d"}]}
+    assert _codes(WalktestAdapter().normalize_validation(
+        [_report(tmp_path, payload)])) == ["WALKTEST_LEG_UNPATHABLE"]

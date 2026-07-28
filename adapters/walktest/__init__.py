@@ -240,8 +240,40 @@ class WalktestAdapter(BaseAdapter):
             issues.append(self._finding(
                 code, "navigation", error, location=str(report)))
 
+        # An anchor that reaches no other anchor is standing on a navmesh scrap.
+        # It passes every distance check the director makes -- it is ON the mesh
+        # -- and it can never appear in a route. Reported first and separately,
+        # because for a day this arrived only as its consequence: legs failing
+        # with "disjoint islands", a true statement about the navmesh that reads
+        # as a claim about the whole site rather than about one endpoint.
+        stranded = set()
+        for anchor in data.get("anchors") or []:
+            if not isinstance(anchor, dict) or anchor.get("reaches") != 0:
+                continue
+            name = str(anchor.get("name", "?"))
+            stranded.add(name)
+            snap = anchor.get("snap") or []
+            where = (f" at ({snap[0]}, {snap[1]}, {snap[2]})"
+                     if len(snap) >= 3 else "")
+            issues.append(self._finding(
+                "WALKTEST_ANCHOR_ISOLATED", "anchor",
+                f"anchor {name} snapped {anchor.get('snap_m', '?')} m onto the "
+                f"navmesh{where} and reaches 0 of {anchor.get('of', '?')} other "
+                f"anchors: it is on the mesh and on a fragment that goes "
+                f"nowhere",
+                location=f"{report}#{name}",
+                suggested_fix="Fix where the anchor is placed, not the navmesh. "
+                              "Distance-to-mesh already passes; what is missing "
+                              "is a surface that connects to the rest of the "
+                              "site."))
+
         for proof in data.get("path_proofs") or []:
             if not isinstance(proof, dict) or proof.get("ok"):
+                continue
+            # A leg that failed because one of its ends is stranded is the same
+            # defect restated. Report the anchor once rather than every leg it
+            # touches.
+            if str(proof.get("isolated_endpoint", "")) in stranded and stranded:
                 continue
             leg = str(proof.get("leg", "?"))
             issues.append(self._finding(
