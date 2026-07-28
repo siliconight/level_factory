@@ -1,3 +1,22 @@
+## [0.17.0] - off the network, not merely far from it
+
+`WALKTEST_ANCHOR_ISOLATED` fired on `reaches == 0` and found nothing on a site
+where sixteen of twenty-one anchors were off the main network. Lot emits four
+duplicate marker pairs per site, so each stranded anchor still reached its own
+twin and passed the threshold.
+
+Lot 0.27.0's report carries `cluster_size` and `main_cluster_size`, so the
+finding now asks whether an anchor is on the LARGEST cluster rather than whether
+it can see anybody at all, and says "on a cluster of 2 while the main one has 5"
+instead of a count. Where the director names a `coincident_with` partner, the
+message says the two are one anchor emitted twice -- that is the reason the old
+threshold missed them and it belongs in the finding rather than in a commit
+message.
+
+A report from an older director carries no clusters and falls back to the
+`reaches` threshold, so nothing goes quiet; the fallback is documented as the
+threshold that under-reported rather than as an equivalent.
+
 ## [0.16.0] - WALKTEST_ANCHOR_ISOLATED
 
 Lot 0.26.0's nav QA report carries an `anchors` array saying, per anchor, how

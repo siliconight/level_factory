@@ -250,9 +250,11 @@ ISOLATED = {
     "ok": False,
     "anchors": [
         {"name": "home", "raw": [36.0, 1.0, 5.0], "snap": [35.6, 0.2, 5.2],
-         "snap_m": 0.92, "reaches": 20, "of": 20},
+         "snap_m": 0.92, "reaches": 18, "of": 20, "cluster_size": 5,
+         "main_cluster_size": 5, "coincident_with": ""},
         {"name": "proxy_1", "raw": [-90.0, 5.9, 2.0], "snap": [-90.6, 5.2, 0.4],
-         "snap_m": 1.85, "reaches": 0, "of": 20},
+         "snap_m": 1.85, "reaches": 1, "of": 20, "cluster_size": 2,
+         "main_cluster_size": 5, "coincident_with": "proxy_0"},
     ],
     "stranded_anchors": 1,
     "path_proofs": [
@@ -273,7 +275,8 @@ def test_an_isolated_anchor_is_reported_as_the_anchor(tmp_path):
     nothing. That is not a fact about the route."""
     issues = WalktestAdapter().normalize_validation([_report(tmp_path, ISOLATED)])
     assert _codes(issues) == ["WALKTEST_ANCHOR_ISOLATED"]
-    assert "reaches 0 of 20" in issues[0]["message"]
+    assert "cluster of 2 while the main one has 5" in issues[0]["message"]
+    assert "shares a position with proxy_0" in issues[0]["message"]
     assert "1.85" in issues[0]["message"]
     assert issues[0]["category"] == "anchor"
 
@@ -304,3 +307,24 @@ def test_a_report_without_the_anchors_array_still_reports_legs(tmp_path):
                "path_proofs": [{"leg": "a->b", "ok": False, "detail": "d"}]}
     assert _codes(WalktestAdapter().normalize_validation(
         [_report(tmp_path, payload)])) == ["WALKTEST_LEG_UNPATHABLE"]
+
+
+def test_an_anchor_that_reaches_only_its_duplicate_is_still_off_the_network(tmp_path):
+    """The threshold that missed sixteen of twenty-one anchors. Lot emits four
+    duplicate marker pairs per site, so `reaches == 0` never fired: each
+    stranded anchor could still see its own twin."""
+    payload = {**ISOLATED}
+    issues = WalktestAdapter().normalize_validation([_report(tmp_path, payload)])
+    assert _codes(issues) == ["WALKTEST_ANCHOR_ISOLATED"]
+    # reaches is 1, not 0 -- the cluster is what makes it a finding.
+    assert payload["anchors"][1]["reaches"] == 1
+
+
+def test_an_older_report_falls_back_to_the_reaches_threshold(tmp_path):
+    """A director from before the clusters existed still reports something."""
+    payload = {"ok": False, "path_proofs": [], "walkers": [], "anchors": [
+        {"name": "proxy_0", "snap": [1.0, 2.0, 3.0], "snap_m": 1.9,
+         "reaches": 0, "of": 20}]}
+    issues = WalktestAdapter().normalize_validation([_report(tmp_path, payload)])
+    assert _codes(issues) == ["WALKTEST_ANCHOR_ISOLATED"]
+    assert "reaching 0 of 20" in issues[0]["message"]

@@ -248,19 +248,37 @@ class WalktestAdapter(BaseAdapter):
         # as a claim about the whole site rather than about one endpoint.
         stranded = set()
         for anchor in data.get("anchors") or []:
-            if not isinstance(anchor, dict) or anchor.get("reaches") != 0:
+            if not isinstance(anchor, dict):
+                continue
+            size = anchor.get("cluster_size")
+            main = anchor.get("main_cluster_size")
+            if size is not None and main is not None:
+                off_network = size < main
+            else:
+                # Reports from a director older than Lot 0.27.0 carry no
+                # clusters. Fall back rather than go quiet -- but note that
+                # "reaches 0" is the threshold that missed sixteen of
+                # twenty-one anchors, because each still reached its own
+                # duplicate.
+                off_network = anchor.get("reaches") == 0
+            if not off_network:
                 continue
             name = str(anchor.get("name", "?"))
             stranded.add(name)
             snap = anchor.get("snap") or []
             where = (f" at ({snap[0]}, {snap[1]}, {snap[2]})"
                      if len(snap) >= 3 else "")
+            twin = str(anchor.get("coincident_with") or "")
+            also = (f"; it also shares a position with {twin}, so the two are "
+                    f"one anchor emitted twice") if twin else ""
+            scale = (f"on a cluster of {size} while the main one has {main}"
+                     if size is not None and main is not None
+                     else f"reaching 0 of {anchor.get('of', '?')} other anchors")
             issues.append(self._finding(
                 "WALKTEST_ANCHOR_ISOLATED", "anchor",
                 f"anchor {name} snapped {anchor.get('snap_m', '?')} m onto the "
-                f"navmesh{where} and reaches 0 of {anchor.get('of', '?')} other "
-                f"anchors: it is on the mesh and on a fragment that goes "
-                f"nowhere",
+                f"navmesh{where} and is {scale}: it is on the mesh and off the "
+                f"network{also}",
                 location=f"{report}#{name}",
                 suggested_fix="Fix where the anchor is placed, not the navmesh. "
                               "Distance-to-mesh already passes; what is missing "
