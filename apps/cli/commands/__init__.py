@@ -884,6 +884,18 @@ def cmd_batch_run(args) -> int:
           f"{len(batch_plan.shared_job_ids)} shared job(s)")
     cache_hits = sum(1 for o in summary.outcomes if o.cache_hit)
     print(f"  jobs: {len(summary.outcomes)}  (cache reuse: {cache_hits})")
+    skipped = getattr(summary, "never_dispatched", []) or []
+    if skipped:
+        # A run that stops on the first blocker leaves the rest of the DAG
+        # untouched, and every one of those jobs keeps a stable out/ directory
+        # full of the PREVIOUS run's artifacts. "Never ran" and "ran and passed"
+        # look identical from there. The count above is not a complete account
+        # of the run until this prints too.
+        print(f"  NOT RUN: {len(skipped)} job(s) never dispatched -- the run "
+              f"stopped at its first blocker. Their out/ still holds the "
+              f"PREVIOUS run's artifacts:")
+        for _jid in skipped:
+            print(f"    - {_jid}")
     for line in diversity_lines:
         print(line)
     if batch_plan.skipped_missions:

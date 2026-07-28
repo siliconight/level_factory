@@ -1,3 +1,33 @@
+## [0.20.0] - a firefight was gating the walktest, and the walktest never ran
+
+`LT_ROUTE_NEVER_COMPLETED` blocked when Laser Tag played the full clock and the
+bot never finished the route. The reasoning in `lasertag_report.py` was right
+when it was written -- "the crew was given the full clock, nobody killed them,
+and they still never reached the objective" is a measurement, not a score -- and
+one fact has changed since: `walktest_navqa` measures the same claim directly,
+on every candidate, with no combat in it.
+
+Laser Tag's route number is confounded, and seed 5320's report shows all three
+confounds at once: 835 player-stuck events, six of twenty-five runs ending in a
+team wipe, and a 180 s clock. The finding keeps its category and stops blocking;
+its message now points at the walktest as the authority.
+
+The ordering was worse than the imprecision. The scheduler fail-fasts on the
+first blocked job, so a candidate whose Laser Tag blocked never dispatched its
+own `walktest_navqa` -- the coarse instrument silenced the precise one. Seed 5320
+spent an evening looking like a geometry failure it does not have, because its
+`out/` still held a report from seven hours earlier and nothing distinguishes
+"never ran" from "ran and passed" once you are reading the artifact.
+
+So `RunSummary` grows `never_dispatched`, `cmd_run` prints it, and the `run()`
+docstring stops claiming "Every job is dispatched" -- a sentence 0.14.0 left
+behind when it removed the resume pre-skip, and one fail-fast has always made
+false.
+
+All five category5_baie_dore_001 candidates now walk: 0 of 31 legs failing on
+every one, 0 stranded anchors, 0 anchors without standing room. Seed 5421 had
+never been walktested at all.
+
 ## [0.19.0] - the one pass that is a substitution says so
 
 `WALKTEST_ANCHOR_BEHIND_BARRIER`, minor and never blocking. Lot 0.37.0's

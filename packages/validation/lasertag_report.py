@@ -335,16 +335,21 @@ def normalize_report(
         if timeouts > 0:
             issues.append({
                 "code": CODE_ROUTE_NEVER_COMPLETED,
-                "severity": "blocker", "category": "reachability",
+                "severity": "major", "category": "reachability",
                 "message": (
                     f"The mission route was never completed in {runs} runs, and "
                     f"{timeouts} of those ran the full clock out with the crew "
                     f"still alive — nothing was stopping them walking except the "
-                    f"map. This is the measured form of the destination being "
+                    f"map. This is EVIDENCE, not the gate: walktest_navqa walks "
+                    f"the same spine on the baked navmesh with no combat in "
+                    f"it, and says which leg failed. Read that first. This "
+                    f"number is confounded by every stuck bot and every "
+                    f"wipe, and while it blocked, the walktest for this "
+                    f"candidate never ran at all. Formerly the measured form of the destination being "
                     f"unreachable, not a difficulty score: fix the route before "
                     f"reading the combat numbers, which describe a crew that "
                     f"never arrived."),
-                "blocking": True, **src,
+                "blocking": False, **src,
             })
         # `>= 0.0` is not redundant. Laser Tag's `_avg` returns **-1.0** for a
         # metric no run recorded, and "no enemy ever fired a shot" is the exact

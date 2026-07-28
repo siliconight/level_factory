@@ -67,6 +67,14 @@ class RunSummary:
     outcomes: list = field(default_factory=list)
     blocked_job: str | None = None
     all_issues: list = field(default_factory=list)
+    #: Jobs the run never dispatched, because fail-fast stopped it first. These
+    #: have no outcome and no findings, and -- this is the part that bites -- an
+    #: `out/` directory still holding the PREVIOUS run's artifacts. A reader that
+    #: opens the artifact and not this list gets last run's answer with no sign
+    #: that anything is wrong. That is how a stale walktest verdict was read as
+    #: a current one for a whole evening: three seeds re-ran, the fourth never
+    #: dispatched, and its seven-hour-old report sat there looking like a result.
+    never_dispatched: list = field(default_factory=list)
 
     @property
     def succeeded(self) -> bool:
@@ -133,10 +141,17 @@ class Scheduler:
         failure the scheduler stops dispatching new work and drains in-flight
         jobs (fail-fast, matching the sequential contract).
 
-        Resume is the cache's job, not the index's. Every job is dispatched;
-        an unchanged one hits the content cache, skips its tool, and replays
-        its findings. `force` is accepted for callers that still pass it and no
-        longer changes anything -- see the note in the body."""
+        Resume is the cache's job, not the index's. Every job the run REACHES is
+        dispatched; an unchanged one hits the content cache, skips its tool, and
+        replays its findings. `force` is accepted for callers that still pass it
+        and no longer changes anything -- see the note in the body.
+
+        "Every job is dispatched" is what this used to say, and fail-fast makes
+        it false: a failure anywhere stops dispatch, and whatever had not
+        started yet simply does not run. Those jobs are listed in
+        `RunSummary.never_dispatched`, because their stable `out/` directories
+        still hold the previous run's artifacts and nothing else distinguishes
+        "ran and passed" from "never ran"."""
         from collections import Counter, deque
         from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
@@ -230,6 +245,9 @@ class Scheduler:
                         summary.blocked_job = summary.blocked_job or jid
                         stop = True  # fail-fast; drain remaining in-flight jobs
 
+        ran = {o.job.job_id for o in summary.outcomes}
+        summary.never_dispatched = sorted(
+            jid for jid in jobs_by_id if jid not in ran)
         return summary
 
     # ------------------------------------------------------------------
