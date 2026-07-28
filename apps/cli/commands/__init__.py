@@ -895,7 +895,17 @@ def cmd_batch_run(args) -> int:
               f"stopped at its first blocker. Their out/ still holds the "
               f"PREVIOUS run's artifacts:")
         for _jid in skipped:
-            print(f"    - {_jid}")
+            print(f"    - {_jid}: "
+                  f"{getattr(summary, 'not_run_reason', {}).get(_jid, '')}")
+    dropped = getattr(summary, "eliminated_candidates", {}) or {}
+    if dropped:
+        # Not a failure line. Five candidates are generated so the weak
+        # ones can be dropped, and until the scheduler learned to scope a
+        # failure, one bad candidate halted the run and took the good ones
+        # with it.
+        print(f"  {len(dropped)} candidate(s) eliminated (the rest carried on):")
+        for _cid, _at in sorted(dropped.items()):
+            print(f"    - {_cid}  at {_at}")
     for line in diversity_lines:
         print(line)
     if batch_plan.skipped_missions:

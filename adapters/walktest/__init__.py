@@ -383,12 +383,38 @@ class WalktestAdapter(BaseAdapter):
             at = walker.get("at")
             where = (f" at ({at[0]}, {at[1]}, {at[2]})"
                      if isinstance(at, (list, tuple)) and len(at) >= 3 else "")
+            # What it was pressing against, if the director recorded it. A stuck
+            # report naming only a coordinate sends the reader to a plan view to
+            # guess, and on seed 5017 the guess was unavailable: six metres of
+            # open floor and a clear line to the target. An EMPTY contact list
+            # is the more useful answer of the two -- it means the geometry did
+            # not block and the steering froze, which is a defect in this tool
+            # rather than in the level.
+            blocked = walker.get("blocked_by")
+            if isinstance(blocked, list):
+                if blocked:
+                    names = ", ".join(
+                        str(c.get("collider", "?")) for c in blocked
+                        if isinstance(c, dict))
+                    against = f"; pressing against {names}"
+                else:
+                    against = ("; touching NOTHING -- the geometry did not "
+                               "block it, the steering froze, and that is this "
+                               "tool's defect rather than the level's")
+            else:
+                against = ""
+            wp = walker.get("waypoint")
+            aim = (f"; {walker.get('waypoint_dist_m', '?')} m from waypoint "
+                   f"{walker.get('path_index', '?')}/"
+                   f"{walker.get('path_points', '?')} at "
+                   f"({wp[0]}, {wp[1]}, {wp[2]})"
+                   if isinstance(wp, (list, tuple)) and len(wp) >= 3 else "")
             issues.append(self._finding(
                 "WALKTEST_WALKER_STUCK", "traversal",
                 f"walker {walker.get('name', '?')} reached "
                 f"{walker.get('targets_reached', 0)}/"
                 f"{walker.get('targets_total', 0)} targets ({status})"
-                f"{where}",
+                f"{where}{against}{aim}",
                 location=f"{report}#{walker.get('name', 'walker')}"))
 
         # A report that says ok=false while naming nothing is worse than one

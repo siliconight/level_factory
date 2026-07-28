@@ -67,14 +67,21 @@ class RunSummary:
     outcomes: list = field(default_factory=list)
     blocked_job: str | None = None
     all_issues: list = field(default_factory=list)
-    #: Jobs the run never dispatched, because fail-fast stopped it first. These
-    #: have no outcome and no findings, and -- this is the part that bites -- an
-    #: `out/` directory still holding the PREVIOUS run's artifacts. A reader that
-    #: opens the artifact and not this list gets last run's answer with no sign
-    #: that anything is wrong. That is how a stale walktest verdict was read as
-    #: a current one for a whole evening: three seeds re-ran, the fourth never
-    #: dispatched, and its seven-hour-old report sat there looking like a result.
+    #: Jobs the run never dispatched. These have no outcome and no findings,
+    #: and -- this is the part that bites -- an `out/` directory still holding
+    #: the PREVIOUS run's artifacts. A reader that opens the artifact and not
+    #: this list gets last run's answer with no sign that anything is wrong.
+    #: That is how a stale walktest verdict was read as a current one for a
+    #: whole evening: three seeds re-ran, the fourth never dispatched, and its
+    #: seven-hour-old report sat there looking like a result.
     never_dispatched: list = field(default_factory=list)
+    #: job_id -> why it never ran, in words. The list above says what is
+    #: missing; this says whether that was the point.
+    not_run_reason: dict = field(default_factory=dict)
+    #: candidate_id -> the job whose failure eliminated that candidate. An
+    #: eliminated candidate is the pipeline working: five are generated so that
+    #: the weak ones can be dropped. It is not a failed run.
+    eliminated_candidates: dict = field(default_factory=dict)
 
     @property
     def succeeded(self) -> bool:
@@ -137,9 +144,14 @@ class Scheduler:
     ) -> RunSummary:
         """Execute the DAG with real parallelism, honoring per-resource-class
         concurrency caps (TDD 19.2). Independent jobs run concurrently; a job
-        starts only once all its dependencies have succeeded. On the first
-        failure the scheduler stops dispatching new work and drains in-flight
-        jobs (fail-fast, matching the sequential contract).
+        starts only once all its dependencies have succeeded.
+
+        Failure is scoped. A job carrying a `candidate_id` that fails eliminates
+        that CANDIDATE: its dependents never become ready, and every other
+        candidate carries on. A mission-level job failing stops the run and
+        drains what is in flight, as it always has. The distinction is the whole
+        reason five candidates are generated -- mission-wide fail-fast meant a
+        weak candidate was never dropped, it took the run down with it.
 
         Resume is the cache's job, not the index's. Every job the run REACHES is
         dispatched; an unchanged one hits the content cache, skips its tool, and
@@ -242,12 +254,47 @@ class Scheduler:
                                         and other not in futures.values()):
                                     ready.append(other)
                     else:
-                        summary.blocked_job = summary.blocked_job or jid
-                        stop = True  # fail-fast; drain remaining in-flight jobs
+                        # A candidate-scoped failure ELIMINATES THE CANDIDATE.
+                        # It does not stop the run.
+                        #
+                        # Five candidates are generated so the weak ones can be
+                        # dropped, and mission-wide fail-fast defeated exactly
+                        # that: one blocked job halted the whole DAG, so a
+                        # candidate was never eliminated -- it took the other
+                        # four down with it, and their jobs never dispatched
+                        # while their `out/` directories kept the previous run's
+                        # artifacts. A Laser Tag finding on one seed is how
+                        # that seed's own walktest came to be skipped for an
+                        # evening and read as a passing geometry check.
+                        #
+                        # Dependents need no special handling: `ready` is only
+                        # appended when a dependency SUCCEEDS, so anything
+                        # downstream of this job simply never becomes ready and
+                        # is reported below with its reason.
+                        cand = jobs_by_id[jid].candidate_id
+                        if cand:
+                            summary.eliminated_candidates.setdefault(cand, jid)
+                        else:
+                            # Mission-level. Nothing downstream can be salvaged
+                            # by finishing the rest, so fail fast as before and
+                            # drain what is in flight.
+                            summary.blocked_job = summary.blocked_job or jid
+                            stop = True
 
         ran = {o.job.job_id for o in summary.outcomes}
-        summary.never_dispatched = sorted(
-            jid for jid in jobs_by_id if jid not in ran)
+        not_run = sorted(jid for jid in jobs_by_id if jid not in ran)
+        summary.never_dispatched = not_run
+        for jid in not_run:
+            cand = jobs_by_id[jid].candidate_id
+            if cand and cand in summary.eliminated_candidates:
+                summary.not_run_reason[jid] = (
+                    f"candidate {cand} was eliminated at "
+                    f"{summary.eliminated_candidates[cand]}")
+            elif summary.blocked_job:
+                summary.not_run_reason[jid] = (
+                    f"the run stopped at {summary.blocked_job}")
+            else:
+                summary.not_run_reason[jid] = "a dependency did not succeed"
         return summary
 
     # ------------------------------------------------------------------

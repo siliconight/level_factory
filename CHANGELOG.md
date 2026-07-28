@@ -1,3 +1,43 @@
+## [0.22.0] - a candidate that fails is eliminated, not fatal
+
+Five candidates are generated so the weak ones can be dropped. Mission-wide
+fail-fast defeated exactly that: the first blocked job halted the whole DAG, so
+a candidate was never eliminated -- it took its siblings down with it, their
+jobs never dispatched, and their stable `out/` directories kept the previous
+run's artifacts where the next reader mistook them for current answers. A Laser
+Tag finding on seed 5320 is how seed 5320's own walktest came to be skipped for
+an evening and read as a passing geometry check.
+
+`Job.candidate_id` already carried the distinction; the scheduler was not using
+it. A candidate-scoped failure now records the candidate in
+`RunSummary.eliminated_candidates` and lets every other candidate finish. A
+mission-level failure still stops the run and drains what is in flight, because
+nothing downstream of one can be salvaged by carrying on.
+
+Dependents needed no special handling: `ready` is only appended when a
+dependency SUCCEEDS, so anything downstream of a failed job never becomes ready.
+What was missing was saying so. `RunSummary.not_run_reason` gives every
+un-dispatched job its sentence -- "candidate X was eliminated at Y", "the run
+stopped at Z", "a dependency did not succeed" -- because the list alone reads as
+five things going wrong on a run where four candidates built cleanly and one was
+correctly dropped.
+
+This is the precondition for WALKTEST_ENFORCED. Flipping it before this would
+have turned one flawed candidate into a dead mission.
+
+## [0.21.0] - the stuck finding carries the contact
+
+`WALKTEST_WALKER_STUCK` named a walker, a target index and a coordinate. Lot
+0.38.0's director now records what the capsule was pressing against and which
+waypoint it was steering to, so the finding says it: "pressing against
+gaming_tables_col; 5.6 m from waypoint 3/9 at (26.0, 0.2, -2.0)".
+
+An empty contact list reads differently on purpose -- "touching NOTHING -- the
+geometry did not block it, the steering froze, and that is this tool's defect
+rather than the level's". A finding that cannot tell those apart sends a reader
+to fix the wrong repo, and older reports that carry neither field still report
+exactly as before.
+
 ## [0.20.0] - a firefight was gating the walktest, and the walktest never ran
 
 `LT_ROUTE_NEVER_COMPLETED` blocked when Laser Tag played the full clock and the

@@ -428,7 +428,9 @@ def test_every_finding_this_adapter_can_emit_is_json_serializable(tmp_path):
     it. Exercise every payload in this file through the serializer."""
     payloads = {"PASSING": PASSING, "ISOLATED": ISOLATED,
                 "NO_FLOOR": NO_FLOOR, "BURIED": BURIED,
-                "BEHIND_BARRIER": BEHIND_BARRIER}
+                "BEHIND_BARRIER": BEHIND_BARRIER,
+                "STUCK": STUCK_ON_GEOMETRY,
+                "STUCK_NONE": STUCK_ON_NOTHING}
     for name, payload in payloads.items():
         issues = WalktestAdapter().normalize_validation(
             [_report(tmp_path, payload)])
@@ -483,3 +485,54 @@ def test_a_zero_barrier_distance_is_silence_not_a_finding(tmp_path):
         {**BEHIND_BARRIER["anchors"][1], "unreachable_stand_m": 0.0}]}
     assert WalktestAdapter().normalize_validation(
         [_report(tmp_path, payload)]) == []
+
+
+# --- a stuck walker has to say what stopped it -------------------------------
+
+STUCK_ON_GEOMETRY = {
+    "ok": False, "anchors": [], "path_proofs": [],
+    "walkers": [{
+        "name": "player_0", "status": "stuck@target_8 at (20.5, 0.9, -2.7)",
+        "targets_reached": 8, "targets_total": 16, "at": [20.5, 0.9, -2.7],
+        "blocked_by": [{"collider": "gaming_tables_col", "path": "/root/x",
+                        "normal": [1.0, 0.0, 0.0], "at": [21.0, 0.5, -2.7]}],
+        "waypoint": [26.0, 0.2, -2.0], "waypoint_dist_m": 5.6,
+        "path_index": 3, "path_points": 9,
+    }],
+}
+
+STUCK_ON_NOTHING = {
+    **STUCK_ON_GEOMETRY,
+    "walkers": [{**STUCK_ON_GEOMETRY["walkers"][0], "blocked_by": []}],
+}
+
+
+def test_a_stuck_walker_names_what_it_is_pressing_against(tmp_path):
+    issues = WalktestAdapter().normalize_validation(
+        [_report(tmp_path, STUCK_ON_GEOMETRY)])
+    assert _codes(issues) == ["WALKTEST_WALKER_STUCK"]
+    m = issues[0]["message"]
+    assert "pressing against gaming_tables_col" in m
+    assert "5.6 m from waypoint 3/9" in m
+
+
+def test_touching_nothing_is_reported_as_this_tools_defect(tmp_path):
+    """The distinction that matters. A capsule wedged in geometry is a level
+    defect; a capsule stopped in open space with nothing in contact is the
+    walker's steering giving up, and blaming the level for that is how an
+    afternoon goes missing."""
+    issues = WalktestAdapter().normalize_validation(
+        [_report(tmp_path, STUCK_ON_NOTHING)])
+    m = issues[0]["message"]
+    assert "touching NOTHING" in m
+    assert "this tool's defect rather than the level's" in m
+
+
+def test_a_report_from_a_director_that_records_neither_still_reports(tmp_path):
+    payload = {**STUCK_ON_GEOMETRY, "walkers": [{
+        "name": "player_0", "status": "stuck@target_8 at (20.5, 0.9, -2.7)",
+        "targets_reached": 8, "targets_total": 16, "at": [20.5, 0.9, -2.7]}]}
+    issues = WalktestAdapter().normalize_validation([_report(tmp_path, payload)])
+    assert _codes(issues) == ["WALKTEST_WALKER_STUCK"]
+    assert "pressing against" not in issues[0]["message"]
+    assert "touching NOTHING" not in issues[0]["message"]

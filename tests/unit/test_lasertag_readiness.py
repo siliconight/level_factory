@@ -368,22 +368,38 @@ def test_an_unrecognised_severity_is_not_quietly_minor(tmp_path):
     assert hole["severity"] == "moderate"
 
 
-def test_a_route_never_walked_on_a_full_clock_blocks(tmp_path):
-    """The defect this section exists to prevent. Five seeds, 125 matches, route
-    completion 0.0 in every one of them, and the build printed "56 finding(s):
-    7 major, 22 moderate, 27 minor -- none blocking". Four of seed 5320's runs
-    ran the full 180 s with the crew alive and still never reached the
-    objective: nothing was stopping them walking except the map."""
+def test_a_route_never_walked_on_a_full_clock_reports_but_does_not_block(tmp_path):
+    """This blocked until Level Factory 0.20.0, and the reasoning was sound when
+    it was written: five seeds, 125 matches, route completion 0.0 in every one,
+    and the build printing "56 finding(s) -- none blocking". Four of seed 5320's
+    runs went the full 180 s with the crew alive and still never reached the
+    objective, and that is a measurement rather than a score.
+
+    What changed is that walktest_navqa now measures the same claim directly, on
+    every candidate, with no combat in it -- while this number is confounded by
+    everything combat does. That same seed 5320 report carries 835 player-stuck
+    events and six team wipes alongside the timeouts.
+
+    And the ordering settled it. The scheduler fail-fasts on the first blocked
+    job, so while this blocked, seed 5320's own walktest never dispatched: the
+    firefight silenced the instrument built to replace it, and the stale report
+    left in its place read as a passing geometry check for an evening.
+
+    So it reports, it points at the walktest, and it leaves the verdict there.
+    """
     issues = LaserTagAdapter().normalize_validation([_real_report(tmp_path)])
-    blocker = next(i for i in issues if i["code"] == "LT_ROUTE_NEVER_COMPLETED")
-    assert blocker["blocking"] is True
-    assert blocker["severity"] == "blocker"
-    assert blocker["category"] == "reachability"
-    assert "4 of those ran the full clock" in blocker["message"]
-    # It must not be mistakable for the score it sits next to.
-    assert "not a difficulty score" in blocker["message"]
-
-
+    found = next(i for i in issues if i["code"] == "LT_ROUTE_NEVER_COMPLETED")
+    assert found["blocking"] is False
+    assert found["severity"] == "major"
+    # The category does NOT change: it is still a statement about reachability,
+    # and filing it under readiness would lose that.
+    assert found["category"] == "reachability"
+    assert "4 of those ran the full clock" in found["message"]
+    # It has to name the instrument that does own the verdict, or the reader is
+    # left with a demoted finding and nowhere to go.
+    assert "walktest_navqa" in found["message"]
+    # And it still must not be mistakable for the score it sits beside.
+    assert "not a difficulty score" in found["message"]
 def test_a_route_never_walked_but_never_given_time_does_not_block(tmp_path):
     """The line the gate has to hold. A crew wiped five seconds in proves
     nothing about the geometry -- that is difficulty, and TDD 5.5 says
