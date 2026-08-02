@@ -64,14 +64,50 @@ class LotAdapter(BaseAdapter):
         spec = job_spec.get("site_spec_path")
         if spec and Path(str(spec)).exists():
             fp["site_spec_hash"] = hash_file(Path(str(spec)))
-        # The site spec references building GLBs; fold their hashes in too.
-        building_hashes = {}
+        # Everything the site spec NAMES, not just the GLBs.
+        #
+        # This hashed `building_glbs` alone, and a building is more than its
+        # mesh: Lot merges each building's `gameplay.json` into the site's, and
+        # its `<stem>.lights.json` into `site.site.lights.json`. Deli Counter's
+        # light-anchor fix (2026-08-02) changed only the light manifests --
+        # every shell.glb came out byte-identical, because the geometry did not
+        # move -- so the fingerprint was unchanged, Lot read `cache`, and the
+        # site shipped the OLD anchor heights while DC's own output carried the
+        # new ones. A stage whose output depends on a file its fingerprint does
+        # not watch will serve a stale answer and call it a hit.
+        #
+        # Read the spec rather than trusting the caller's list: the spec is what
+        # Lot actually consumes, so a building added there cannot be missed by
+        # someone forgetting to extend a parallel argument.
+        inputs: dict[str, str] = {}
+
+        def _fold(path: Path) -> None:
+            if path.exists() and path.is_file():
+                inputs[path.name] = hash_file(path)
+
         for b in job_spec.get("building_glbs", []):
-            p = Path(str(b))
-            if p.exists():
-                building_hashes[p.name] = hash_file(p)
-        if building_hashes:
-            fp["building_hashes"] = building_hashes
+            _fold(Path(str(b)))
+        if spec and Path(str(spec)).exists():
+            try:
+                doc = json.loads(Path(str(spec)).read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                doc = {}
+            for b in doc.get("buildings", []) or []:
+                for key in ("scene", "glb", "gameplay"):
+                    ref = b.get(key)
+                    if not ref:
+                        continue
+                    src = Path(str(ref))
+                    _fold(src)
+                    # The sibling manifests Lot reads off the same stem. A
+                    # `shell.glb` is accompanied by `shell.gameplay.json` and
+                    # `shell.lights.json`; the spec names the first two and
+                    # never the third.
+                    stem = src.with_suffix("")
+                    for sibling in (".lights.json", ".gameplay.json"):
+                        _fold(Path(str(stem) + sibling))
+        if inputs:
+            fp["building_hashes"] = inputs
         return fp
 
     def plan_commands(
