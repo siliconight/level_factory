@@ -25,7 +25,7 @@ _METADATA_FILES = {
     "portable_resource_manifest.json", "LICENSES.json", "export_profile.json",
     "build.lock.json", "mission_manifest.json", "runtime_ownership_requirements.json",
     "proposed_beat_graph.json", "gameplay_anchors.json", "navigation_hints.json",
-    "export_closure.json", "output_layers.json",
+    "export_closure.json", "export_closure_scan.json", "output_layers.json",
     "lux.quality.json", "lux.validation.json",
 }
 # A marker only breaks portability when it appears as a PATH reference.

@@ -39,6 +39,24 @@ HANDOFF_LANGUAGE = (
     "reconnection, and online correctness.\n"
 )
 
+#: Whether a broken resource closure fails the export outright.
+#:
+#: False for the same reason ``deli_counter.stairwell.CONTAINMENT_ENFORCED`` and
+#: ``WALKTEST_ENFORCED`` are: no export has ever been scanned at this point in
+#: the pipeline, the first run that did found the current one broken, and
+#: promoting on day one would fail every export before anyone has looked at one.
+#:
+#: The scan ALWAYS runs and ALWAYS writes its verdict to
+#: export_closure_scan.json. This flag decides only whether the verdict stops
+#: the build. Flipping it is its own pass, and wants the missing-art copy fixed
+#: first -- otherwise it fails on a defect it did not cause.
+CLOSURE_ENFORCED = False
+
+
+class ExportClosureError(RuntimeError):
+    """A portable export references resources it does not contain."""
+
+
 # Files that carry presentation only (dropped in pure-shell mode).
 _PRESENTATION_FILES = {"lux.applied.tscn", "lux.quality.json"}
 
@@ -197,6 +215,49 @@ def export_mission(
     write_entry_scene(export_dir, closure_report)
     (export_dir / "export_closure.json").write_text(
         pretty_dumps(closure_report.as_dict()), encoding="utf-8")
+
+    # 3.6 Resource-closure VERDICT.
+    #
+    # localize_export above is the FIXER; closure.py's scan_closure is the
+    # JUDGE, and localize.py's own docstring says exactly that. The fixer's
+    # `unresolved` list fills only when a repair was ATTEMPTED and failed --
+    # an absolute ref whose source is gone, an addon copy that raised. A scene
+    # referencing res://art/zoo/wall.glb that was simply never copied in is not
+    # something the fixer tries to repair, so it leaves no trace there at all.
+    #
+    # Until now the judge was reachable only from run_portability_test, a
+    # separate command, off the path that produces the deliverable. Measured
+    # 2026-08-01 on category5_baie_dore_001 --mode portable-godot:
+    # export_closure.json reported "unresolved": [] while 211 of the
+    # presentation scene's 243 nodes instanced ten .glb files the package did
+    # not contain. The shell opened, lit itself correctly from its pinned
+    # preset, and rendered nothing but sky.
+    #
+    # Note the two files are deliberately named apart. export_closure.json is
+    # the fixer's log; export_closure_scan.json is the verdict. One name
+    # answering two questions is how the empty export read as clean.
+    from packages.exporting.closure import scan_closure
+    scan = scan_closure(export_dir)
+    (export_dir / "export_closure_scan.json").write_text(
+        pretty_dumps(scan.as_dict()), encoding="utf-8")
+    if not scan.ok:
+        summary = (
+            "EXPORT_CLOSURE_BROKEN: %d unresolved res:// reference(s), "
+            "%d absolute path(s), %d external reference(s), "
+            "%d required plugin(s), %d required autoload(s)"
+            % (scan.missing_resource_count, scan.absolute_path_count,
+               scan.external_reference_count, scan.required_plugin_count,
+               scan.required_autoload_count))
+        detail = "\n  ".join(scan.issues[:20])
+        if len(scan.issues) > 20:
+            detail += "\n  ... and %d more" % (len(scan.issues) - 20)
+        if CLOSURE_ENFORCED:
+            raise ExportClosureError(summary + "\n  " + detail)
+        print("[export] WARNING " + summary)
+        for issue in scan.issues[:20]:
+            print("[export]   " + issue)
+        if len(scan.issues) > 20:
+            print("[export]   ... and %d more" % (len(scan.issues) - 20))
 
     # 4. project.godot, HANDOFF.md, manifests.
     _write_project_godot(export_dir, profile.entry_scene, mission_id)
