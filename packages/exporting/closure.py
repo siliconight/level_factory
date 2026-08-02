@@ -91,7 +91,19 @@ def scan_closure(mission_root: Path) -> ClosureResult:
 
         for m in _RES_REF.finditer(text):
             rel = m.group(1)
-            if rel not in present and not rel.startswith(("addons/godot/", "builtin/")):
+            # res://.godot/ is the import cache, not an authored resource. Every
+            # .import sidecar names its own cache target there, and those targets
+            # are SUPPOSED to be absent from a package: a Godot project ships
+            # sources plus .import, and the consumer's editor regenerates the
+            # cache on first open. They are also platform-specific (.s3tc.ctex),
+            # so shipping them would be shipping a build artifact.
+            #
+            # This mattered the moment the export started carrying art: 100 .glb
+            # and .png sidecars arrived and the scan reported 104 unresolved
+            # references, none of them real. A guardrail that fires on correct
+            # output is one somebody switches off.
+            if rel not in present and not rel.startswith(
+                    (".godot/", "addons/godot/", "builtin/")):
                 # Directory references (preset-library scans etc.) are
                 # resolvable even though the present-set only lists files.
                 if (mission_root / rel).exists():

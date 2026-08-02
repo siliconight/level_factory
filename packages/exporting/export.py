@@ -100,7 +100,8 @@ class ExportResult:
         }
 
 
-def _copy_tree(src: Path, dst: Path, *, skip: set[str] = frozenset()) -> None:
+def _copy_tree(src: Path, dst: Path, *, skip: set[str] = frozenset(),
+               skip_dirs: set[str] = frozenset()) -> None:
     dst.mkdir(parents=True, exist_ok=True)
     for item in src.rglob("*"):
         if item.is_dir():
@@ -108,6 +109,10 @@ def _copy_tree(src: Path, dst: Path, *, skip: set[str] = frozenset()) -> None:
         if item.name in skip or item.name.endswith(".provenance.json"):
             continue
         rel = item.relative_to(src)
+        # `skip` matches file NAMES. A directory cannot be excluded that way --
+        # this walks files, so .godot/ would arrive one cache entry at a time.
+        if skip_dirs and any(part in skip_dirs for part in rel.parts[:-1]):
+            continue
         target = dst / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(item, target)
@@ -167,6 +172,7 @@ def export_mission(
     graybox_dir: Path | None = None,
     layers=None,
     addon_sources: dict[str, Path] | None = None,
+    composed_root: Path | None = None,
 ) -> ExportResult:
     export_dir = out_root / f"{mission_id}.{profile.mode}"
     if export_dir.exists():
@@ -197,6 +203,55 @@ def export_mission(
                 "folder; enabling the Lux editor plugin is NOT required.\n",
                 encoding="utf-8",
             )
+
+    # 2.5 The composed res:// root -- the assets the presentation scene names.
+    #
+    # presentation_dir is the lux_apply job's out/, and that job emits exactly
+    # three files: lux.applied.tscn and two json sidecars. The scene's
+    # ext_resources are res://site_base.glb and res://art/zoo/*.glb, which live
+    # one job upstream in <mission>.presentation_compose/out/presentation/.
+    # That directory IS the res:// root Lux was run against -- stage_godot_project
+    # copies a scene's sibling FILES flat and its sibling SUBDIRECTORIES with
+    # their structure intact, which is precisely why site_base.glb resolves at
+    # the root and the modules resolve under art/zoo/ and nowhere else. The
+    # export has to reproduce that same root or the scene arrives with every
+    # module reference dangling.
+    #
+    # It did. Measured 2026-08-01 on category5_baie_dore_001 --mode
+    # portable-godot: 211 of the scene's 243 nodes instanced one of ten glb
+    # files the package did not contain. The shell opened, applied Blue Hour
+    # correctly, and rendered nothing but sky. Roadmap item 27.
+    #
+    # Skipped on the way in, and each for its own reason: project.godot,
+    # HANDOFF.md and portable_resource_manifest.json because section 4 below
+    # writes this export's own and the composer's describe a different root;
+    # compose.summary.json because it is the composer's job log, not content;
+    # .godot/ because an import cache is machine-specific and large; addons/
+    # because a portable shell carries none by contract.
+    if (profile.mode != MODE_PURE_SHELL
+            and composed_root and composed_root.exists()):
+        # site.tscn and site_main.tscn are skipped, and the reason is a name
+        # collision worth stating. The composer emits its themed building AS
+        # "site.tscn" -- named that only so the Lux stage can resolve it without
+        # knowing Deli Counter's building_id at plan time. Lot ALSO emits a
+        # site.tscn, meaning the assembled site: ground, roads, every building.
+        # The graybox copy above puts Lot's at the export root, and copying the
+        # composer's over it silently replaced the site with one building.
+        #
+        # It also made write_entry_scene instance the same building twice --
+        # once unlit as site.tscn, once lit as presentation/lux.applied.tscn,
+        # exactly coincident. Two copies of one mesh in the same place is the
+        # z-fighting this toolchain spent four commits removing.
+        #
+        # What is wanted from here is the ASSETS the presentation scene names:
+        # site_base.glb and art/**. The composer's scenes are Lux's input;
+        # lux.applied.tscn is the output that ships.
+        _copy_tree(composed_root, export_dir,
+                   skip={"project.godot", "HANDOFF.md",
+                         "portable_resource_manifest.json",
+                         "compose.summary.json",
+                         "site.tscn", "site_main.tscn"},
+                   skip_dirs={".godot", "addons"})
 
     # 3. Source authoring (only in source mode).
     if profile.mode == MODE_SOURCE and source_dir and source_dir.exists():
