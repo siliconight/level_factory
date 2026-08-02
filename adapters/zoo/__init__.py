@@ -142,6 +142,16 @@ class ZooAdapter(BaseAdapter):
                         "--out", str(work)]
             if job_spec.get("skins_dir"):
                 zoo_args += ["--skins", str(job_spec["skins_dir"])]
+            # --theme is not decoration on this branch. zoo_cli hands it to
+            # `materials.set_skin_library(dir, theme)`, and `skins.find_pack`
+            # looks for `<kind>_<theme>/` before bare `<kind>/`. A themed
+            # library resolves ONLY under its own theme, so --skins without
+            # --theme finds no pack and falls back to flat colour without
+            # saying so: the two flags are one input, not two.
+            if job_spec.get("theme"):
+                zoo_args += ["--theme", str(job_spec["theme"])]
+            if job_spec.get("seed") is not None:
+                zoo_args += ["--seed", str(job_spec["seed"])]
             bid = _bid(job_spec.get("manifest_path")) or "building"
             expected = (f"{bid}_dressing.built.json",)
         else:  # kit build

@@ -335,10 +335,29 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                 }
             elif job.stage_id == "zoo_dressing_build":
                 dress_job = next(d for d in job.depends_on if "patina_dressing" in d)
+                # The DRESSING build needs the same Pixelcoat library the KIT
+                # build gets. Without it Zoo's material factory finds no pack
+                # and every cover falls back to one flat colour: the shipped
+                # dressing for category5_baie_dore_001 was 2255 meshes, 1
+                # material, 0 images, while the walls they sit on carried a
+                # real concrete_polished_casino pack. Pixelcoat's README draws
+                # this line -- it "owns the themed skin library that Zoo kits
+                # resolve against" -- so a cover gets its surface the same way
+                # a wall does. Patina places; Pixelcoat skins.
+                #
+                # Found by candidate, not by walking depends_on like the kit
+                # branch: this job depends on patina_dressing and zoo_kit, and
+                # never directly on pixelcoat.
+                pix_job = next(
+                    (j.job_id for j in plan.graph.topological_order()
+                     if j.adapter_id == "pixelcoat"
+                     and j.candidate_id == job.candidate_id), None)
                 specs[job.job_id] = {
                     "mode": "dress",
                     "seed": int(str(job.candidate_id).rsplit("_", 1)[-1]),
                     "theme": model.theme or batch.get("theme_family", ""),
+                    "skins_dir": (str(_latest_output(jobs_dir / pix_job, "."))
+                                  if pix_job else ""),
                     # Zoo --dress consumes Patina's <stem>.patina.dressing.json.
                     "manifest_path": str(_latest_output(jobs_dir / dress_job,
                                                         "shell.patina.dressing.json")),
