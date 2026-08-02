@@ -1,5 +1,6 @@
 """Export localization: the fixer must satisfy the judge (scan_closure)."""
 import json
+import shutil
 from pathlib import Path
 
 from packages.exporting.closure import scan_closure
@@ -94,9 +95,21 @@ def test_entry_scene_and_closure_judge_green(tmp_path):
     entry = write_entry_scene(export, report)
     assert entry == "mission.tscn"
     text = (export / "mission.tscn").read_text(encoding="utf-8")
-    assert "load('res://site.tscn')" in text
+    # The presentation scene is the level; site.tscn is what it is BUILT FROM.
+    #
+    # This used to assert BOTH were instanced. They are not peers, and doing it
+    # put two copies of the same geometry at the same coordinates. Once
+    # themed_site_assemble landed, Lot assembles the site by INSTANCING the
+    # composed building, so lux.applied.tscn resolves `res://site.tscn` by name
+    # -- the file must ship, and must not be instanced a second time beside the
+    # scene that already contains it.
     assert "load('res://presentation/lux.applied.tscn')" in text
+    assert "load('res://site.tscn')" not in text, (
+        "site.tscn is a dependency of the presentation scene, not a second level")
     assert "--lf-portability-check" in text
+    # ...and it still SHIPS. Skipping it from the export is what broke closure:
+    # "EXPORT_CLOSURE_BROKEN: lux.applied.tscn: unresolved res://site.tscn".
+    assert (export / "site.tscn").exists()
 
     result = scan_closure(export)
     assert result.absolute_path_count == 0
@@ -214,3 +227,20 @@ def test_export_metadata_exempt_from_marker_scan(tmp_path):
     result = scan_closure(export)
     assert result.absolute_path_count == 0, result.issues
     assert result.external_reference_count == 0, result.issues
+
+
+def test_a_graybox_export_still_enters_through_the_site(tmp_path):
+    """No presentation pass, so site.tscn IS the level and must be the entry.
+
+    The control for the rule above. If the presentation scene simply always won
+    then a graybox export would have no entry at all, and the change that
+    stopped instancing both would have quietly emptied it.
+    """
+    export = _fake_export(tmp_path)
+    shutil.rmtree(export / "presentation")
+    report = localize_export(export, addon_sources={"lux": _fake_repo(tmp_path)},
+                             strip_walk=True)
+    write_entry_scene(export, report)
+    text = (export / "mission.tscn").read_text(encoding="utf-8")
+    assert "load('res://site.tscn')" in text
+    assert "lux.applied" not in text

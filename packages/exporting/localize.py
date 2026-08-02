@@ -312,14 +312,27 @@ script = SubResource("mission_entry")
 
 
 def write_entry_scene(export_dir: Path, report: LocalizeReport) -> str:
-    """Synthesize mission.tscn instancing the site (+presentation) scenes."""
+    """Synthesize mission.tscn instancing the level -- ONE of the two scenes.
+
+    These are not peers, and instancing both put two copies of the same
+    geometry at the same coordinates: the z-fighting this toolchain spent four
+    commits removing. The presentation scene is the level once it has been
+    themed and lit; site.tscn is what it is BUILT FROM, and after the themed
+    site landed it is a dependency the presentation scene resolves by name
+    rather than a second level standing beside it.
+
+    So the presentation scene wins whenever it exists, and site.tscn is the
+    entry only for a graybox export that has no presentation pass. It still
+    ships either way -- skipping it is what broke closure:
+    `lux.applied.tscn: unresolved res://site.tscn`.
+    """
     candidates: list[str] = []
-    site = export_dir / "site.tscn"
-    if site.exists():
-        candidates.append("site.tscn")
     pres = export_dir / "presentation" / "lux.applied.tscn"
+    site = export_dir / "site.tscn"
     if pres.exists():
         candidates.append("presentation/lux.applied.tscn")
+    elif site.exists():
+        candidates.append("site.tscn")
     lines = ""
     for i, rel in enumerate(candidates):
         lines += (f"\tvar packed_{i} := load('res://{rel}') as PackedScene\n"

@@ -116,9 +116,20 @@ def test_art_layer_has_full_art_pass_but_no_dispatch():
 
 
 def test_art_layer_composes_before_lux():
-    """The --art contract: Lux must light the COMPOSED themed scene, not the
-    greybox. So a presentation_compose stage exists and lux_apply depends on it,
-    and compose depends on the DC shell + the themed Zoo kit."""
+    """The --art contract: Lux must light the themed SITE.
+
+    ORIGINAL, kept because the first half of it still holds: "Lux must light
+    the COMPOSED themed scene, not the greybox. So a presentation_compose stage
+    exists and lux_apply depends on it, and compose depends on the DC shell +
+    the themed Zoo kit."
+
+    What changed on 2026-08-02 is the last hop. presentation_compose composes
+    one BUILDING and names its output site.tscn so the Lux stage can resolve it
+    without knowing DC's building_id -- and the name was then read as the site
+    by everything downstream. Measured: Lot's greybox spans ~150 m with four
+    buildings, the themed export spanned ~27 m with one. themed_site_assemble
+    sits between them and re-runs Lot over the composed building at the same
+    placements, so Lux lights a site rather than a building."""
     plan = plan_mission(_brief(), seed_base=1997, layers=frozenset({LAYER_ART}),
                         selected_candidate=_SEL)
     jobs = {j.stage_id: j for j in plan.graph.jobs()}
@@ -128,9 +139,15 @@ def test_art_layer_composes_before_lux():
     # Compose is fed by the DC shell (collision truth) and the Zoo kit.
     assert any("deli_generate" in d for d in compose.depends_on)
     assert any("zoo_kit_build" in d for d in compose.depends_on)
-    # Lux lights the composed scene, not the greybox/dressing directly.
+    # The themed site is assembled from the composed building, by Lot, at the
+    # placements the greybox candidate was judged on.
+    assert "themed_site_assemble" in jobs
+    themed = jobs["themed_site_assemble"]
+    assert themed.adapter_id == "lot", "Lot owns site assembly, themed or not"
+    assert themed.depends_on == [compose.job_id]
+    # Lux lights that site -- not the greybox, and not one building.
     lux = jobs["lux_apply"]
-    assert lux.depends_on == [compose.job_id]
+    assert lux.depends_on == [themed.job_id]
 
 
 def test_gameplay_layer_alone_puts_dispatch_on_graybox():

@@ -72,6 +72,7 @@ _STAGE_PATINA_BASE = "patina_apply"
 _STAGE_PATINA_DRESS = "patina_dressing"
 _STAGE_ZOO_DRESS = "zoo_dressing_build"
 _STAGE_COMPOSE = "presentation_compose"
+_STAGE_THEMED_SITE = "themed_site_assemble"
 _STAGE_LUX = "lux_apply"
 _STAGE_ZOO_FIXTURES = "zoo_fixtures_build"
 _STAGE_LUX_FIXTURE_GATE = "lux_fixture_gate"
@@ -290,14 +291,34 @@ def plan_mission(
                         job_id(brief.mission_id, _STAGE_ZOO_FIXTURES)],
             expected_outputs=["presentation/site.tscn"],
         ))
-        # Lux apply (final PS2 look) over the COMPOSED themed presentation scene
-        # (not the greybox site) — this is the wiring that was missing.
+        # Themed SITE assemble — Lot again, over the composed themed BUILDING.
+        #
+        # presentation_compose composes one building and names its output
+        # site.tscn so the Lux stage can resolve it without knowing DC's
+        # building_id. Everything downstream then read that name as the site,
+        # and it is not: measured 2026-08-02, Lot's greybox spans ~150 m with
+        # four buildings while the themed export spanned ~27 m with one
+        # (roadmap 34). Lot already knows how to build a site out of scenes --
+        # `_building_source` prefers `scene` over `glb` and instances both the
+        # same way — so this asks it to, using the SAME placement the greybox
+        # candidate was judged on. Cheap, because every building in the spec
+        # points at one shell: there is a single themed scene to instance.
+        themed_jid = job_id(brief.mission_id, _STAGE_THEMED_SITE)
+        plan.graph.add(Job(
+            job_id=themed_jid, mission_id=brief.mission_id,
+            stage_id=_STAGE_THEMED_SITE, adapter_id="lot",
+            candidate_id=selected_candidate, resource_class="python_cpu",
+            depends_on=[compose_jid],
+            expected_outputs=["site.tscn"],
+        ))
+        # Lux apply (final PS2 look) over the themed SITE — not the greybox
+        # site, and not the single composed building it used to light.
         lux_jid = job_id(brief.mission_id, _STAGE_LUX)
         plan.graph.add(Job(
             job_id=lux_jid, mission_id=brief.mission_id,
             stage_id=_STAGE_LUX, adapter_id="lux",
             candidate_id=selected_candidate, resource_class="godot_headless",
-            depends_on=[compose_jid],
+            depends_on=[themed_jid],
             expected_outputs=["lux.applied.tscn", "lux.quality.json",
                               "lux.validation.json"],
         ))

@@ -230,27 +230,35 @@ def export_mission(
     # because a portable shell carries none by contract.
     if (profile.mode != MODE_PURE_SHELL
             and composed_root and composed_root.exists()):
-        # site.tscn and site_main.tscn are skipped, and the reason is a name
-        # collision worth stating. The composer emits its themed building AS
-        # "site.tscn" -- named that only so the Lux stage can resolve it without
-        # knowing Deli Counter's building_id at plan time. Lot ALSO emits a
-        # site.tscn, meaning the assembled site: ground, roads, every building.
-        # The graybox copy above puts Lot's at the export root, and copying the
-        # composer's over it silently replaced the site with one building.
+        # RETRACTED, kept above what replaced it. This skipped site.tscn as
+        # well, on this reasoning: "The composer emits its themed building AS
+        # site.tscn ... Lot ALSO emits a site.tscn, meaning the assembled site
+        # ... copying the composer's over it silently replaced the site with
+        # one building. It also made write_entry_scene instance the same
+        # building twice -- once unlit as site.tscn, once lit as
+        # presentation/lux.applied.tscn, exactly coincident."
         #
-        # It also made write_entry_scene instance the same building twice --
-        # once unlit as site.tscn, once lit as presentation/lux.applied.tscn,
-        # exactly coincident. Two copies of one mesh in the same place is the
-        # z-fighting this toolchain spent four commits removing.
+        # Both halves were true when the presentation scene INLINED its
+        # geometry. Once themed_site_assemble landed they stopped being: Lot
+        # assembles the site by INSTANCING the composed building, so
+        # lux.applied.tscn now carries `res://site.tscn` as a reference and
+        # deleting the file broke the package --
+        # "EXPORT_CLOSURE_BROKEN: lux.applied.tscn: unresolved res://site.tscn".
         #
-        # What is wanted from here is the ASSETS the presentation scene names:
-        # site_base.glb and art/**. The composer's scenes are Lux's input;
-        # lux.applied.tscn is the output that ships.
+        # The double-instancing was never this copy's fault either. It came
+        # from write_entry_scene instancing site.tscn AND the presentation
+        # scene as if they were peers, and that is fixed where it happens: the
+        # entry now instances the presentation scene when there is one, and
+        # site.tscn only for a graybox export with no presentation pass.
+        #
+        # site_main.tscn stays skipped. It is Deli Counter's own entry stub for
+        # opening the composed building on its own, nothing shipped references
+        # it, and an export carries one entry -- the one section 4 writes.
         _copy_tree(composed_root, export_dir,
                    skip={"project.godot", "HANDOFF.md",
                          "portable_resource_manifest.json",
                          "compose.summary.json",
-                         "site.tscn", "site_main.tscn"},
+                         "site_main.tscn"},
                    skip_dirs={".godot", "addons"})
 
     # 3. Source authoring (only in source mode).

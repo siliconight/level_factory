@@ -230,11 +230,25 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                 "level_name": f"lf_{model.mission_id}",
             }
         elif job.adapter_id == "lot":
-            deli_job = job.depends_on[0]
+            seed = int(str(job.candidate_id).rsplit("_", 1)[-1])
+            themed_scene = None
+            if job.stage_id == "themed_site_assemble":
+                # Same placement, themed geometry. The Deli Counter job is not
+                # this job's dependency -- compose is -- so it is looked up by
+                # candidate rather than taken from depends_on[0].
+                compose_job = next((d for d in job.depends_on
+                                    if "presentation_compose" in d), None)
+                deli_job = next(
+                    (j.job_id for j in plan.graph.jobs()
+                     if j.adapter_id == "deli_counter"
+                     and j.candidate_id == job.candidate_id), None)
+                themed_scene = str(_latest_output(
+                    jobs_dir / compose_job, "presentation/site.tscn"))
+            else:
+                deli_job = job.depends_on[0]
             deli_out = jobs_dir / deli_job
             site_spec = _write_site_spec(
-                ws, model, deli_out,
-                seed=int(str(job.candidate_id).rsplit("_", 1)[-1]))
+                ws, model, deli_out, seed=seed, themed_scene=themed_scene)
             specs[job.job_id] = {
                 "site_spec_path": str(site_spec),
                 "walkable": True,
@@ -243,8 +257,16 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                 # nothing had ever set the flag, so the nav QA scene was never
                 # produced and the only navigation evidence in this pipeline
                 # came from a firefight.
-                "navqa": True,
-                "building_glbs": [str(_latest_output(deli_out, "shell.glb"))],
+                # The nav QA scene is the greybox site's job. Re-baking it off
+                # the themed site would judge navigation against geometry the
+                # collision contract says is a VISUAL substitution, and the two
+                # answers disagreeing would be a contract violation reported as
+                # a nav finding.
+                "navqa": not themed_scene,
+                # Fingerprint inputs. The themed site's geometry is the composed
+                # scene, so hashing shell.glb would miss every re-theme.
+                "building_glbs": [themed_scene] if themed_scene
+                else [str(_latest_output(deli_out, "shell.glb"))],
             }
         elif job.adapter_id == "walktest":
             lot_job = job.depends_on[0]
@@ -414,12 +436,21 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
             # the fix for the --art contract: the compose stage produces
             # <compose>/presentation/site.tscn with the themed modules on DC's
             # collision, and Lux lights THAT.
+            themed_job = next((d for d in job.depends_on
+                               if "themed_site_assemble" in d), None)
             compose_job = next((d for d in job.depends_on
                                 if "presentation_compose" in d), None)
             lot_job = next((j.job_id for j in plan.graph.jobs()
                             if j.stage_id == "lot_assemble"
                             and j.candidate_id == job.candidate_id), None)
-            if compose_job:
+            if themed_job:
+                # The themed SITE: Lot's assembly of the composed building at
+                # the candidate's own placements. Lighting the composed building
+                # instead put one LuxRoot over one building and called it a
+                # level (roadmap 29/34).
+                composed_scene = _latest_output(jobs_dir / themed_job,
+                                                "site.tscn")
+            elif compose_job:
                 composed_scene = _latest_output(jobs_dir / compose_job,
                                                 "presentation/site.tscn")
             else:  # graybox-only fallback (should not happen under LAYER_ART)
@@ -545,7 +576,7 @@ def _write_dispatch_spec(ws: Workspace, model: MissionBrief,
 
 
 def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
-                     *, seed: int) -> Path:
+                     *, seed: int, themed_scene: str | None = None) -> Path:
     """Write ONE candidate's Lot site spec (named 'site.json' so Lot's stem-based
     outputs are canonical: site.tscn / site_walk.tscn / site.site.gameplay.json).
 
@@ -581,8 +612,16 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
     footprint = shell_footprint(glb)
     spacing = row_spacing(footprint)
     placed = site_placements(seed, count, spacing=spacing)
+    # `scene` when the themed building exists, `glb` otherwise -- never both.
+    # Lot prefers `scene` and warns when a building carries both, and the warn
+    # would fire once per building for no information: the choice is made here.
+    # The placement is IDENTICAL either way, deliberately. The greybox site is
+    # the one the candidate was judged on, so a themed site that stood its
+    # buildings anywhere else would be a different level wearing the same
+    # evaluation.
+    source = ({"scene": themed_scene} if themed_scene else {"glb": glb})
     buildings = [
-        {"id": f"b{i}", "glb": glb, "gameplay": gameplay,
+        {"id": f"b{i}", **source, "gameplay": gameplay,
          "at": p["at"], "rot": p["rot"]}
         for i, p in enumerate(placed["buildings"])
     ]
@@ -656,8 +695,23 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
             + "\n  - ".join(faults))
     # One directory per candidate; the filename stays "site.json" so the Lot
     # adapter's stem and Lot's spec["name"]-derived output names stay canonical.
+    # The themed spec is a separate file IN ITS OWN DIRECTORY, and the
+    # directory is what varies -- the filename must stay "site.json".
+    #
+    # The Lot adapter derives its expected output names from the SPEC FILE's
+    # stem (`_stem` -> Path(site_spec_path).stem) while Lot itself names its
+    # outputs from spec["name"]. Calling the themed spec site_themed.json made
+    # the adapter expect site_themed.tscn, Lot wrote site.tscn, the job failed
+    # on a missing expected output, and lux_apply failed behind it. Two naming
+    # authorities over one file, and only one of them was asked.
+    #
+    # Separate at all because overwriting the greybox spec would leave that job
+    # unable to re-run from its own inputs -- a spec describing a different site
+    # than the run that used it is the provenance trap roadmap 33 is about.
     dest = (ws.internal_dir / "temp" / model.mission_id
-            / f"candidate_seed_{int(seed)}" / "site.json")
+            / f"candidate_seed_{int(seed)}"
+            / ("themed" if themed_scene else "")
+            / "site.json")
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(pretty_dumps(spec), encoding="utf-8")
     return dest
