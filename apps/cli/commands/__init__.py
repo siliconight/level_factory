@@ -569,7 +569,7 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
     """
     from packages.pipeline import site_variation
     from packages.pipeline.site_variation import (
-        ground_size, row_spacing, shell_footprint, site_placements)
+        STREET, ground_size, row_spacing, shell_footprint, site_placements)
 
     count = max(1, int(getattr(model, "building_count", 1) or 1))
     glb = str(_latest_output(deli_out, "shell.glb"))
@@ -596,6 +596,38 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         "name": "site",
         "ground": {"size_x": span_x, "size_y": span_y},
         "buildings": buildings,
+        # Roads. Without these the site graph has no edges: Lot reported
+        # "isolated buildings: b0, b2, b3" and "objective approaches: 0"
+        # on a four-building site, because nothing had told it the
+        # buildings are connected. cater's hand-authored specs carried
+        # paths/courtyards/perimeter and the generated ones carried none;
+        # the placement half came across and the connectivity half did
+        # not. Roadmap item 29.
+        #
+        # Consecutive neighbours, because site_placements lays the row out
+        # in index order along x -- b0..bN are already physically adjacent,
+        # and a chain is the smallest edge set that leaves no island. The
+        # mission spine may hop non-adjacent buildings; a connected chain
+        # means every pair is still reachable.
+        #
+        # Width is STREET, not a number chosen here: that constant IS the
+        # clear ground the placement reserves between two shells, so the
+        # path fills the gap the layout already made for it. Two sides of
+        # one contract asking for the same thing, the way CLEARANCE and
+        # Lot's own CLEARANCE already do.
+        "paths": [{"from": f"b{i}", "to": f"b{i + 1}", "width": STREET}
+                  for i in range(count - 1)],
+        # Closes the site. Lot lays four perim_ walls around the ground
+        # rect; without them a walker can leave the plate entirely. Three
+        # metres clears the 1.8 m standing body from agent_contract.json
+        # by enough to read as a wall rather than a parapet, and is far
+        # above agent_max_climb -- the same height cater used.
+        "perimeter": {"height": 3},
+        # NO courtyards, deliberately. A courtyard is a designed open
+        # space and there is nothing here to derive its position from;
+        # emitting one at an arbitrary point would be a number nobody
+        # chose, dressed as a decision. It stays absent until something
+        # in the brief or the route says where one belongs.
         # Building ids Lot resolves into the walkable scene's spawn_pos /
         # objective_pos / extraction_pos.
         "spawn": placed["spawn"],
@@ -1516,6 +1548,13 @@ def cmd_export(args) -> int:
 
     handoff_dir = jobs_dir / f"{mission_id}.dispatch_handoff" / "out"
     lux_dir = jobs_dir / f"{mission_id}.lux_apply" / "out"
+    # The composed res:// root. lux_apply's out/ holds only
+    # lux.applied.tscn and its two sidecars; the glb files that scene
+    # instances live one job upstream, under presentation_compose, whose
+    # out/presentation/ IS the res:// root Lux was run against. Same
+    # string pattern as the two directories above. Roadmap item 27.
+    compose_root = (jobs_dir / f"{mission_id}.presentation_compose"
+                    / "out" / "presentation")
     lot_out = _selected_lot_out(ws, mission_id)
 
     # Resolve which layers were actually produced, and the functional base.
@@ -1563,6 +1602,7 @@ def cmd_export(args) -> int:
         profile=profile, tool_versions=_adapter_versions(), out_root=out_root,
         graybox_dir=graybox_dir, layers=frozenset(layers),
         addon_sources=addon_sources,
+        composed_root=compose_root if compose_root.exists() else None,
     )
     if args.format == "zip":
         zip_export(result)
