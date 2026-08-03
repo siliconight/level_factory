@@ -91,8 +91,23 @@ class PatinaAdapter(BaseAdapter):
         # what makes Patina emit <stem>.patina.dressing.json (schema
         # patina-dressing/1) — the manifest Zoo's --dress consumes.
         if job_spec.get("dressing"):
+            # --frames is DELIBERATELY absent. Patina's frame cover draws a
+            # head, sill and two jambs around every opening -- and every Zoo
+            # module that has an opening already frames it: doorway ships
+            # Jamb_L / Jamb_R / Header, window ships those plus Sill and
+            # Glass. The result was two nested frames on every door and
+            # window, 16 openings x 4 strips of duplicate geometry, which
+            # reads to a human as a smaller door frame inside the door frame.
+            # Patina's version also adds a SILL to doorways, a bar across a
+            # threshold you walk over, which Zoo's doorway correctly omits.
+            # A breach is a hole blown through a wall and should carry no
+            # frame at all.
+            #
+            # frame_orders is kept in Patina for a greybox build with no
+            # themed modules to do the framing; it is simply not asked for
+            # when Zoo modules are in play, which in this pipeline is always.
             args += ["--dressing", "--anchors", "--panel-fields",
-                     "--frames", "--gutters", "--pilasters"]
+                     "--gutters", "--pilasters"]
             if job_spec.get("panel_size"):
                 args += ["--panel-size", str(job_spec["panel_size"])]
             if job_spec.get("panel_gap"):
