@@ -84,6 +84,40 @@ func _initialize() -> void:
 		lux.blend_to_preset(StringName(preset_name), 0.0)
 	await process_frame
 
+	# Spawn the fixture lights Zoo already marked.
+	#
+	# Zoo exports one `LuxEmit_<type>` empty per lamp at the emitter point and
+	# Lux ships `LuxFixtureSpawner` to turn those into rigs, and nothing had
+	# ever called it -- so every wall pack and fluorescent in a shipped level
+	# was an emissive material with no light behind it. Measured on
+	# `category5_baie_dore_001` with `tools/light_census.py`, which counts the
+	# RUNNING tree rather than the scene file:
+	#
+	#     DirectionalLight3D 1 (LuxSun)   OmniLight3D 0   SpotLight3D 0
+	#
+	# One sun four degrees above the horizon was the entire light budget of a
+	# night level whose fixtures are supposed to BE the lighting.
+	#
+	# OWNERSHIP IS LOAD-BEARING HERE. The spawner sets `rig.owner` only under
+	# `Engine.is_editor_hint()`, and `PackedScene.pack()` silently drops every
+	# node whose owner is null. Spawning without re-owning would write a
+	# lux.applied.tscn with no lights in it and report success -- the same
+	# shape of silent loss this driver already guards against for the preset.
+	var fixture_count := 0
+	var fixture_msg := "spawner not found"
+	var spawner_script: GDScript = load("res://addons/lux/runtime/lux_fixture_spawner.gd")
+	if spawner_script != null:
+		var res: Dictionary = spawner_script.spawn(scene)
+		fixture_count = int(res.get("count", 0))
+		fixture_msg = String(res.get("msg", ""))
+		var container: Node = scene.get_node_or_null(NodePath("LuxFixtureLights"))
+		if container != null:
+			_own_recursive(container, scene)
+		print("[lux] %s" % fixture_msg)
+	else:
+		push_warning("run_lux_apply: %s" % fixture_msg)
+	await process_frame
+
 	# Save the applied presentation scene.
 	var applied := PackedScene.new()
 	if applied.pack(scene) != OK:
@@ -92,13 +126,22 @@ func _initialize() -> void:
 	ResourceSaver.save(applied, out_dir + "/lux.applied.tscn")
 
 	var quality := {"preset": preset_name, "applied": applied_ok,
-		"driver": "run_lux_apply", "note": "previews need a render context"}
+		"driver": "run_lux_apply", "note": "previews need a render context",
+		"fixture_lights": fixture_count, "fixture_msg": fixture_msg}
 	_write_json(out_dir + "/lux.quality.json", quality)
 	var issues := []
 	if not preset_known:
 		issues.append({"code": "LUX_PRESET_UNKNOWN", "severity": "moderate",
 			"category": "presentation",
 			"message": "preset '%s' is not in the registered library; look not applied" % preset_name})
+	# A night level with zero fixture lights is the defect this stage exists to
+	# prevent, and it is invisible in a screenshot because emissive materials
+	# still glow. Report the number rather than leaving it to somebody walking
+	# the level and wondering why the floor under a lamp is dark.
+	if fixture_count == 0:
+		issues.append({"code": "LUX_NO_FIXTURE_LIGHTS", "severity": "moderate",
+			"category": "presentation",
+			"message": "no fixture lights spawned (%s); fixtures will glow but emit nothing" % fixture_msg})
 	_write_json(out_dir + "/lux.validation.json", {"issues": issues})
 
 	print("[lux] applied preset '%s' -> %s" % [preset_name, out_dir])
@@ -109,3 +152,10 @@ func _write_json(path: String, data: Dictionary) -> void:
 	if f != null:
 		f.store_string(JSON.stringify(data, "  "))
 		f.close()
+## Give every node under `node` the same owner, so PackedScene.pack keeps them.
+## Nodes created at runtime have a null owner and pack() drops those without a
+## word; the spawner only sets owners in the editor.
+func _own_recursive(node: Node, owner_node: Node) -> void:
+	node.owner = owner_node
+	for c in node.get_children():
+		_own_recursive(c, owner_node)
