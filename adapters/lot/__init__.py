@@ -23,10 +23,54 @@ from typing import Iterable, Mapping, Sequence
 from packages.adapters.sdk import BaseAdapter, PlannedCommand
 from packages.core.hashing import hash_file
 
+#: What a composed scene points at by PATH rather than by value.
+_PAYLOAD_SUFFIXES = (".glb", ".gltf", ".bin", ".png", ".jpg", ".jpeg",
+                     ".tres", ".res", ".material", ".mesh")
+
+
+def _scene_payload_hashes(scene: Path) -> dict:
+    """Content hashes for the art a composed ``.tscn`` references by path.
+
+    The same rule as the sibling manifests below, one level further out. A
+    ``themed_site_assemble`` job takes the composed ``presentation/site.tscn``
+    as its building input, and that scene names its art -- dressing GLBs, kit
+    GLBs, textures -- with stable relative paths. So a rebuilt dressing pass
+    rewrites 10 MB of GLB while the scene's own bytes do not move by one
+    character, the fingerprint matches, and the stage serves a stale answer and
+    calls it a hit.
+
+    Observed exactly that way on 2026-08-03: ``zoo_dressing_build succeeded``
+    and ``presentation_compose succeeded`` (the presentation adapter hashes
+    ``dressing_glb`` directly), then ``themed_site_assemble cache`` and
+    ``lux_apply cache`` -- so the walkable level kept the previous art pass and
+    the only symptom was that nothing looked different.
+
+    Returns ``{}`` for anything that is not a ``.tscn``, so a plain
+    ``shell.glb`` input does not start hashing its whole job directory.
+
+    THIS IS THE NARROW FIX. The general one is
+    ``BuildFingerprint.upstream_artifact_hashes``, which the scheduler reads
+    from ``job_spec["upstream_hashes"]`` and which nothing populates -- so every
+    DAG edge carries this same blindness. That stays open (roadmap 39); this
+    covers the edge that was actively shipping stale art.
+    """
+    if scene.suffix.lower() != ".tscn" or not scene.is_file():
+        return {}
+    root = scene.parent
+    out: dict[str, str] = {}
+    for f in sorted(root.rglob("*")):
+        if f.is_file() and f.suffix.lower() in _PAYLOAD_SUFFIXES:
+            out[str(f.relative_to(root)).replace("\\", "/")] = hash_file(f)
+    return out
+
 
 class LotAdapter(BaseAdapter):
     adapter_id = "lot"
-    adapter_version = "0.2.0"
+    # 0.3.0: fingerprint_inputs also folds in the payload a composed .tscn
+    # references by path. The rules for computing a fingerprint changed, so
+    # entries computed under the old rules must not be trusted -- bumping
+    # retires them once instead of leaving a mixed cache.
+    adapter_version = "0.3.0"
     capabilities = frozenset(
         {
             "assemble_site",
@@ -84,6 +128,7 @@ class LotAdapter(BaseAdapter):
         def _fold(path: Path) -> None:
             if path.exists() and path.is_file():
                 inputs[path.name] = hash_file(path)
+                inputs.update(_scene_payload_hashes(path))
 
         for b in job_spec.get("building_glbs", []):
             _fold(Path(str(b)))
