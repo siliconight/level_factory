@@ -77,6 +77,15 @@ class MissionBrief:
     seed_policy: str = "derived"
     candidate_count: int = 3
     target_minutes: tuple[int, int] = (25, 35)
+    #: A Deli Counter build directory to select the site's buildings FROM.
+    #: Empty (the default) keeps the historical behaviour: one generated shell
+    #: placed N times, which is roadmap item 37 -- a four-building site that is
+    #: one building four times, with stairs and ladders landing identically in
+    #: every one. Set it, and `_write_site_spec` picks N distinct archetypes
+    #: from the library instead. Opt-in on purpose: re-placing a mission that
+    #: has already been evaluated would be a different level carrying the old
+    #: grade.
+    lot_library: str = ""
     notes: str = ""
 
     def as_dict(self) -> dict:
@@ -85,7 +94,7 @@ class MissionBrief:
     # The subset of the brief that functionally shapes geometry. Changes here
     # invalidate a functional lock; changes elsewhere (notes, weather) do not.
     def functional_signature(self) -> dict:
-        return {
+        sig = {
             "archetype": self.archetype,
             "building_count": self.building_count,
             "site_shape": self.site_shape,
@@ -95,6 +104,17 @@ class MissionBrief:
             "verticality": self.verticality,
             "landmark": self.landmark,
         }
+        # WHICH BUILDINGS STAND ON THE SITE IS FUNCTIONAL -- it changes the
+        # geometry, the routes and the cover, so it belongs in the lock.
+        #
+        # Added CONDITIONALLY, and that is the whole care in this method. An
+        # unconditional key would change the signature of every brief ever
+        # written, invalidating locks on missions nobody has touched, to record
+        # that they still do not use a feature. A brief with no library keeps
+        # the signature it has always had; the key's PRESENCE is the change.
+        if self.lot_library:
+            sig["lot_library"] = self.lot_library
+        return sig
 
 
 @dataclass
