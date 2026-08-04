@@ -640,9 +640,16 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
     # 41 step 4). Selecting varied greybox buildings and then dressing them all
     # as the same themed scene would be a worse lie than the one it replaces,
     # so the themed path deliberately keeps the single shell until that lands.
+    # `themed_scene` is EITHER one composed scene for the whole site (the
+    # historical single-shell path) OR a mapping {archetype_id: scene} for a
+    # varied lot, where each building is dressed as itself. One string cannot
+    # express the second: five buildings all pointed at one themed scene would
+    # place five different greyboxes and then dress them identically, which is
+    # a worse lie than the repetition it replaces.
+    themed_map = themed_scene if isinstance(themed_scene, dict) else None
     lot = []
     library = getattr(model, "lot_library", None)
-    if library and not themed_scene:
+    if library and (themed_map or not themed_scene):
         from packages.pipeline import building_library
         complete, incomplete = building_library.index(library)
         if incomplete:
@@ -660,8 +667,17 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
     if lot:
         footprints = building_library.footprints_for(lot, shell_footprint)
         placed = site_placements(seed, len(lot), footprints=footprints)
+        # `scene` when this archetype has been composed, `glb` otherwise --
+        # never both, same rule as the single-shell path. A lot part-way
+        # through the art pass therefore stands its themed buildings themed and
+        # its untouched ones as greybox, rather than failing or silently
+        # dressing one as another.
+        def _source(entry):
+            scene = (themed_map or {}).get(entry["id"])
+            return {"scene": scene} if scene else {"glb": entry["glb"]}
+
         buildings = [
-            {"id": f"b{i}", "glb": e["glb"], "gameplay": e["gameplay"],
+            {"id": f"b{i}", **_source(e), "gameplay": e["gameplay"],
              "archetype": e["id"],
              "at": p["at"], "rot": p["rot"]}
             for i, (e, p) in enumerate(zip(lot, placed["buildings"]))
@@ -685,7 +701,8 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         # The greybox site is the one the candidate was judged on, so a themed
         # site that stood its buildings anywhere else would be a different
         # level wearing the same evaluation.
-        source = ({"scene": themed_scene} if themed_scene else {"glb": glb})
+        source = ({"scene": themed_scene}
+                  if themed_scene and not themed_map else {"glb": glb})
         buildings = [
             {"id": f"b{i}", **source, "gameplay": gameplay,
              "at": p["at"], "rot": p["rot"]}
