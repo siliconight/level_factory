@@ -28,7 +28,11 @@ from packages.core.hashing import hash_file
 
 class PatinaAdapter(BaseAdapter):
     adapter_id = "patina"
-    adapter_version = "0.2.0"
+    # 0.3.0 stopped asking for --panel-fields and --pilasters (see the flag
+    # block below). The bump is load-bearing: the flags an adapter passes are
+    # not otherwise in the fingerprint, so without it every dressing stage
+    # cache-hits and the pipeline ships the covers it was told to stop making.
+    adapter_version = "0.3.0"
     capabilities = frozenset(
         {"base_cohesion", "dressing_manifest", "trim_atlas", "photo_projection",
          "templates", "overrides", "deterministic_build"}
@@ -106,12 +110,32 @@ class PatinaAdapter(BaseAdapter):
             # frame_orders is kept in Patina for a greybox build with no
             # themed modules to do the framing; it is simply not asked for
             # when Zoo modules are in play, which in this pipeline is always.
-            args += ["--dressing", "--anchors", "--panel-fields",
-                     "--gutters", "--pilasters"]
-            if job_spec.get("panel_size"):
-                args += ["--panel-size", str(job_spec["panel_size"])]
-            if job_spec.get("panel_gap"):
-                args += ["--panel-gap", str(job_spec["panel_gap"])]
+            #
+            # --panel-fields and --pilasters are gone for a related but worse
+            # reason: not duplicate geometry, a broken rule. Both draw a box
+            # standing PROUD of the wall -- 1.2 cm for a panel, 5 cm for a
+            # pilaster -- and a Zoo module's collider is built from the same
+            # slab as its visual, so the collision volume ends exactly at the
+            # wall face. Every one of those boxes was therefore non-collision
+            # geometry standing in space a body walks through, which is "no
+            # dressing in walkable space or firing lines" broken by the SHAPE
+            # of the solution rather than by a placement mistake.
+            #
+            # There is no aiming fix. Patina now takes the outward face from
+            # the building centroid and the inward count went 416 -> 0; the
+            # covers then stood in the gaps BETWEEN buildings, which Lot makes
+            # into routes. Both sides of a wall are walkable.
+            #
+            # So wall articulation moved INTO the module: `arch.relief_parts`
+            # carves a plinth, piers and recessed fields within the authored
+            # depth, where nothing can be outside the collider by construction.
+            # --gutters stays -- a gutter is a roofline object, 7.6 m up on a
+            # 3.7 m storey, well clear of the 1.8 m a body occupies.
+            #
+            # panel_orders and pilaster_orders are kept in Patina for a greybox
+            # build whose modules carry no relief of their own; like --frames,
+            # they are simply not asked for when Zoo modules are in play.
+            args += ["--dressing", "--anchors", "--gutters"]
         if job_spec.get("templates"):
             args.append("--templates")
         if job_spec.get("overrides_path"):
