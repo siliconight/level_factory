@@ -624,29 +624,76 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
     count = max(1, int(getattr(model, "building_count", 1) or 1))
     glb = str(_latest_output(deli_out, "shell.glb"))
     gameplay = str(_latest_output(deli_out, "shell.gameplay.json"))
-    # Measure the shell once: the spacing between origins and the size of the
-    # plate under them are both consequences of how big the building is. Spacing
-    # was a hardcoded 45 m while the shells were 44 m wide, so a candidate whose
-    # nudges closed the gap assembled two buildings inside each other.
-    footprint = shell_footprint(glb)
-    spacing = row_spacing(footprint)
-    placed = site_placements(seed, count, spacing=spacing)
-    # `scene` when the themed building exists, `glb` otherwise -- never both.
-    # Lot prefers `scene` and warns when a building carries both, and the warn
-    # would fire once per building for no information: the choice is made here.
-    # The placement is IDENTICAL either way, deliberately. The greybox site is
-    # the one the candidate was judged on, so a themed site that stood its
-    # buildings anywhere else would be a different level wearing the same
-    # evaluation.
-    source = ({"scene": themed_scene} if themed_scene else {"glb": glb})
-    buildings = [
-        {"id": f"b{i}", **source, "gameplay": gameplay,
-         "at": p["at"], "rot": p["rot"]}
-        for i, p in enumerate(placed["buildings"])
-    ]
-    # Size the plate from the shell that is going to stand on it. Every candidate
-    # instances the same Deli Counter shell, so one measurement covers the row.
-    span_x, span_y = ground_size(count, spacing=spacing, footprint=footprint)
+
+    # A LOT OF DIFFERENT BUILDINGS, when the brief asks for one. Roadmap 37:
+    # this function measured ONE shell and gave it N placements, so a
+    # four-building site was one building four times and stairs and ladders
+    # landed identically in every one. Deli Counter ships 103 complete
+    # archetypes across 41 families; the site spec was asking for one thing.
+    #
+    # OPT-IN, and dormant until a brief sets `lot_library`. Existing missions
+    # keep the single-shell row byte-for-byte -- re-placing a level that has
+    # already been evaluated would be a different level wearing the same grade.
+    #
+    # GREYBOX ONLY, for now. `themed_scene` is ONE composed scene for the whole
+    # site, so a varied THEMED lot needs one compose job per archetype (roadmap
+    # 41 step 4). Selecting varied greybox buildings and then dressing them all
+    # as the same themed scene would be a worse lie than the one it replaces,
+    # so the themed path deliberately keeps the single shell until that lands.
+    lot = []
+    library = getattr(model, "lot_library", None)
+    if library and not themed_scene:
+        from packages.pipeline import building_library
+        complete, incomplete = building_library.index(library)
+        if incomplete:
+            print(f"[site] {len(incomplete)} archetype(s) excluded from the lot "
+                  f"for a missing manifest: "
+                  + ", ".join(e["id"] for e in incomplete[:5]))
+        lot = building_library.pick_lot(complete, seed, count)
+        if len(lot) < count:
+            # Loud, not silent. A short lot means the library is smaller than
+            # the brief asked for, and a site quietly missing buildings is the
+            # shape of defect this file keeps finding.
+            print(f"[site] the library offers {len(lot)} building(s) for a lot "
+                  f"of {count} -- the row will be short")
+
+    if lot:
+        footprints = building_library.footprints_for(lot, shell_footprint)
+        placed = site_placements(seed, len(lot), footprints=footprints)
+        buildings = [
+            {"id": f"b{i}", "glb": e["glb"], "gameplay": e["gameplay"],
+             "archetype": e["id"],
+             "at": p["at"], "rot": p["rot"]}
+            for i, (e, p) in enumerate(zip(lot, placed["buildings"]))
+        ]
+        span_x, span_y = ground_size(len(lot), footprints=footprints)
+        footprint = None            # the row is measured per building now
+    else:
+        # Measure the shell once: the spacing between origins and the size of
+        # the plate under them are both consequences of how big the building
+        # is. Spacing was a hardcoded 45 m while the shells were 44 m wide, so
+        # a candidate whose nudges closed the gap assembled two buildings
+        # inside each other.
+        footprints = None
+        footprint = shell_footprint(glb)
+        spacing = row_spacing(footprint)
+        placed = site_placements(seed, count, spacing=spacing)
+        # `scene` when the themed building exists, `glb` otherwise -- never
+        # both. Lot prefers `scene` and warns when a building carries both, and
+        # the warn would fire once per building for no information: the choice
+        # is made here. The placement is IDENTICAL either way, deliberately.
+        # The greybox site is the one the candidate was judged on, so a themed
+        # site that stood its buildings anywhere else would be a different
+        # level wearing the same evaluation.
+        source = ({"scene": themed_scene} if themed_scene else {"glb": glb})
+        buildings = [
+            {"id": f"b{i}", **source, "gameplay": gameplay,
+             "at": p["at"], "rot": p["rot"]}
+            for i, p in enumerate(placed["buildings"])
+        ]
+        # Size the plate from the shell that is going to stand on it.
+        span_x, span_y = ground_size(count, spacing=spacing, footprint=footprint)
+    count = len(buildings)
     spec = {
         # Lot names its outputs from this field (site.tscn / site_walk.tscn /
         # site.site.gameplay.json), so it must be the canonical LF stem "site",
@@ -705,8 +752,8 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
     # along +x under a plate centred on the origin, and a coverage test with a
     # fudge factor in the assertion that let it pass. A guardrail nobody runs is
     # decoration, so it runs here, on the real seed, on every write.
-    faults = (site_variation.uncovered(spec, footprint)
-              + site_variation.overlapping(spec, footprint))
+    faults = (site_variation.uncovered(spec, footprint, footprints=footprints)
+              + site_variation.overlapping(spec, footprint, footprints=footprints))
     if faults:
         raise RuntimeError(
             "site_variation placed a row its own ground plate and spacing cannot "
