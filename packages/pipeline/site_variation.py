@@ -92,6 +92,13 @@ def _stream(seed: int):
         yield x >> 33
 
 
+#: The deterministic stream, exported so anything else that derives from a
+#: candidate seed uses the SAME one. `building_library.pick_lot` does; two
+#: streams would make two modules disagree about what seed 5421 means, and the
+#: cache fingerprint depends on re-deriving exactly what the builder derived.
+stream = _stream
+
+
 def site_placements(seed: int, count: int, *, spacing: int = 45,
                     footprints=None) -> dict:
     """Deterministic placement + role assignment for one candidate's buildings.
