@@ -92,7 +92,8 @@ def _stream(seed: int):
         yield x >> 33
 
 
-def site_placements(seed: int, count: int, *, spacing: int = 45) -> dict:
+def site_placements(seed: int, count: int, *, spacing: int = 45,
+                    footprints=None) -> dict:
     """Deterministic placement + role assignment for one candidate's buildings.
 
     Returns ``{"buildings": [{"at": [x, y], "rot": deg}, ...], "spawn": id,
@@ -107,6 +108,12 @@ def site_placements(seed: int, count: int, *, spacing: int = 45) -> dict:
     count = max(1, int(count))
     rng = _stream(seed)
     buildings = []
+    # A row of DIFFERENT buildings cannot share one spacing: the gap a stadium
+    # needs would strand a deli in forty metres of empty street, and the gap a
+    # deli needs would put the stadium through its neighbour. `footprints`
+    # (one per building, in row order) switches to per-gap offsets. Absent, the
+    # uniform row below is unchanged, which every existing caller relies on.
+    offsets = row_offsets(footprints) if footprints else None
     # Whole metres: the offsets are, the spacing is, and a site spec full of
     # x = -67.5 reads as arithmetic having happened to it rather than as a
     # placement someone chose. An even count sits half a space off-centre by
@@ -116,7 +123,8 @@ def site_placements(seed: int, count: int, *, spacing: int = 45) -> dict:
         rot = _YAW[next(rng) % len(_YAW)]
         along = _ALONG[next(rng) % len(_ALONG)]
         across = _ACROSS[next(rng) % len(_ACROSS)]
-        buildings.append({"at": [i * spacing - origin + along, across], "rot": rot})
+        base = offsets[i] if offsets else (i * spacing - origin)
+        buildings.append({"at": [base + along, across], "rot": rot})
 
     # Roles: which building you start at, which one holds the objective, which
     # one you leave from. On a one-building site all three collapse onto it,
@@ -168,6 +176,51 @@ def shell_footprint(glb_path) -> tuple[float, float] | None:
     return (2.0 * half_x, 2.0 * half_y)
 
 
+def _reach(footprint: tuple[float, float] | None) -> float:
+    """Half a shell's widest horizontal axis.
+
+    The longer axis on BOTH axes, because yaw is a cardinal rotation and a
+    quarter turn swaps them -- the same pessimism :func:`overlapping` and
+    :func:`uncovered` already apply, named once instead of restated four times.
+    """
+    fx, fy = footprint or DEFAULT_FOOTPRINT
+    return max(float(fx), float(fy)) / 2.0
+
+
+def row_offsets(footprints, *, street: float = STREET) -> list[int]:
+    """X positions for a row of DIFFERENT-SIZED buildings, centred on the origin.
+
+    WHY THIS EXISTS. Everything else in this module sizes the row from ONE
+    measurement, on the stated assumption that "every candidate instances the
+    same Deli Counter shell, so one measurement covers the row". That is
+    roadmap item 37 in arithmetic form: a site is one building N times, so the
+    spacing only ever had to be right for one size.
+
+    Deli Counter ships 41 archetypes, and a deli beside a stadium breaks the
+    assumption. Not quietly -- :func:`overlapping` and :func:`uncovered` run on
+    every spec write and would refuse the build -- but refusing is not placing.
+
+    So each GAP is sized by the two buildings that share it: both reaches, the
+    street between them, and the slack for the nudge each neighbour can make
+    toward the other. A row of EQUAL shells reproduces the uniform spacing
+    exactly, which is the compatibility that matters.
+
+    Whole metres, for the reason ``site_placements`` gives: a spec full of
+    x = -67.5 reads as arithmetic having happened to it rather than as a
+    placement someone chose.
+    """
+    reaches = [_reach(f) for f in (footprints or [])]
+    if not reaches:
+        return []
+    slack = max(abs(v) for v in _ALONG)
+    xs = [0.0]
+    for i in range(1, len(reaches)):
+        gap = reaches[i - 1] + reaches[i] + float(street) + 2.0 * slack
+        xs.append(xs[-1] + math.ceil(gap))
+    span = xs[-1]
+    return [int(round(x - span / 2.0)) for x in xs]
+
+
 def row_spacing(footprint: tuple[float, float] | None = None,
                 *, street: float = STREET) -> int:
     """Metres between building origins, wide enough for the shells between them.
@@ -188,7 +241,8 @@ def row_spacing(footprint: tuple[float, float] | None = None,
 
 
 def ground_size(count: int, *, spacing: int = 45,
-                footprint: tuple[float, float] | None = None) -> tuple[int, int]:
+                footprint: tuple[float, float] | None = None,
+                footprints=None) -> tuple[int, int]:
     """Ground plate big enough for the whole placed row, whatever seed placed it.
 
     Sized from the shells rather than from the count, and bounded over every
@@ -207,25 +261,36 @@ def ground_size(count: int, *, spacing: int = 45,
     Returns whole metres, rounded up.
     """
     count = max(1, int(count))
-    fx, fy = footprint or DEFAULT_FOOTPRINT
-    reach = max(float(fx), float(fy)) / 2.0
-    half_x = (count - 1) * spacing / 2.0 + max(abs(v) for v in _ALONG) + reach
-    half_y = max(abs(v) for v in _ACROSS) + reach
+    slack = max(abs(v) for v in _ALONG)
+    if footprints:
+        # Sized from the row this module actually places, building by building:
+        # the plate has to reach past whichever shell ends up furthest out, and
+        # on a mixed row that is not simply the last one.
+        offs = row_offsets(footprints)
+        reaches = [_reach(f) for f in footprints]
+        half_x = max(abs(o) + slack + r for o, r in zip(offs, reaches))
+        half_y = max(abs(v) for v in _ACROSS) + max(reaches)
+    else:
+        reach = _reach(footprint)
+        half_x = (count - 1) * spacing / 2.0 + slack + reach
+        half_y = max(abs(v) for v in _ACROSS) + reach
     return (int(math.ceil(2.0 * (half_x + CLEARANCE))),
             int(math.ceil(2.0 * (half_y + CLEARANCE))))
 
 
-def overlapping(spec: dict, footprint: tuple[float, float] | None = None) -> list[str]:
+def overlapping(spec: dict, footprint: tuple[float, float] | None = None,
+                footprints=None) -> list[str]:
     """Which pairs of buildings in a written spec stand in each other.
 
     The producer's half of Lot's ``LOT_BUILDINGS_OVERLAP`` gate. Yaw-safe by
     being pessimistic: the square of the footprint's longer axis, so a quarter
     turn cannot turn a clear pair into a colliding one after the check has run.
     """
-    fx, fy = footprint or DEFAULT_FOOTPRINT
-    reach = max(float(fx), float(fy)) / 2.0
     rects = []
-    for b in spec.get("buildings") or []:
+    for i, b in enumerate(spec.get("buildings") or []):
+        # Each building measured as ITSELF. One shared reach would clear a
+        # stadium standing on a deli and flag two delis that are metres apart.
+        reach = _reach(footprints[i]) if footprints else _reach(footprint)
         at = b.get("at") or [0.0, 0.0]
         rects.append((b.get("id", "?"),
                       (float(at[0]) - reach, float(at[1]) - reach,
@@ -240,7 +305,8 @@ def overlapping(spec: dict, footprint: tuple[float, float] | None = None) -> lis
     return out
 
 
-def uncovered(spec: dict, footprint: tuple[float, float] | None = None) -> list[str]:
+def uncovered(spec: dict, footprint: tuple[float, float] | None = None,
+              footprints=None) -> list[str]:
     """Which buildings in a written site spec stand off its ground plate.
 
     The producer's own self-check, run before the spec is handed to Lot. It is
@@ -257,10 +323,9 @@ def uncovered(spec: dict, footprint: tuple[float, float] | None = None) -> list[
         hy = float(ground["size_y"]) / 2.0
     except (KeyError, TypeError, ValueError):
         return ["the spec declares no readable ground size"]
-    fx, fy = footprint or DEFAULT_FOOTPRINT
-    reach = max(float(fx), float(fy)) / 2.0
     out = []
-    for b in spec.get("buildings") or []:
+    for i, b in enumerate(spec.get("buildings") or []):
+        reach = _reach(footprints[i]) if footprints else _reach(footprint)
         at = b.get("at") or [0.0, 0.0]
         x0, x1 = float(at[0]) - reach, float(at[0]) + reach
         y0, y1 = float(at[1]) - reach, float(at[1]) + reach
