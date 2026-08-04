@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 from packages.adapters.sdk import BaseAdapter, PlannedCommand
-from packages.core.hashing import hash_file
+from packages.core.hashing import hash_file, scene_payload_hashes
 
 # Node names Lux must never own -- these are gameplay authority, not presentation.
 _GAMEPLAY_NODES = {"Collision", "GameplayAnchors", "NavRegion", "Interactives"}
@@ -27,7 +27,12 @@ _GAMEPLAY_NODES = {"Collision", "GameplayAnchors", "NavRegion", "Interactives"}
 
 class LuxAdapter(BaseAdapter):
     adapter_id = "lux"
-    adapter_version = "0.3.0"
+    # 0.4.0 folds the composed scene's ART into the fingerprint. Until it did,
+    # this stage hashed the .tscn's own bytes and nothing the .tscn points at,
+    # so a rebuilt dressing pass left the scene byte-identical, the fingerprint
+    # matched, and the SHIPPED LIT SCENE kept the previous art -- for the whole
+    # of 2026-08-04, behind six fixes that all re-ran above it.
+    adapter_version = "0.4.0"
     capabilities = frozenset(
         {"apply_preset", "apply_roles", "level_override", "validate_scene",
          "preview_states", "quality_tiers", "fixture_gate"}
@@ -76,6 +81,14 @@ class LuxAdapter(BaseAdapter):
             p = job_spec.get(key)
             if p and Path(str(p)).exists():
                 fp[key + "_hash"] = hash_file(Path(str(p)))
+        # The scene names its art by PATH, so its own hash cannot see a rebuilt
+        # GLB. One rule, shared with the Lot adapter -- see
+        # `packages.core.hashing.scene_payload_hashes`.
+        scene = job_spec.get("composed_scene")
+        if scene:
+            payload = scene_payload_hashes(Path(str(scene)))
+            if payload:
+                fp["composed_scene_payload"] = payload
         return fp
 
     def plan_commands(self, job_spec, context) -> Sequence[PlannedCommand]:
