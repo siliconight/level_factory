@@ -41,6 +41,39 @@ def _driver_path() -> Path:
             / "assets" / "scripts" / "run_presentation_compose.py")
 
 
+#: DC modules this job actually executes, relative to the DC repo root. Listed
+#: rather than globbed: a glob over the repo would rebuild the compose whenever
+#: any unrelated DC file moved (a test, a preset, a status script), and a cache
+#: that invalidates on everything is a cache nobody keeps.
+_COMPOSER_SOURCES = (
+    "portable_building.py",   # build_package / strip_greybox_base / roof_covered_nodes
+    "themed_tscn.py",         # themed_slot_ids + the fit-to-greybox instancing
+    "tscn_export.py",         # godot_basis, the rotation the fit depends on
+    "zfight_gate.py",         # the coplanar gate whose findings ride the manifest
+    "circulation.py",         # the prop-vs-circulation gate, likewise
+    "VERSION",
+)
+
+
+def _composer_fingerprint(job_spec, context) -> dict:
+    """Hash of the DC code this compose runs.
+
+    Returns ``{}`` when the repo is not resolvable -- a missing repo is
+    `plan_commands`' problem to report, and a fingerprint that raises would turn
+    a bad path into a crash at cache-lookup time.
+    """
+    repo = job_spec.get("deli_repo") or context.get("repository")
+    if not repo:
+        return {}
+    root = Path(str(repo))
+    out: dict = {}
+    for rel in _COMPOSER_SOURCES:
+        p = root / rel
+        if p.exists():
+            out[rel] = hash_file(p)
+    return out
+
+
 class PresentationAdapter(BaseAdapter):
     adapter_id = "presentation"
     # 0.1.2: compose gates (z-fight/ladder/lineage) + dressing/fixtures
@@ -111,6 +144,24 @@ class PresentationAdapter(BaseAdapter):
             lp = job_spec.get(key)
             if lp and Path(str(lp)).exists():
                 fp[key + "_hash"] = hash_file(Path(str(lp)))
+        # ...AND THE COMPOSER ITSELF. This job does not merely read DC's data,
+        # it EXECUTES DC's code -- `portable_building.build_package`, through
+        # the driver, per this module's own docstring. So a change to that code
+        # changes this job's output while every hash above stays identical, and
+        # the cache serves the old package.
+        #
+        # Measured 2026-08-05: `strip_greybox_base` was fixed in DC (exact
+        # slot-id match, so `VAULT` stopped deleting `VAULTLEDGE_0`'s visual and
+        # leaving its collider -- an invisible wall). DC committed, DC's suite
+        # went green, `run --art --force` reported deli_generate SUCCEEDED and
+        # zoo_kit_build SUCCEEDED, and this job reported `cache`. The composed
+        # `site_base.glb` came back byte-identical, invisible wall intact. The
+        # rebuild looked real and wasn't.
+        #
+        # `verify-contracts` guards a sub-tool DRIFTING out from under an
+        # adapter. This is the same failure with the opposite sign -- a sub-tool
+        # FIX not reaching a cached job -- and nothing was watching for it.
+        fp["composer"] = _composer_fingerprint(job_spec, context)
         return fp
 
     def plan_commands(self, job_spec, context) -> Sequence[PlannedCommand]:
