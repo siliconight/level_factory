@@ -63,3 +63,34 @@ def test_bank_is_no_longer_reachable_by_accident():
     assert _preset_for("bank") == "bank"
     with pytest.raises(UnknownArchetype):
         _preset_for("mixed_block")
+
+
+# ---- fingerprinting must not validate --------------------------------------
+#
+# The first version of this fix broke `test_fingerprint_is_stable[deli_counter]`:
+# the adapter-contract suite fingerprints a MINIMAL spec that carries no
+# archetype, and `fingerprint_inputs` resolved a preset to hash it. Hashing is
+# not the place to reject a config -- a fingerprint only has to be stable and
+# distinguishing. `plan_commands` is where a preset is actually used, so that
+# is where an unknown archetype must fail.
+
+from adapters.deli_counter import _preset_or_raw
+
+
+def test_fingerprint_helper_tolerates_a_missing_archetype():
+    assert _preset_or_raw({}) == "<unresolved:>"
+    assert _preset_or_raw({"archetype": "mixed_block"}) == "<unresolved:mixed_block>"
+
+
+def test_fingerprint_helper_still_resolves_a_real_one():
+    assert _preset_or_raw({"archetype": "bank"}) == "bank"
+    assert _preset_or_raw({"archetype": "urban_bank"}) == "bank"
+
+
+def test_unresolvable_archetypes_still_hash_DISTINCTLY():
+    """Degrading to the raw string must not collapse two different briefs into
+    one fingerprint -- that would silently share a cache entry between
+    different buildings, which is the same class of bug one layer down."""
+    a = _preset_or_raw({"archetype": "mixed_block"})
+    b = _preset_or_raw({"archetype": "mixed_tower"})
+    assert a != b

@@ -90,6 +90,19 @@ def _preset_for(archetype: str) -> str:
         f"(aliases: {', '.join(sorted(_ARCHETYPE_ALIASES))})")
 
 
+def _preset_or_raw(job_spec) -> str:
+    """The resolved preset, or the raw archetype when it will not resolve.
+
+    For HASHING only -- see `fingerprint_inputs`. Never use this to decide what
+    to build.
+    """
+    raw = str(job_spec.get("archetype", ""))
+    try:
+        return _preset_for(raw)
+    except UnknownArchetype:
+        return f"<unresolved:{raw}>"
+
+
 class DeliCounterAdapter(BaseAdapter):
     adapter_id = "deli_counter"
     adapter_version = "0.2.0"
@@ -135,7 +148,14 @@ class DeliCounterAdapter(BaseAdapter):
         # building (it drives Lot's site variation), so it is intentionally not
         # part of the build fingerprint — identical configs dedupe in the cache.
         return {
-            "preset": _preset_for(str(job_spec.get("archetype", ""))),
+            # Fingerprinting must not VALIDATE. A hash only has to be stable
+            # and distinguishing, and this runs on specs that legitimately
+            # carry no archetype at all (the adapter-contract suite fingerprints
+            # a minimal spec). So an unresolvable archetype hashes as its raw
+            # string -- distinct configs still get distinct fingerprints -- and
+            # `plan_commands` is where naming a preset that does not exist
+            # becomes an error, because that is where a preset is actually used.
+            "preset": _preset_or_raw(job_spec),
             "mode": job_spec.get("mode", "heist"),
             "floors": job_spec.get("floors"),
             "basement": job_spec.get("basement"),
