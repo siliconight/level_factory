@@ -242,8 +242,28 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                     (j.job_id for j in plan.graph.jobs()
                      if j.adapter_id == "deli_counter"
                      and j.candidate_id == job.candidate_id), None)
-                themed_scene = str(_latest_output(
-                    jobs_dir / compose_job, "presentation/site.tscn"))
+                # A VARIED LOT publishes one scene per archetype under
+                # presentation/lot/<id>/site.tscn. `_write_site_spec` switches
+                # to the varied path on a MAPPING, so hand it one when the
+                # brief asks for a varied lot and the single path otherwise.
+                #
+                # PATHS ARE CONSTRUCTED, NOT PROBED. Every spec in this
+                # function is built BEFORE any job runs, so the compose output
+                # does not exist yet -- an `.is_file()` here silently yielded
+                # {} and the site placed the mission shell five times while
+                # every archetype composed correctly beside it.
+                #
+                # Both stages call `_lot_for_compose`, which is one function
+                # with one rule, not two derivations that happen to agree:
+                # `pick_lot` is deterministic on (library, seed, count) and
+                # the seed comes from this same candidate id.
+                compose_out = _latest_output(jobs_dir / compose_job,
+                                             "presentation")
+                lot = _lot_for_compose(model, job.candidate_id)
+                themed_scene = (
+                    {a["id"]: str(compose_out / "lot" / str(a["id"])
+                                  / "site.tscn") for a in lot}
+                    if lot else str(compose_out / "site.tscn"))
             else:
                 deli_job = job.depends_on[0]
             deli_out = jobs_dir / deli_job
@@ -264,9 +284,15 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                 # a nav finding.
                 "navqa": not themed_scene,
                 # Fingerprint inputs. The themed site's geometry is the composed
-                # scene, so hashing shell.glb would miss every re-theme.
-                "building_glbs": [themed_scene] if themed_scene
-                else [str(_latest_output(deli_out, "shell.glb"))],
+                # scene, so hashing shell.glb would miss every re-theme. A
+                # varied lot has one scene PER BUILDING and every one of them
+                # is geometry this site places -- flatten, or re-theming the
+                # third building serves a stale site.
+                "building_glbs": (
+                    sorted(themed_scene.values())
+                    if isinstance(themed_scene, dict)
+                    else [themed_scene] if themed_scene
+                    else [str(_latest_output(deli_out, "shell.glb"))]),
             }
         elif job.adapter_id == "walktest":
             lot_job = job.depends_on[0]
@@ -423,6 +449,12 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
             dressing_glb = _layer_glb("zoo_dressing_build", "_dressing.glb")
             fixtures_glb = _layer_glb("zoo_fixtures_build", "_fixtures.glb")
             specs[job.job_id] = {
+                # THE LOT IS CHOSEN HERE AND ONLY HERE. `pick_lot` is
+                # deterministic on (library, seed, count), so `_write_site_spec`
+                # calling it again would agree -- by luck, until someone
+                # changes a signature. It reads the ids back off this compose's
+                # own output instead. See docs/VARIED_THEMED_LOT.md.
+                "lot_archetypes": _lot_for_compose(model, job.candidate_id),
                 "deli_repo": str(repos.get("deli_counter", "")),
                 "slots_path": str(_latest_output(deli_out, "shell.slots.json")),
                 "gameplay_path": str(_latest_output(deli_out, "shell.gameplay.json")),
@@ -528,6 +560,30 @@ def _preset_for(model: MissionBrief) -> str:
     if tod == "afternoon":
         return "Delco Summer Afternoon"
     return "Gas Station Fluorescent"
+
+
+def _lot_for_compose(model, candidate_id) -> list:
+    """Archetypes a varied themed lot must compose, [] for the single shell.
+
+    A varied lot is opt-in (`lot_library` on the brief) and only means
+    anything when the brief asks for more than one building. Everything this
+    needs is pure -- `building_library` is a directory listing and
+    arithmetic -- so it runs at spec time with no workspace and no Godot.
+    """
+    library = getattr(model, "lot_library", None)
+    count = max(1, int(getattr(model, "building_count", 1) or 1))
+    if not library or count < 2:
+        return []
+    from packages.pipeline import building_library
+    complete, incomplete = building_library.index(library)
+    if incomplete:
+        # Same voice as the site builder: a silently shorter library is how a
+        # lot quietly stops being varied.
+        print(f"[compose] {len(incomplete)} archetype(s) not themeable "
+              f"(incomplete manifest): "
+              + ", ".join(e["id"] for e in incomplete[:5]))
+    seed = int(str(candidate_id).rsplit("_", 1)[-1])
+    return building_library.pick_lot(complete, seed, count)
 
 
 def _latest_output(job_root: Path, name: str) -> Path:

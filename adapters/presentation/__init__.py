@@ -34,44 +34,31 @@ _STABLE_BID = "site"
 _OUT_SUBDIR = "presentation"
 _SCENE_REL = f"{_OUT_SUBDIR}/{_STABLE_BID}.tscn"
 
+# A VARIED THEMED LOT composes one scene per archetype, here. The mission's
+# own shell is still composed to `_SCENE_REL` -- it satisfies the job's output
+# contract, keeps the single-shell path byte-for-byte, and is what Lux still
+# lights. See docs/VARIED_THEMED_LOT.md: until `--render` moves Lux to the
+# assembled site, a varied lot is SKINNED AND WALKABLE BUT UNLIT, and that is
+# a stated limitation rather than a surprise.
+_LOT_SUBDIR = f"{_OUT_SUBDIR}/lot"
+
+
+def _lot_archetypes(job_spec) -> list:
+    """The archetypes this compose must theme, [] for the single-shell path.
+
+    Entries are `building_library.index` rows: {id, family, glb, gameplay,
+    slots}. The list is chosen ONCE, in the job spec, and travels with it --
+    re-deriving it here from (library, seed, count) would be a second caller
+    of `pick_lot` agreeing by luck rather than by construction.
+    """
+    lot = job_spec.get("lot_archetypes") or []
+    return [a for a in lot if a.get("id") and a.get("glb") and a.get("slots")]
+
 
 def _driver_path() -> Path:
     # <repo_root>/assets/scripts/run_presentation_compose.py
     return (Path(__file__).resolve().parents[2]
             / "assets" / "scripts" / "run_presentation_compose.py")
-
-
-#: DC modules this job actually executes, relative to the DC repo root. Listed
-#: rather than globbed: a glob over the repo would rebuild the compose whenever
-#: any unrelated DC file moved (a test, a preset, a status script), and a cache
-#: that invalidates on everything is a cache nobody keeps.
-_COMPOSER_SOURCES = (
-    "portable_building.py",   # build_package / strip_greybox_base / roof_covered_nodes
-    "themed_tscn.py",         # themed_slot_ids + the fit-to-greybox instancing
-    "tscn_export.py",         # godot_basis, the rotation the fit depends on
-    "zfight_gate.py",         # the coplanar gate whose findings ride the manifest
-    "circulation.py",         # the prop-vs-circulation gate, likewise
-    "VERSION",
-)
-
-
-def _composer_fingerprint(job_spec, context) -> dict:
-    """Hash of the DC code this compose runs.
-
-    Returns ``{}`` when the repo is not resolvable -- a missing repo is
-    `plan_commands`' problem to report, and a fingerprint that raises would turn
-    a bad path into a crash at cache-lookup time.
-    """
-    repo = job_spec.get("deli_repo") or context.get("repository")
-    if not repo:
-        return {}
-    root = Path(str(repo))
-    out: dict = {}
-    for rel in _COMPOSER_SOURCES:
-        p = root / rel
-        if p.exists():
-            out[rel] = hash_file(p)
-    return out
 
 
 class PresentationAdapter(BaseAdapter):
@@ -120,6 +107,17 @@ class PresentationAdapter(BaseAdapter):
             problems.append(f"modules_dir missing: {mods}")
         if not _driver_path().exists():
             problems.append(f"LF compose driver missing: {_driver_path()}")
+        # A varied lot fails HERE if a building is unusable, not three stages
+        # downstream. `building_library.index` already drops archetypes with a
+        # missing part, so anything that reaches this list should be complete;
+        # if it is not, the selection and the filesystem disagree and that is
+        # worth saying out loud.
+        for a in _lot_archetypes(job_spec):
+            for key in ("glb", "slots", "gameplay"):
+                p = a.get(key)
+                if p and not Path(str(p)).exists():
+                    problems.append(
+                        f"lot archetype {a['id']}: {key} missing: {p}")
         return problems
 
     def fingerprint_inputs(self, job_spec, context) -> Mapping[str, object]:
@@ -144,58 +142,81 @@ class PresentationAdapter(BaseAdapter):
             lp = job_spec.get(key)
             if lp and Path(str(lp)).exists():
                 fp[key + "_hash"] = hash_file(Path(str(lp)))
-        # ...AND THE COMPOSER ITSELF. This job does not merely read DC's data,
-        # it EXECUTES DC's code -- `portable_building.build_package`, through
-        # the driver, per this module's own docstring. So a change to that code
-        # changes this job's output while every hash above stays identical, and
-        # the cache serves the old package.
-        #
-        # Measured 2026-08-05: `strip_greybox_base` was fixed in DC (exact
-        # slot-id match, so `VAULT` stopped deleting `VAULTLEDGE_0`'s visual and
-        # leaving its collider -- an invisible wall). DC committed, DC's suite
-        # went green, `run --art --force` reported deli_generate SUCCEEDED and
-        # zoo_kit_build SUCCEEDED, and this job reported `cache`. The composed
-        # `site_base.glb` came back byte-identical, invisible wall intact. The
-        # rebuild looked real and wasn't.
-        #
-        # `verify-contracts` guards a sub-tool DRIFTING out from under an
-        # adapter. This is the same failure with the opposite sign -- a sub-tool
-        # FIX not reaching a cached job -- and nothing was watching for it.
-        fp["composer"] = _composer_fingerprint(job_spec, context)
+        # EVERY archetype in the lot, or swapping one building for another
+        # serves a stale compose. The composer fingerprint had exactly this
+        # hole for its own sources and it took a walk to find.
+        lot = _lot_archetypes(job_spec)
+        if lot:
+            fp["lot"] = {
+                a["id"]: {
+                    k: hash_file(Path(str(a[k])))
+                    for k in ("glb", "slots", "gameplay")
+                    if a.get(k) and Path(str(a[k])).exists()
+                }
+                for a in lot
+            }
         return fp
 
     def plan_commands(self, job_spec, context) -> Sequence[PlannedCommand]:
         work = Path(str(context["work_dir"]))
         py = context.get("python_executable") or "python"
         deli_repo = str(job_spec.get("deli_repo") or context.get("repository") or "")
-        out_dir = work / _OUT_SUBDIR
+        cwd = Path(str(deli_repo)) if deli_repo else work
 
-        args = [
-            str(_driver_path()),
-            "--deli-repo", deli_repo,
-            "--slots", str(job_spec.get("slots_path", "")),
-            "--modules", str(job_spec.get("modules_dir", "")),
-            "--theme", str(job_spec.get("theme", "") or "delco"),
-            "--style", str(job_spec.get("style", 1)),
-            "--greybox", str(job_spec.get("greybox_glb", "")),
-            "--building-id", _STABLE_BID,
-            "--out", str(out_dir),
-        ]
-        if job_spec.get("gameplay_path"):
-            args += ["--gameplay", str(job_spec["gameplay_path"])]
-        # content layers: bundled + instanced by the composer, lineage-guarded
-        # by the driver (a layer from a different build fails the job).
-        if job_spec.get("dressing_glb"):
-            args += ["--dressing", str(job_spec["dressing_glb"])]
-        if job_spec.get("fixtures_glb"):
-            args += ["--fixtures", str(job_spec["fixtures_glb"])]
+        def compose(*, slots, gameplay, greybox, out, bid, scene_rel):
+            args = [
+                str(_driver_path()),
+                "--deli-repo", deli_repo,
+                "--slots", str(slots or ""),
+                "--modules", str(job_spec.get("modules_dir", "")),
+                "--theme", str(job_spec.get("theme", "") or "delco"),
+                "--style", str(job_spec.get("style", 1)),
+                "--greybox", str(greybox or ""),
+                "--building-id", bid,
+                "--out", str(out),
+            ]
+            if gameplay:
+                args += ["--gameplay", str(gameplay)]
+            # content layers: bundled + instanced by the composer,
+            # lineage-guarded by the driver (a layer from a different build
+            # fails the job).
+            if job_spec.get("dressing_glb"):
+                args += ["--dressing", str(job_spec["dressing_glb"])]
+            if job_spec.get("fixtures_glb"):
+                args += ["--fixtures", str(job_spec["fixtures_glb"])]
+            return PlannedCommand(
+                executable=Path(str(py)), arguments=tuple(args),
+                working_directory=cwd, expected_outputs=(scene_rel,),
+                resource_class="python_cpu", timeout_seconds=600,
+            )
 
-        return [PlannedCommand(
-            executable=Path(str(py)), arguments=tuple(args),
-            working_directory=Path(str(deli_repo)) if deli_repo else work,
-            expected_outputs=(_SCENE_REL,),
-            resource_class="python_cpu", timeout_seconds=600,
+        # The mission's own shell, always, unchanged. It satisfies the job's
+        # `presentation/site.tscn` output contract and is what the
+        # single-shell site places. A varied lot does not place it -- see the
+        # note by _LOT_SUBDIR -- but composing it keeps this path identical
+        # for every mission that does not set `lot_library`, and a level that
+        # has already been evaluated must not quietly become a different one.
+        cmds = [compose(
+            slots=job_spec.get("slots_path"),
+            gameplay=job_spec.get("gameplay_path"),
+            greybox=job_spec.get("greybox_glb"),
+            out=work / _OUT_SUBDIR, bid=_STABLE_BID, scene_rel=_SCENE_REL,
         )]
+
+        # ONE COMPOSE PER ARCHETYPE. Each building is dressed AS ITSELF: its
+        # own slots, its own gameplay markers, its own greybox. Pointing five
+        # different buildings at one composed scene would place five
+        # greyboxes and dress them identically, which is the lie this exists
+        # to remove.
+        for a in _lot_archetypes(job_spec):
+            rel = f"{_LOT_SUBDIR}/{a['id']}/{_STABLE_BID}.tscn"
+            cmds.append(compose(
+                slots=a.get("slots"), gameplay=a.get("gameplay"),
+                greybox=a.get("glb"),
+                out=work / _LOT_SUBDIR / str(a["id"]),
+                bid=_STABLE_BID, scene_rel=rel,
+            ))
+        return cmds
 
     def collect_outputs(self, job_spec, context) -> Iterable[Path]:
         # Publish the WHOLE composed package, not just scene/asset files — the
