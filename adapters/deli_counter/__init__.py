@@ -49,7 +49,27 @@ _ARCHETYPE_ALIASES = {
 }
 
 
+class UnknownArchetype(ValueError):
+    """A brief named an archetype no DC preset answers to."""
+
+
 def _preset_for(archetype: str) -> str:
+    """Resolve a brief's archetype to a real DC preset, or refuse.
+
+    NO SILENT FALLBACK. This used to end in ``return "bank"``, and the cost
+    was measured: every mission in the lot demo carries
+    ``archetype: "mixed_block"`` -- not a preset, not an alias, no keyword
+    match -- so all of them silently built BANKS. Nobody knew, because a
+    fallback that reports nothing is indistinguishable from a match. It only
+    surfaced because `bank`'s vault sits at a hardcoded corner offset that
+    collides with a stairwell, and a player walked into it.
+
+    A wrong-but-plausible building is the worst failure this adapter can
+    produce: the pipeline succeeds, every gate passes, and the deliverable is
+    the wrong archetype. Raising is the whole point -- the fix is one line in
+    ``_ARCHETYPE_ALIASES`` or one word in the brief, and both are cheap. A
+    silent guess is not.
+    """
     a = (archetype or "").strip().lower()
     if a in _VALID_PRESETS:
         return a
@@ -58,11 +78,16 @@ def _preset_for(archetype: str) -> str:
     # Strip a leading qualifier (urban_/downtown_/...), then re-check.
     if "_" in a and a.split("_", 1)[1] in _VALID_PRESETS:
         return a.split("_", 1)[1]
-    # Keyword fallback.
-    for key in _VALID_PRESETS:
+    # Keyword fallback -- still a guess, but a justified one: the archetype
+    # literally contains a preset's name.
+    for key in sorted(_VALID_PRESETS):
         if key in a:
             return key
-    return "bank"
+    raise UnknownArchetype(
+        f"brief archetype {archetype!r} matches no DC preset. "
+        f"Add it to _ARCHETYPE_ALIASES or use one of: "
+        f"{', '.join(sorted(_VALID_PRESETS))}. "
+        f"(aliases: {', '.join(sorted(_ARCHETYPE_ALIASES))})")
 
 
 class DeliCounterAdapter(BaseAdapter):
