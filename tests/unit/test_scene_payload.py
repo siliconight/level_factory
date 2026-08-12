@@ -93,4 +93,8 @@ def test_both_adapters_use_the_one_rule():
     assert lux_mod.scene_payload_hashes is scene_payload_hashes
     # and the bump that makes the fix take effect
     assert LuxAdapter.adapter_version == "0.4.0"
-    assert LotAdapter.adapter_version == "0.3.0"
+    # Lot 0.3.0 -> 0.4.0: the site's OUTPUT LAYOUT changed (buildings staged
+    # under lot/<id>/, every ext_resource relative instead of res://C:/...), so
+    # entries cached under the old rules had to retire rather than be served
+    # alongside the new ones. See docs/WALKABLE_SITE.md.
+    assert LotAdapter.adapter_version == "0.4.0"

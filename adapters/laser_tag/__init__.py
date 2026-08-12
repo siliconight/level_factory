@@ -12,6 +12,97 @@ from typing import Iterable, Mapping, Sequence
 from packages.adapters.sdk import BaseAdapter, PlannedCommand
 
 
+#: Everything `LT_TestScenario` carries, with the stock resource's values.
+#: Copied verbatim and in one place so drift between this table and
+#: `default_laser_tag_scenario.tres` is a diff rather than an excavation --
+#: the same reason `site_spawns` carries `OPENING_RANGE` and names where it
+#: came from. Only the keys a brief names are overridden; the rest are written
+#: out unchanged so the generated resource is complete and readable.
+_STOCK_SCENARIO: dict = {
+    "run_count": 25,
+    "max_run_time_seconds": 180.0,
+    "player_health": 5,
+    "enemy_health": 2,
+    "player_count": 1,
+    "enemy_count": 6,
+    "enemies_enabled": True,
+    "player_laser_range": 60.0,
+    "enemy_laser_range": 35.0,
+    "enemy_fire_cooldown": 1.25,
+    "enemy_reaction_delay_min": 0.25,
+    "enemy_reaction_delay_max": 0.5,
+    "enemy_sight_range": 35.0,
+    "enemy_preferred_distance": 14.0,
+    "first_contact_min_seconds": 3.0,
+    "first_contact_max_seconds": 30.0,
+    "min_reasonable_survival_seconds": 10.0,
+    "use_random_spawn_permutations": True,
+    "use_bot_players": True,
+    "enable_debug_lasers": True,
+    "record_debug_events": True,
+    "enable_map_sampling": True,
+    "sample_spacing": 2.0,
+    "overexposed_threshold": 3,
+    "fail_on_missing_player_spawn": True,
+    "fail_on_missing_enemy_spawns": True,
+    "fail_on_unreachable_spawns": True,
+    "require_navigation": False,
+}
+
+#: Where the generated resource lands inside the staged project, and the
+#: res:// path `--scenario` is given.
+_SCENARIO_NAME = "mission_scenario.tres"
+
+#: The script the resource is an instance of. It lives in Laser Tag's addon,
+#: which staging has already copied into the project, so the generated
+#: resource resolves against the same checkout the runner does.
+_SCENARIO_SCRIPT = "res://addons/laser_tag_tool/resources/LT_TestScenario.gd"
+
+
+def _tres_value(value) -> str:
+    """A Godot resource literal. `bool` before `int` -- bool IS an int."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float):
+        return repr(float(value))
+    if isinstance(value, int):
+        return str(value)
+    return f'"{value}"'
+
+
+def _write_scenario(project: Path, overrides: Mapping) -> str | None:
+    """Write the mission's scenario into the staged project; res:// path back.
+
+    Returns ``None`` rather than raising when the addon is not staged: without
+    `LT_TestScenario.gd` at the path the resource names, Godot would load a
+    resource with no script and the runner would read defaults off a bare
+    `Resource` -- which is a silently different evaluation, and the stock
+    resource is a better answer than that.
+    """
+    script = project / "addons" / "laser_tag_tool" / "resources" / \
+        "LT_TestScenario.gd"
+    if not script.is_file():
+        return None
+    values = dict(_STOCK_SCENARIO)
+    for key, value in overrides.items():
+        if key in values:
+            values[key] = value
+    lines = [
+        '[gd_resource type="Resource" script_class="LT_TestScenario" '
+        'load_steps=2 format=3]',
+        "",
+        f'[ext_resource type="Script" path="{_SCENARIO_SCRIPT}" '
+        'id="1_scenario"]',
+        "",
+        "[resource]",
+        'script = ExtResource("1_scenario")',
+    ]
+    lines += [f"{k} = {_tres_value(v)}" for k, v in values.items()]
+    (project / _SCENARIO_NAME).write_text("\n".join(lines) + "\n",
+                                          encoding="utf-8")
+    return f"res://{_SCENARIO_NAME}"
+
+
 class LaserTagAdapter(BaseAdapter):
     adapter_id = "laser_tag"
     adapter_version = "0.3.0"
@@ -25,6 +116,26 @@ class LaserTagAdapter(BaseAdapter):
         }
     )
     output_contract_version = "lasertag.report.0.7"
+
+    #: Wall-clock budget for ONE evaluation run, in seconds.
+    #:
+    #: NOT the scenario's `max_run_time_seconds` (180.0). That is SIMULATED
+    #: time and the harness runs the simulation faster than real time:
+    #: measured 2026-08-09 on a level where every run went its full clock,
+    #: nineteen runs cost 900 s of wall time, 47.4 s each. Multiplying the
+    #: simulated figure by the run count would reserve 4,500 s for about
+    #: 1,200 s of work.
+    #:
+    #: A run that ENDS early costs a fraction of this -- the same job took
+    #: 160.85 s for 25 runs on a level whose runs wiped in 20-31 s. This has to
+    #: cover the worst case, which is every run stalemating to its cap.
+    run_wall_budget_seconds = 60.0
+
+    #: Load, navmesh bake and position sampling, paid once before the first
+    #: run. Roughly 20 s for a 1041-polygon bake over 34,356 source vertices;
+    #: tripled, because it is paid once and a slow machine should not lose a
+    #: report over it.
+    bake_wall_budget_seconds = 120.0
 
     def validate_configuration(
         self, job_spec: Mapping[str, object], context: Mapping[str, object]
@@ -201,9 +312,28 @@ class LaserTagAdapter(BaseAdapter):
                 scene_post_process=_bake_hooks)
             project = str(proj)
 
+        # THE MISSION'S ENCOUNTER, when the brief expressed one.
+        #
+        # `scenario_res` has been readable here since this adapter was written
+        # and nothing ever set it, so every mission Level Factory has evaluated
+        # was graded against Laser Tag's stock 1-versus-6 -- a five-building
+        # night heist and a single-shell test box against the same resource.
+        # Measured on `lot_demo_001`: the crew needs twelve hits, lands six to
+        # nine, wipes 25 of 25, and `route_completed` never goes true, which is
+        # 25 of the 100 points unreachable by geometry.
+        #
+        # Written into the STAGED project rather than the checkout: the addon
+        # belongs to Laser Tag and Level Factory does not edit other tools'
+        # repositories. The stock resource stays the fallback, so a job spec
+        # carrying no scenario behaves exactly as it did.
         scenario = str(job_spec.get(
             "scenario_res",
             "res://addons/laser_tag_tool/resources/default_laser_tag_scenario.tres"))
+        wanted = job_spec.get("scenario")
+        if isinstance(wanted, Mapping) and wanted and project:
+            written = _write_scenario(Path(str(project)), wanted)
+            if written is not None:
+                scenario = written
 
         # Real headless runner (SceneTree script). Everything after `--` is a
         # user arg. The harness writes <out>.json + <out>.csv (same basename)
@@ -222,6 +352,16 @@ class LaserTagAdapter(BaseAdapter):
             "--seed", str(seed),
             "--output", str(out_json),
         ]
+        # Scaled by the run count, because that is the thing that varies. The
+        # flat 900 s this replaces was sized for the 8-run default and became a
+        # ceiling no 25-run mission could pass under: measured 2026-08-09,
+        # Godot was killed nineteen runs in, the report was never written, and
+        # the job reported JOB_TIMEOUT for a level `walktest_navqa` walks clean.
+        #
+        # A ceiling that does not follow the work is not a safety net; it is a
+        # second thing to keep in sync, and it was already out of sync.
+        timeout = int(self.bake_wall_budget_seconds
+                      + max(1, int(runs)) * self.run_wall_budget_seconds)
         return [
             PlannedCommand(
                 executable=godot,
@@ -229,7 +369,7 @@ class LaserTagAdapter(BaseAdapter):
                 working_directory=Path(str(project)),
                 expected_outputs=("lasertag.report.json", "lasertag.report.csv"),
                 resource_class="godot_headless",
-                timeout_seconds=900,
+                timeout_seconds=timeout,
             )
         ]
 

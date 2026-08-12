@@ -86,6 +86,31 @@ class MissionBrief:
     #: has already been evaluated would be a different level carrying the old
     #: grade.
     lot_library: str = ""
+    #: THE ENCOUNTER, which the brief could not previously express at all.
+    #:
+    #: Every mission Level Factory has ever evaluated was graded against Laser
+    #: Tag's stock `default_laser_tag_scenario.tres`: one crew member with 5
+    #: health against six enemies with 2 each. Measured on `lot_demo_001` seed
+    #: 5118 over 50 runs, the crew must land twelve hits to clear the map, lands
+    #: six to nine, and wipes 25 times out of 25. `route_completed` requires
+    #: surviving the route, so traversal's 25 of 100 points were unreachable by
+    #: any arrangement of geometry.
+    #:
+    #: DEFAULTS ARE THE STOCK NUMBERS on purpose. An existing brief produces a
+    #: scenario identical to the one it was graded under, so no evaluated
+    #: mission changes underneath its grade.
+    #:
+    #: Nothing here is derived from `building_count` or `target_minutes`. A crew
+    #: size inferred from plate area would be a number nobody chose wearing the
+    #: clothes of a decision; if a mission wants four people it says four.
+    crew_size: int = 1
+    crew_health: int = 5
+    #: Lot still places six enemy hooks regardless (`place_enemies`' own
+    #: default), and the harness spawns this many over the points it finds. Set
+    #: it below six and the even spread along the route stops being even --
+    #: wiring the count through to `_write_site_spec` is the follow-up.
+    enemy_count: int = 6
+    enemy_health: int = 2
     notes: str = ""
 
     def as_dict(self) -> dict:
@@ -163,6 +188,27 @@ class Job:
     stage_id: str
     adapter_id: str
     candidate_id: str | None = None
+    #: WHICH BUILDING this job is for, when its stage runs once per building
+    #: rather than once per mission.
+    #:
+    #: The art stages that bake a PLACEMENT -- patina dressing, zoo dressing,
+    #: zoo fixtures -- position props against one specific shell's walls and
+    #: roof. Planned once per mission, their single output was attached to
+    #: every building in a varied lot: measured 2026-08-06, one dressing box of
+    #: 30.4 x 8.4 x 22.4 inside five shells whose footprints ran from 26x20 to
+    #: 46x32, standing up to 4.9 m above the roof it was supposed to sit under.
+    #:
+    #: `None` means the job is genuinely mission-wide. Pixelcoat's skin packs
+    #: are: a skin is a material, not a dimension.
+    #:
+    #: `zoo_kit_build` was listed here as the example of one -- "a module
+    #: LIBRARY ... resolves per slot at compose time and is correctly one job"
+    #: -- and it is not. Every module but `wallEnd` is `fit: exact`, cut to ONE
+    #: slot's dims. Measured 2026-08-09: one shared kit put 3.300 m walls in
+    #: eight buildings whose slots asked 3.1 to 5.2, because the kit was built
+    #: from the mission shell's `slots.json`. It fans out. See
+    #: docs/PER_BUILDING_ART.md.
+    archetype_id: str | None = None
     status: str = states.PLANNED
     attempt: int = 0
     priority: int = 0

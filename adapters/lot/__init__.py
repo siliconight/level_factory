@@ -29,7 +29,11 @@ class LotAdapter(BaseAdapter):
     # references by path. The rules for computing a fingerprint changed, so
     # entries computed under the old rules must not be trusted -- bumping
     # retires them once instead of leaving a mixed cache.
-    adapter_version = "0.3.0"
+    # 0.4.0: the OUTPUT LAYOUT changed -- buildings are staged under lot/<id>/
+    # and every ext_resource is relative rather than res://C:/... An entry
+    # cached under the old rules is a site whose refs resolve nowhere, so it
+    # must be retired rather than served alongside the new ones.
+    adapter_version = "0.4.0"
     capabilities = frozenset(
         {
             "assemble_site",
@@ -110,6 +114,27 @@ class LotAdapter(BaseAdapter):
                     stem = src.with_suffix("")
                     for sibling in (".lights.json", ".gameplay.json"):
                         _fold(Path(str(stem) + sibling))
+        # The staged sources, by their ABSOLUTE build-time paths.
+        #
+        # The loop above reads the spec rather than trusting the caller's list,
+        # so a building added to the spec cannot be missed by someone forgetting
+        # to extend a parallel argument. That property depends on the paths in
+        # the spec resolving, and they are now relative to the site out dir --
+        # so `_fold` would test them against the process CWD, miss, and quietly
+        # fold nothing. The manifest is derived from the same spec by the same
+        # function, so folding it keeps the property rather than replacing it
+        # with a promise.
+        manifest_path = job_spec.get("staging_manifest_path")
+        if manifest_path and Path(str(manifest_path)).exists():
+            try:
+                man = json.loads(
+                    Path(str(manifest_path)).read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                man = {}
+            for source in (man.get("packages") or {}).values():
+                _fold(Path(str(source)) / "site.tscn")
+            for source in (man.get("glbs") or {}).values():
+                _fold(Path(str(source)))
         if inputs:
             fp["building_hashes"] = inputs
         return fp
@@ -128,6 +153,36 @@ class LotAdapter(BaseAdapter):
             args.append("--walkable")
         if job_spec.get("navqa"):
             args.append("--navqa")
+        # Scene-relative ext_resource paths in the shipped scenes. Godot 4.7
+        # resolves a non-res:// path against the referencing scene's own
+        # directory (probed: a root scene instancing lot/a/inner.tscn, which
+        # named a bare leaf.tscn existing only beside it, imported and loaded
+        # clean), which is what makes the out dir droppable anywhere rather
+        # than only at a consumer's project root.
+        manifest = str(job_spec.get("staging_manifest_path", ""))
+        if manifest:
+            args.append("--portable")
+
+        commands = []
+        if manifest:
+            # FIRST, and a separate command rather than a side effect inside
+            # this function: plan_commands is called to build the fingerprint
+            # as well as to run the job, including on the cache-hit path where
+            # nothing is meant to execute. Copying geometry from here would run
+            # at times nobody chose. As a planned command it is logged,
+            # re-runnable alone, and folded into the fingerprint like any other.
+            # this file is level_factory/adapters/lot/__init__.py, so the
+            # level_factory root is three names up: lot -> adapters -> here.
+            lf_root = Path(__file__).resolve().parents[2]
+            commands.append(PlannedCommand(
+                executable=Path(str(py)),
+                arguments=(str(lf_root / "tools" / "stage_site_packages.py"),
+                           manifest, str(work)),
+                working_directory=lf_root,
+                expected_outputs=tuple(self._staged_outputs(manifest)),
+                resource_class="python_cpu",
+                timeout_seconds=600,
+            ))
 
         expected = [f"{stem}.site.gameplay.json", f"{stem}.tscn",
                     f"{stem}.site.lights.json"]
@@ -140,22 +195,47 @@ class LotAdapter(BaseAdapter):
         if job_spec.get("navqa"):
             expected.append(f"{stem}_navqa.tscn")
 
-        return [
-            PlannedCommand(
-                executable=Path(str(py)),
-                arguments=tuple(args),
-                working_directory=repo,
-                expected_outputs=tuple(expected),
-                resource_class="python_cpu",
-                timeout_seconds=600,
-            )
-        ]
+        commands.append(PlannedCommand(
+            executable=Path(str(py)),
+            arguments=tuple(args),
+            working_directory=repo,
+            expected_outputs=tuple(expected),
+            resource_class="python_cpu",
+            timeout_seconds=600,
+        ))
+        return commands
+
+    @staticmethod
+    def _staged_outputs(manifest_path: str) -> list[str]:
+        """What the staging step must have put in the out dir, by name.
+
+        Named as expected outputs so the scheduler fails the job when a package
+        did not arrive, instead of leaving it to Lot to emit a site with a
+        building missing and every stage reporting success -- which a varied lot
+        has already done once.
+        """
+        try:
+            doc = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            # The manifest is written at plan time and read here at run time.
+            # If it cannot be read there is nothing to assert; the staging
+            # command will say so itself and exit nonzero.
+            return []
+        out = [f"lot/{pid}/site.tscn" for pid in (doc.get("packages") or {})]
+        out += [f"buildings/{bid}.glb" for bid in (doc.get("glbs") or {})]
+        return sorted(out)
 
     def collect_outputs(
         self, job_spec: Mapping[str, object], context: Mapping[str, object]
     ) -> Iterable[Path]:
         work = Path(str(context["work_dir"]))
-        wanted = (".tscn", ".json", ".csv")
+        # .glb and .gd are here because the site now CONTAINS its buildings
+        # rather than pointing at them. Left at (.tscn, .json, .csv), the staged
+        # geometry and the walk scripts would never be published to out/ nor
+        # written to the build cache: the attempt dir would look correct and a
+        # cache hit would restore a site scene referencing files that are not
+        # there. A published artifact has to be the whole artifact.
+        wanted = (".tscn", ".json", ".csv", ".glb", ".gd")
         return sorted(p for p in work.rglob("*") if p.is_file() and p.suffix in wanted)
 
     def normalize_validation(

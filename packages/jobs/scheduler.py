@@ -18,6 +18,7 @@ up where it left off (Phase-1 exit criterion).
 from __future__ import annotations
 
 import datetime as _dt
+import shutil as _shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping
@@ -310,6 +311,7 @@ class Scheduler:
 
         stable = self._stable_out(job_id)
         stable.mkdir(parents=True, exist_ok=True)
+        keep: set[Path] = set()
         for src in outputs:
             rel = src.relative_to(work_dir)
             dst = stable / rel
@@ -320,6 +322,21 @@ class Scheduler:
                 _os.link(src, dst)
             except OSError:
                 _shutil.copy2(src, dst)
+            keep.add(dst)
+        # PRUNE WHAT THIS RUN NO LONGER PRODUCES. Clearing the work dir makes a
+        # job's outputs exactly this run's; without this, `out/` would still
+        # carry every file any previous run ever published, and `out/` is what
+        # downstream jobs read. That is where `prop_rockay_01_w160.glb` was
+        # found on 2026-08-09 -- five days old, in a package whose every other
+        # module was from that day.
+        #
+        # Deletes files only, and leaves the directory skeleton alone: a job
+        # that legitimately stops emitting a whole subtree is rare, an empty
+        # directory costs nothing, and rmtree here would be reaching further
+        # than the evidence.
+        for existing in sorted(stable.rglob("*")):
+            if existing.is_file() and existing not in keep:
+                existing.unlink()
 
     def _execute_job(self, job: Job, job_spec: dict, cancel: Cancellation | None) -> JobOutcome:
         """Run a job and hand back its findings, advisories included.
@@ -346,6 +363,23 @@ class Scheduler:
         if job.attempt == 0:
             job.attempt = 1
         work_dir = self.jobs_dir / job.job_id / str(job.attempt) / "out"
+        # A BUILD DIRECTORY IS NOT A CACHE. Attempt 1 is attempt 1 on every
+        # run, so this path was reused indefinitely: anything a previous run
+        # wrote and this one does not survived it, and `collect_outputs` globs
+        # the whole tree -- so the leftover was ADOPTED as an output of this
+        # run, published, fingerprinted, cached and carried downstream.
+        #
+        # Measured 2026-08-09 on `bank_branch_a04`: `prop_rockay_01_w160.glb`,
+        # dated 08-04, sitting in a compose output whose every other module was
+        # from that day's build, then re-skinned and re-imported as current. It
+        # cost an investigation that began at Zoo, where there was no bug.
+        #
+        # Cleared per attempt, so a job's outputs are exactly what this run
+        # produced. The cache-hit path materializes into it below and wants the
+        # same guarantee: a stale file beside a cache hit is indistinguishable
+        # from a fresh one.
+        if work_dir.exists():
+            _shutil.rmtree(work_dir, ignore_errors=True)
         work_dir.mkdir(parents=True, exist_ok=True)
 
         context = {
@@ -488,8 +522,12 @@ class Scheduler:
                                       exit_code=result.exit_code)
 
         # 4. Verify expected-output contract.
-        missing = [o for o in planned[0].expected_outputs
-                   if not (work_dir / o).exists()] if planned else []
+        # EVERY planned command's contract, not just the first one's. This read
+        # planned[0] alone, so an adapter that plans more than one command had
+        # its later outputs unchecked -- and a check that cannot fail is
+        # indistinguishable from one that passed.
+        missing = [o for cmd in planned for o in cmd.expected_outputs
+                   if not (work_dir / o).exists()]
         if missing:
             return self._fail(job, OUTPUT_CONTRACT_ERROR,
                               f"expected outputs missing: {', '.join(missing)}",

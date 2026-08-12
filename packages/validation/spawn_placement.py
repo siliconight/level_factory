@@ -109,6 +109,16 @@ MAX_CELLS = 4_000_000
 CODE_STANDOFF = "LT_OPENING_STANDOFF"
 CODE_FLOATING = "LT_MARKER_OFF_FLOOR"
 
+#: A seal that exists only in geometry this reader had to infer. Advisory for
+#: the reason the others are: the claim cannot be stood behind, and a refusal
+#: this module cannot defend is worse than a finding nobody acts on.
+CODE_UNVERIFIED_SEAL = "LT_SEAL_UNVERIFIED"
+
+#: `_placement`'s verdict for a cell the flood fill never reached. Named
+#: because two functions now have to agree on it, and a sentence duplicated
+#: across two call sites is a sentence that drifts.
+_SEAL = "sealed off from the crew spawn"
+
 _PLAYER = "LT_PlayerSpawn"
 _ENEMY_GROUP = "LT_EnemySpawnPoints"
 _ROUTE_GROUP = "LT_PlayerRoutePoints"
@@ -389,7 +399,8 @@ def check_spawn_placement_text(text: str, reading: Reading) -> list[str]:
             f"(spawn {_point(player)} over {support.name}, top {support.top:.2f}) "
             "— Laser Tag would find nowhere to put the crew"
         ]
-    return _unreachable(field, reach, enemies, destinations, reading)
+    return _unreachable(field, reach, enemies, destinations, reading,
+                        _optimistic_reach(field, reading, player))
 
 
 def advise_spawn_placement(scene: Path) -> list[str]:
@@ -430,10 +441,22 @@ def advise_spawn_placement_coded(
         # Nowhere to stand is `check`'s finding, and every tactical claim built
         # on a crew that has no floor would be built on the same hole.
         return []
+    loose = _optimistic_reach(field, reading, player)
+    _v, unverified_enemies = _split_seals(
+        _strand(field, reach, enemies), enemies, loose)
+    _v, unverified_dests = _split_seals(
+        _strand(field, reach, destinations), destinations, loose)
     return ([(CODE_STANDOFF, m)
              for m in _standoff(field, reach, enemies, opening_range)]
             + [(CODE_FLOATING, m)
-               for m in _floating(field, player, enemies, destinations)])
+               for m in _floating(field, player, enemies, destinations)]
+            + [(CODE_UNVERIFIED_SEAL, m)
+               for m in _unverified_findings("enemy spawn",
+                                             unverified_enemies, len(enemies))]
+            + [(CODE_UNVERIFIED_SEAL, m)
+               for m in _unverified_findings("mission destination",
+                                             unverified_dests,
+                                             len(destinations))])
 
 
 def _from_file(scene: Path, pure) -> list[str]:
@@ -461,7 +484,7 @@ def _placement(field: Field, point: Vec3, reach: dict):
     if field.blocked[i]:
         return i, "inside solid geometry"
     if i not in reach:
-        return i, "sealed off from the crew spawn"
+        return i, _SEAL
     return i, None
 
 
@@ -472,6 +495,87 @@ def _strand(field: Field, reach: dict, points: dict) -> dict:
         if why:
             stranded[name] = why
     return stranded
+
+
+def _optimistic_reach(field: Field, reading: Reading, player: Vec3):
+    """The same flood fill, with the INFERRED walls set aside.
+
+    `ground_contact` builds one box per collision MESH, taking its bounding
+    box, and a doorway lives in a mesh -- so an exterior wall with openings cut
+    in it arrives here as a solid box across every one of them. Measured
+    2026-08-09, `cr_garage` declares seven ground-level entries and reads as an
+    unbroken ring; under that model no point inside any building is reachable,
+    ever.
+
+    So this asks the counterfactual the module's docstring already promises:
+    what would be reachable if the walls this reader had to INFER were not
+    there? A point unreachable in both fields is sealed by geometry that was
+    measured, and still gates. A point reachable only here is sealed by
+    something this reader cannot see through, and refusing a build on that is
+    refusing it on the reader's own blind spot.
+
+    WHICH boxes leave is the whole care in this function. Every measured box
+    stays. An inferred box stays only where its top is within a step of the
+    mission's own storey -- an interior floor, a kerb, a threshold. An inferred
+    box standing taller than that is the wall whose doorway could not be seen,
+    and it leaves the field entirely.
+
+    It has to LEAVE, not merely stop blocking. The first version of this kept
+    each wall's floor contribution so the interior would not read as a hole,
+    and a 3 m wall top is standable, unclimbable, and still uncrossable: the
+    counterfactual answered exactly as the original did and the whole check was
+    inert. The interior floor is a separate box and survives on its own.
+
+    Returns ``(field, reach)`` or ``None`` when there is nothing to compare --
+    no inferred walls, or no standable start once they are gone.
+    """
+    ceiling = field.reference + AGENT_CLIMB
+    kept = [box for box in reading.boxes
+            if not getattr(box, "approximate", False) or box.top <= ceiling]
+    if len(kept) == len(reading.boxes):
+        return None
+    loose = heightfield(kept, field.reference, cell=field.cell)
+    if loose is None:
+        return None
+    start = loose.index(player[0], player[2])
+    if start is None or not loose.standable(start):
+        return None
+    return loose, walk_distances(loose, start)
+
+
+def _split_seals(stranded: dict, points: dict, loose) -> tuple[dict, dict]:
+    """``(verified, unverified)`` -- seals this reader can stand behind, and not.
+
+    Only the seal verdict is ever moved. A point over a gap, on another storey
+    or inside solid geometry is refused on evidence a doorway could not change,
+    and those keep gating exactly as before.
+    """
+    if loose is None:
+        return stranded, {}
+    lfield, lreach = loose
+    verified, unverified = {}, {}
+    for name, why in stranded.items():
+        if why == _SEAL:
+            _i, still = _placement(lfield, points[name], lreach)
+            if still is None:
+                unverified[name] = why
+                continue
+        verified[name] = why
+    return verified, unverified
+
+
+def _unverified_findings(kind: str, stranded: dict, total: int) -> list[str]:
+    if not stranded:
+        return []
+    return [
+        f"{len(stranded)} of {total} {kind} sit(s) where this reader's own "
+        f"collision has no route from the crew spawn ({_detail(stranded)}), "
+        f"but every wall between is a collision MESH reduced to its bounding "
+        f"box -- doorways included. With those walls set aside the point is "
+        f"reachable, so the seal is this reader's blind spot rather than a "
+        f"fact about the level, and it is reported instead of refused. If "
+        f"Laser Tag comes back with TRAVERSAL at 0%, the seal was real"
+    ]
 
 
 def _caveat(field: Field, reading: Reading) -> str:
@@ -505,7 +609,7 @@ def _detail(stranded: dict) -> str:
 
 
 def _unreachable(field: Field, reach: dict, enemies: dict, destinations: dict,
-                 reading: Reading) -> list[str]:
+                 reading: Reading, loose=None) -> list[str]:
     """Two findings, not one.
 
     An enemy the crew cannot be reached from and a waypoint the crew cannot walk
@@ -517,14 +621,16 @@ def _unreachable(field: Field, reach: dict, enemies: dict, destinations: dict,
     problems: list[str] = []
     caveat = _caveat(field, reading)
 
-    stranded = _strand(field, reach, enemies)
+    stranded, _unverified = _split_seals(
+        _strand(field, reach, enemies), enemies, loose)
     if stranded:
         problems.append(
             f"{len(stranded)} of {len(enemies)} enemy spawn(s) cannot be walked "
             f"to from the player spawn: {_detail(stranded)}{caveat}; Laser Tag "
             f"refuses the map with UNREACHABLE_SPAWN and completes zero runs")
 
-    stranded = _strand(field, reach, destinations)
+    stranded, _unverified = _split_seals(
+        _strand(field, reach, destinations), destinations, loose)
     if stranded:
         problems.append(
             f"{len(stranded)} of {len(destinations)} mission destination(s) "

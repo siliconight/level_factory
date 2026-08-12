@@ -1,5 +1,5 @@
-"""Build a throwaway first-person WALK PREVIEW project that wraps a composed
-themed level so you can walk it and make refinements.
+"""Build a throwaway first-person WALK PREVIEW project that wraps the portable
+export of a mission so you can walk it and make refinements.
 
 Why this is separate from the presentation-compose output: the compose output is
 a DROP-IN CONTENT package — a stranger instances ``res://<level>.tscn`` into
@@ -8,9 +8,17 @@ main scene). A player/walk scene is the opposite: it only means something inside
 a running project (it needs project.godot + a main scene + a camera + input).
 
 So we never bake the player into the package. Instead this builder makes a
-SEPARATE, clearly dev-only project that INSTANCES the same content scene and adds
-LF's dependency-free walk controller at a spawn marker. It's never exported (the
-deliverable stays pure content); it exists purely for local iteration.
+SEPARATE, clearly dev-only project that INSTANCES the deliverable and adds LF's
+dependency-free walk controller at a spawn marker. The PREVIEW PROJECT is never
+exported (the deliverable stays pure content); it exists purely for local
+iteration.
+
+What it instances is the PORTABLE EXPORT, not the job outputs. ``cmd_walk``
+runs ``export_mission`` first and wraps the ``mission.tscn`` that comes out of
+it, so what you walk is the package a stranger receives -- localized,
+addon-free and closure-scanned. Walking the job outputs meant walking a level
+that renders only with the Lux checkout on disk, which is the definition of an
+instrument that escaped.
 
 Godot ``res://`` is rooted at the project dir and can't reach a sibling folder,
 so the preview copies the content in — a cheap, disposable duplicate. The package
@@ -59,14 +67,33 @@ renderer/rendering_method="gl_compatibility"
 """
 
 
+#: The entry `write_entry_scene` synthesizes in an export. A plain Node3D whose
+#: script instances the level -- "Self-contained (no addons)", in its own words.
+ENTRY_SCENE = "mission.tscn"
+
+
 def _find_level_scene(content_dir: Path) -> str | None:
-    """The drop-in content scene: the .tscn that is neither the package's
-    ``*_main.tscn`` harness nor a ``*_walk.tscn`` preview. Prefer ``site.tscn``."""
+    """The scene to walk: the export's entry, else the drop-in content scene.
+
+    ``mission.tscn`` comes first because in an export root it IS the level, and
+    `site.tscn` beside it is a dependency the presentation scene resolves by
+    name rather than a second level standing next to it -- `write_entry_scene`
+    makes that call and this defers to it instead of making it again.
+
+    The `site_lux.tscn` preference below is KEPT AND DEAD, deliberately.
+    `lux_apply` writes `lux.applied.tscn`; nothing has ever written this name,
+    which is why the branch never fired. It stays because deleting it would
+    erase the evidence that the two halves of this contract were never the same
+    string -- and because the fix was not to satisfy it. The applied scene
+    references `res://addons/lux/` six times and renders nothing without the
+    Lux checkout on disk; the export localizes that, and walking the export is
+    how the preview gets the lit look without an instrument escaping.
+    """
     tscns = [p.name for p in sorted(content_dir.glob("*.tscn"))
              if not p.name.endswith("_main.tscn")
              and not p.name.endswith("_walk.tscn")]
-    # Prefer the Lux-applied scene when the art pass produced one: walking the
-    # final runtime look beats walking the unlit compose intermediate.
+    if ENTRY_SCENE in tscns:
+        return ENTRY_SCENE
     if "site_lux.tscn" in tscns:
         return "site_lux.tscn"
     if "site.tscn" in tscns:
@@ -125,6 +152,32 @@ def _spawn_from_scene(scene_path: Path):
              round(gz, 3)), f"marker:{src}")
 
 
+def _overlay_steps(dest) -> int:
+    return 1 if _overlay_res(dest) else 0
+
+
+def _overlay_res(dest) -> str:
+    """The overlay's ext_resource line, or "" when assets/godot has no overlay.
+
+    Written conditionally for the same reason the bots are copied
+    conditionally: an older `assets/godot` should still produce a usable
+    preview. A scene referencing a script that is not there fails to load, and
+    a preview that will not open is worse than one without a HUD.
+    """
+    from pathlib import Path as _P
+    if not (_P(dest) / "debug_overlay.gd").is_file():
+        return ""
+    return '[ext_resource type="Script" path="res://debug_overlay.gd" id="3_dbg"]\n'
+
+
+def _overlay_node(dest) -> str:
+    from pathlib import Path as _P
+    if not (_P(dest) / "debug_overlay.gd").is_file():
+        return ""
+    return ('\n[node name="DebugOverlay" type="Node" parent="."]\n'
+            'script = ExtResource("3_dbg")\n')
+
+
 def build_walk_preview(content_dir, player_src, dest, *, name="level"):
     """Assemble a self-contained walk-preview project at ``dest`` that wraps the
     content in ``content_dir`` and adds LF's player. Returns a report dict.
@@ -172,7 +225,7 @@ def build_walk_preview(content_dir, player_src, dest, *, name="level"):
     # pure content. Copied opportunistically -- an older assets/godot without
     # them still builds a usable preview, it just cannot self-check.
     bots = []
-    for bot in ("walk_bot.gd", "shot_bot.gd"):
+    for bot in ("walk_bot.gd", "shot_bot.gd", "debug_overlay.gd"):
         src = player_src / bot
         if src.exists():
             shutil.copy2(src, dest / bot)
@@ -191,25 +244,39 @@ def build_walk_preview(content_dir, player_src, dest, *, name="level"):
     #     preview adds a basic dev rig: sky + strong colour ambient (geometry is
     #     always visible, independent of renderer/sky quirks) + a sun for
     #     definition. Preview-only chrome — never ships, not Lux's final look.
-    has_lux = False
-    try:
-        has_lux = "addons/lux" in (dest / level).read_text(encoding="utf-8")
-    except OSError:
-        pass
+    # WHO OWNS THE LIGHT. This used to grep the level scene for `addons/lux`,
+    # which works on a lux_apply intermediate and is exactly wrong on an export:
+    # `localize_export` removes that string BY DESIGN -- a portable package
+    # carries no addons by contract. The old test would have found nothing,
+    # added the dev rig on top of Lux's own WorldEnvironment, and washed out the
+    # applied look it was written to protect.
+    #
+    # So it asks the question the export answers: is there a presentation scene
+    # in here. That is the same thing `write_entry_scene` keys on when it
+    # decides what `mission.tscn` instances, so the two cannot disagree.
+    has_lux = (dest / "presentation" / "lux.applied.tscn").is_file()
+    if not has_lux:
+        try:
+            has_lux = "addons/lux" in (dest / level).read_text(encoding="utf-8")
+        except OSError:
+            pass
     if has_lux:
         (dest / "walk.tscn").write_text(
-            "[gd_scene load_steps=3 format=3]\n\n"
+            f"[gd_scene load_steps={3 + _overlay_steps(dest)} format=3]\n\n"
             f'[ext_resource type="PackedScene" path="res://{level}" id="1_lvl"]\n'
-            '[ext_resource type="PackedScene" path="res://player_walk.tscn" id="2_ply"]\n\n'
-            '[node name="Walk" type="Node3D"]\n\n'
+            '[ext_resource type="PackedScene" path="res://player_walk.tscn" id="2_ply"]\n'
+            + _overlay_res(dest) +
+            '\n[node name="Walk" type="Node3D"]\n\n'
             f'[node name="Level" parent="." instance=ExtResource("1_lvl")]\n\n'
             '[node name="Player" parent="." instance=ExtResource("2_ply")]\n'
-            f"transform = Transform3D({tf})\n", encoding="utf-8")
+            f"transform = Transform3D({tf})\n" + _overlay_node(dest),
+            encoding="utf-8")
     else:
         (dest / "walk.tscn").write_text(
-            "[gd_scene load_steps=5 format=3]\n\n"
+            f"[gd_scene load_steps={5 + _overlay_steps(dest)} format=3]\n\n"
             f'[ext_resource type="PackedScene" path="res://{level}" id="1_lvl"]\n'
-            '[ext_resource type="PackedScene" path="res://player_walk.tscn" id="2_ply"]\n\n'
+            '[ext_resource type="PackedScene" path="res://player_walk.tscn" id="2_ply"]\n'
+            + _overlay_res(dest) + "\n"
             '[sub_resource type="ProceduralSkyMaterial" id="Sky_mat"]\n\n'
             '[sub_resource type="Sky" id="Sky"]\n'
             'sky_material = SubResource("Sky_mat")\n\n'
@@ -218,18 +285,43 @@ def build_walk_preview(content_dir, player_src, dest, *, name="level"):
             'sky = SubResource("Sky")\n'
             'ambient_light_source = 2\n'
             'ambient_light_color = Color(0.72, 0.73, 0.77, 1)\n'
-            'ambient_light_energy = 1.4\n\n'
+            # FILL, not the main light. Ambient is directionless: it adds the
+            # same amount to a face pointing up and a face pointing sideways,
+            # so it cannot shade form -- form shading IS the difference
+            # between orientations. At 1.4 against a 0.6 sun it was better
+            # than 2:1 in favour of the term that flattens, and a wall read
+            # the same value as the floor it stood on. It does not go to zero:
+            # with shadows on, a face turned fully away would be black, and an
+            # unreadable dark is no better than an unreadable flat.
+            'ambient_light_energy = 0.3\n\n'
             '[node name="Walk" type="Node3D"]\n\n'
             '[node name="PreviewLighting" type="Node3D" parent="."]\n\n'
             '[node name="WorldEnvironment" type="WorldEnvironment" parent="PreviewLighting"]\n'
             'environment = SubResource("Env")\n\n'
             '[node name="Sun" type="DirectionalLight3D" parent="PreviewLighting"]\n'
-            'transform = Transform3D(1, 0, 0, 0, 0.4, -0.9, 0, 0.9, 0.4, 0, 15, 0)\n'
-            'light_energy = 0.6\n'
-            'shadow_enabled = false\n\n'
+            # Pitch AND yaw. The old basis was a pure rotation about X, so the
+            # sun pointed at (0, -0.91, -0.41): square-on to perim_N and
+            # perim_S and exactly grazing perim_E and perim_W, which left the
+            # two pairs lit identically. 40 degrees of yaw gives
+            # (-0.26, -0.91, -0.31) and every cardinal wall takes a different
+            # amount. Orthonormal to 1e-6; `patch_lf_preview_lighting.py --rig`
+            # recomputes and checks it.
+            'transform = Transform3D(0.766, 0, -0.6428, -0.5872, 0.4067, -0.6998, 0.2614, 0.9135, 0.3116, 0, 40, 0)\n'
+            'light_energy = 1.7\n'
+            # Shadows are the other half of reading geometry: they say which
+            # solid is in front of which, and where a solid meets the ground.
+            # 260 m covers the long axis of a generated site (measured: the
+            # lot_demo plate runs 309 m) without splitting the cascade so thin
+            # it shimmers.
+            'shadow_enabled = true\n'
+            'directional_shadow_mode = 2\n'
+            'directional_shadow_max_distance = 260.0\n'
+            'shadow_bias = 0.06\n'
+            'shadow_normal_bias = 2.0\n\n'
             f'[node name="Level" parent="." instance=ExtResource("1_lvl")]\n\n'
             '[node name="Player" parent="." instance=ExtResource("2_ply")]\n'
-            f"transform = Transform3D({tf})\n", encoding="utf-8")
+            f"transform = Transform3D({tf})\n" + _overlay_node(dest),
+            encoding="utf-8")
     lighting = "lux (content-owned)" if has_lux else "preview rig"
 
     # 5. the preview project (main scene = walk.tscn).

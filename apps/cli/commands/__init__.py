@@ -218,6 +218,40 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
     """Map each planned job to the adapter job spec it needs to run."""
     specs: dict[str, dict] = {}
     jobs_dir = ws.jobs_dir
+
+    # ONE derivation per candidate. `_lot_for_compose` lists a directory and
+    # prints what it excluded; with the placement stages fanned out there are
+    # now twenty-odd jobs that need the same answer, and doing it per job would
+    # list the library twenty times and say the same sentence twenty times.
+    _lot_memo: dict[str, list] = {}
+
+    def _lot_rows(candidate_id) -> list:
+        cid = str(candidate_id)
+        if cid not in _lot_memo:
+            _lot_memo[cid] = _lot_for_compose(model, cid)
+        return _lot_memo[cid]
+
+    def _art_entry(job):
+        """The library row for the building THIS job bakes, None if mission-wide.
+
+        `job.archetype_id` was set by the planner from the same `lot_for` rule
+        this reads, so a fanned job whose archetype is not in the candidate's lot
+        means the planner and the spec builder disagree about which buildings the
+        mission places. Refused rather than fallen back from: quietly using the
+        mission's own shell instead is exactly the substitution being removed.
+        """
+        aid = getattr(job, "archetype_id", None)
+        if not aid:
+            return None
+        row = next((a for a in _lot_rows(job.candidate_id)
+                    if a.get("id") == aid), None)
+        if row is None:
+            raise RuntimeError(
+                f"{job.job_id} is planned for archetype {aid!r}, which is not "
+                f"in this candidate's lot -- the planner and the spec builder "
+                f"disagree about which buildings this mission places")
+        return row
+
     for job in plan.graph.topological_order():
         if job.adapter_id == "deli_counter":
             specs[job.job_id] = {
@@ -236,8 +270,7 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                 # Same placement, themed geometry. The Deli Counter job is not
                 # this job's dependency -- compose is -- so it is looked up by
                 # candidate rather than taken from depends_on[0].
-                compose_job = next((d for d in job.depends_on
-                                    if "presentation_compose" in d), None)
+                compose_job = _dep(job, "presentation_compose")
                 deli_job = next(
                     (j.job_id for j in plan.graph.jobs()
                      if j.adapter_id == "deli_counter"
@@ -259,7 +292,7 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                 # the seed comes from this same candidate id.
                 compose_out = _latest_output(jobs_dir / compose_job,
                                              "presentation")
-                lot = _lot_for_compose(model, job.candidate_id)
+                lot = _lot_rows(job.candidate_id)
                 themed_scene = (
                     {a["id"]: str(compose_out / "lot" / str(a["id"])
                                   / "site.tscn") for a in lot}
@@ -271,6 +304,10 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                 ws, model, deli_out, seed=seed, themed_scene=themed_scene)
             specs[job.job_id] = {
                 "site_spec_path": str(site_spec),
+                # Written beside the spec by _write_site_spec. The adapter
+                # plans a staging command against it before Lot runs.
+                "staging_manifest_path": str(
+                    Path(site_spec).parent / "packages.json"),
                 "walkable": True,
                 # Emit <stem>_navqa.tscn, the scene the walktest stage runs.
                 # The Lot adapter has supported --navqa since it was written and
@@ -322,6 +359,25 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
             specs[job.job_id] = {
                 "seed": int(job.candidate_id.rsplit("_", 1)[-1]),
                 "run_count": 25,
+                # THE MISSION'S ENCOUNTER, not Laser Tag's stock one. The
+                # adapter has read `scenario_res` from this dict since it was
+                # written and nothing ever set it, so every mission was graded
+                # 1-versus-6 whatever its brief said.
+                #
+                # VALUES rather than a path, because `fingerprint_inputs`
+                # already hashes `job_spec["scenario"]`: the numbers being here
+                # means changing the encounter re-runs the evaluation. A path
+                # would have fingerprinted the string while the file underneath
+                # it moved.
+                "scenario": {
+                    "player_count": int(getattr(model, "crew_size", 1)),
+                    "player_health": int(getattr(model, "crew_health", 5)),
+                    "enemy_count": int(getattr(model, "enemy_count", 6)),
+                    "enemy_health": int(getattr(model, "enemy_health", 2)),
+                },
+                # Already read by the staging hook injector and already in the
+                # fingerprint; it just had no source but a default.
+                "enemy_count": int(getattr(model, "enemy_count", 6)),
                 # Laser Tag evaluates the walkable candidate scene.
                 "evaluation_scene": str(_latest_output(lot_out, "site_walk.tscn")),
                 "addon_dir": str(lt_repo / "addons" / "laser_tag_tool"),
@@ -348,19 +404,29 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
             # Patina dressing(+Zoo kit); fixtures build consumes the locked
             # shell's lights manifest. Distinguish by stage id.
             if job.stage_id == "zoo_fixtures_build":
-                deli_job = job.depends_on[0]
+                # An archetype's lights manifest comes from the LIBRARY, where
+                # it already exists; the mission's own shell reads the one its
+                # Deli Counter job wrote. `building_library.index` carries the
+                # path, and `require_art_inputs` has already refused the mission
+                # if any picked building lacks one -- so this is a lookup, not a
+                # probe with a fallback.
+                entry = _art_entry(job)
+                deli_job = _dep(job, "deli_generate") or job.depends_on[0]
+                lights_path = (str(entry["lights"]) if entry
+                               else str(_latest_output(jobs_dir / deli_job,
+                                                       "shell.lights.json")))
                 specs[job.job_id] = {
                     "mode": "fixtures",
                     "seed": int(str(job.candidate_id).rsplit("_", 1)[-1]),
                     "theme": model.theme or batch.get("theme_family", ""),
-                    "lights_path": str(_latest_output(jobs_dir / deli_job,
-                                                      "shell.lights.json")),
+                    "lights_path": lights_path,
                     # A fixture build that fails IS a failure — hardware is
                     # load-bearing for the lighting contract, unlike kit
                     # module misses.
                 }
             elif job.stage_id == "zoo_dressing_build":
-                dress_job = next(d for d in job.depends_on if "patina_dressing" in d)
+                dress_job = _dep(job, "patina_dressing",
+                                 getattr(job, "archetype_id", None))
                 # The DRESSING build needs the same Pixelcoat library the KIT
                 # build gets. Without it Zoo's material factory finds no pack
                 # and every cover falls back to one flat colour: the shipped
@@ -384,9 +450,16 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                     "theme": model.theme or batch.get("theme_family", ""),
                     "skins_dir": (str(_latest_output(jobs_dir / pix_job, "."))
                                   if pix_job else ""),
-                    # Zoo --dress consumes Patina's <stem>.patina.dressing.json.
-                    "manifest_path": str(_latest_output(jobs_dir / dress_job,
-                                                        "shell.patina.dressing.json")),
+                    # Zoo --dress consumes Patina's <stem>.patina.dressing.json,
+                    # and Patina takes that stem from its INPUT
+                    # (adapters/patina/__init__.py:42-48). A dressing job for
+                    # `final_stand.glb` therefore writes
+                    # `final_stand.patina.dressing.json`; `shell` is the stem
+                    # only for the mission's own shell.
+                    "manifest_path": str(_latest_output(
+                        jobs_dir / dress_job,
+                        f"{getattr(job, 'archetype_id', None) or 'shell'}"
+                        f".patina.dressing.json")),
                     # Zoo exits nonzero (2) when some modules fail to build but
                     # still writes its index and the modules that did build; the
                     # resolver falls back to base for the rest. That's a quality
@@ -394,18 +467,35 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                     "exit_advisory": True,
                 }
             else:
-                pix_job = next((d for d in job.depends_on if "pixelcoat" in d), None)
+                pix_job = _dep(job, "pixelcoat_build")
+                # ITS OWN SLOTS. `_lot_slots` returns the MISSION SHELL's
+                # slots, and while the kit was planned once per mission that
+                # was the only manifest in play -- so every library building in
+                # the lot wore modules cut to the mission shell's storey.
+                # Measured 2026-08-09: 3.300 m in all eight buildings, against
+                # slots asking 3.1 to 5.2. An archetype's slots come from the
+                # LIBRARY row, the same lookup the fixtures branch above makes
+                # for its lights manifest.
+                entry = _art_entry(job)
                 specs[job.job_id] = {
                     "mode": "kit",
                     "seed": int(str(job.candidate_id).rsplit("_", 1)[-1]),
                     "theme": model.theme or batch.get("theme_family", ""),
-                    "slots_path": str(_lot_slots(ws, jobs_dir, job)),
+                    "slots_path": (str(entry["slots"]) if entry
+                                   else str(_lot_slots(ws, jobs_dir, job))),
                     "skins_dir": (str(_latest_output(jobs_dir / pix_job, "."))
                                   if pix_job else ""),
                     "exit_advisory": True,
                 }
         elif job.adapter_id == "patina":
-            deli_glb = str(_latest_output(jobs_dir / _deli_for(plan, job), "shell.glb"))
+            # The shell this pass treats. An archetype's greybox is the library
+            # file the lot picked; the mission's own shell is what its Deli
+            # Counter job built. Patina names every output from this path's
+            # stem, so it also decides what the planner's expected_outputs say.
+            entry = _art_entry(job)
+            deli_glb = (str(entry["glb"]) if entry else
+                        str(_latest_output(jobs_dir / _deli_for(plan, job),
+                                           "shell.glb")))
             if job.stage_id == "patina_dressing":
                 specs[job.job_id] = {
                     "input_glb": deli_glb,
@@ -431,30 +521,66 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
             # the themed Zoo kit modules that fill the slots.
             repos = ws.load_tools_local().get("repositories", {})
             deli_out = jobs_dir / _deli_for(plan, job)
-            kit_job = next((d for d in job.depends_on if "zoo_kit_build" in d), None)
-            modules_dir = (str(_latest_output(jobs_dir / kit_job, "."))
-                           if kit_job else "")
 
-            def _layer_glb(dep_key: str, suffix: str) -> str:
-                """The dressing/fixtures GLB a dependency job published --
-                the CONTENT LAYERS the composed scene instances (props +
-                light-fixture hardware). Resolved by suffix because the
-                filename carries the building id."""
-                dep = next((d for d in job.depends_on if dep_key in d), None)
-                if not dep:
-                    return ""
-                hits = sorted((jobs_dir / dep / "out").glob(f"*{suffix}"))
-                return str(hits[-1]) if hits else ""
+            def _layer_paths(stage: str, suffix: str) -> dict:
+                """``{archetype_id or "": out_dir}`` -- where each building's
+                CONTENT LAYER will be, once its job has run.
 
-            dressing_glb = _layer_glb("zoo_dressing_build", "_dressing.glb")
-            fixtures_glb = _layer_glb("zoo_fixtures_build", "_fixtures.glb")
+                A DIRECTORY, and constructed from a job id rather than found on
+                disk. This globbed for the file itself and returned `""` when it
+                found nothing -- and it always found nothing, because this whole
+                function runs BEFORE ANY JOB EXECUTES. Measured 2026-08-06: five
+                composed buildings, zero `--dressing` flags, and a probe
+                reporting no Dressing node anywhere. It had appeared to work only
+                while a previous run's artifact happened to be sitting in a
+                stable out dir for the glob to find.
+
+                The adapter resolves the file inside this directory at execution
+                time, when the producing job has finished. See
+                docs/WALKABLE_SITE.md's rule: paths are constructed, not probed.
+
+                The dressing and fixtures GLBs the composed scene instances
+                (props + light-fixture hardware). A bake is a PLACEMENT against
+                one specific shell's walls and roof, so the building it was
+                built for is the key. This used to take `hits[-1]` -- whichever
+                filename sorted last -- from whichever dependency matched first,
+                and hand it to every building: measured 2026-08-06, one
+                30.4 x 8.4 x 22.4 dressing box inside five shells whose
+                footprints ran from 26.1 x 20.3 to 46.3 x 26.3.
+
+                Keyed off the JOB's archetype rather than parsed back out of the
+                filename, because reconstructing ids from strings is already the
+                fragile part of this codebase.
+
+                Several layers of one kind in one job dir is refused rather than
+                resolved: one bake is one placement against one shell, so there
+                is no basis for preferring one of them.
+                """
+                deps = set(job.depends_on)
+                found: dict[str, str] = {}
+                for dep in plan.graph.jobs():
+                    if dep.job_id not in deps or dep.stage_id != stage:
+                        continue
+                    found[getattr(dep, "archetype_id", None) or ""] = str(
+                        jobs_dir / dep.job_id / "out")
+                return found
+
+            dressing_glb = _layer_paths("zoo_dressing_build", "_dressing.glb")
+            fixtures_glb = _layer_paths("zoo_fixtures_build", "_fixtures.glb")
+            # THE KIT IS A LAYER TOO, and it took until 2026-08-09 to say so.
+            # This was `_dep(job, "zoo_kit_build")` -- one job's output dir,
+            # handed to every building's compose -- which is the identical
+            # shape as the `hits[-1]` dressing defect described above, still
+            # standing after that one was fixed, because a kit was believed to
+            # be a shared library rather than a per-building bake.
+            modules_dir = _layer_paths("zoo_kit_build", "")
             specs[job.job_id] = {
                 # THE LOT IS CHOSEN HERE AND ONLY HERE. `pick_lot` is
                 # deterministic on (library, seed, count), so `_write_site_spec`
                 # calling it again would agree -- by luck, until someone
                 # changes a signature. It reads the ids back off this compose's
                 # own output instead. See docs/VARIED_THEMED_LOT.md.
-                "lot_archetypes": _lot_for_compose(model, job.candidate_id),
+                "lot_archetypes": _lot_rows(job.candidate_id),
                 "deli_repo": str(repos.get("deli_counter", "")),
                 "slots_path": str(_latest_output(deli_out, "shell.slots.json")),
                 "gameplay_path": str(_latest_output(deli_out, "shell.gameplay.json")),
@@ -487,10 +613,8 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
             # the fix for the --art contract: the compose stage produces
             # <compose>/presentation/site.tscn with the themed modules on DC's
             # collision, and Lux lights THAT.
-            themed_job = next((d for d in job.depends_on
-                               if "themed_site_assemble" in d), None)
-            compose_job = next((d for d in job.depends_on
-                                if "presentation_compose" in d), None)
+            themed_job = _dep(job, "themed_site_assemble")
+            compose_job = _dep(job, "presentation_compose")
             lot_job = next((j.job_id for j in plan.graph.jobs()
                             if j.stage_id == "lot_assemble"
                             and j.candidate_id == job.candidate_id), None)
@@ -536,6 +660,32 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
     return specs
 
 
+def _dep(job, stage: str, archetype: str | None = None) -> str | None:
+    """The ONE dependency of ``job`` in ``stage``, or None.
+
+    `next((d for d in job.depends_on if "<stage>" in d), None)` returns the
+    FIRST match and drops the rest without a word. That was correct while every
+    art stage was planned once per mission. The stages that bake a PLACEMENT now
+    run once per building, and a resolver that takes whichever id happens to
+    come first hands one building's props to all of them -- which is the defect,
+    reintroduced one layer down.
+
+    So: narrow by archetype when the caller has one, and REFUSE when more than
+    one survives. A caller with several candidates and no way to choose between
+    them does not have a default; it has a bug.
+    """
+    hits = [d for d in job.depends_on if f".{stage}" in d]
+    if archetype:
+        hits = [d for d in hits if d.endswith(f".{archetype}")]
+    if len(hits) > 1:
+        raise RuntimeError(
+            f"{job.job_id} has {len(hits)} '{stage}' dependencies "
+            f"({', '.join(hits)})"
+            + (f" for archetype {archetype!r}" if archetype else
+               " and no archetype to choose between them"))
+    return hits[0] if hits else None
+
+
 def _lot_slots(ws: Workspace, jobs_dir: Path, job) -> Path:
     """Slots.json for a presentation job's selected candidate (from the DC job)."""
     seed = str(job.candidate_id).rsplit("_", 1)[-1]
@@ -570,20 +720,25 @@ def _lot_for_compose(model, candidate_id) -> list:
     needs is pure -- `building_library` is a directory listing and
     arithmetic -- so it runs at spec time with no workspace and no Godot.
     """
-    library = getattr(model, "lot_library", None)
-    count = max(1, int(getattr(model, "building_count", 1) or 1))
-    if not library or count < 2:
-        return []
     from packages.pipeline import building_library
-    complete, incomplete = building_library.index(library)
+    # THEMED. Both callers of this function build a themed spec -- the
+    # presentation compose's `lot_archetypes` and `themed_site_assemble`'s
+    # scene map -- so the pool is the shells that can carry a theme, and a
+    # library too small for the brief refuses HERE rather than composing a
+    # short row that every stage then reports as a success. The greybox site
+    # spec does not come through this function.
+    lot, incomplete = building_library.lot_for(
+        getattr(model, "lot_library", None),
+        getattr(model, "building_count", 1),
+        candidate_id,
+        themed=True)
     if incomplete:
         # Same voice as the site builder: a silently shorter library is how a
         # lot quietly stops being varied.
         print(f"[compose] {len(incomplete)} archetype(s) not themeable "
               f"(incomplete manifest): "
               + ", ".join(e["id"] for e in incomplete[:5]))
-    seed = int(str(candidate_id).rsplit("_", 1)[-1])
-    return building_library.pick_lot(complete, seed, count)
+    return lot
 
 
 def _latest_output(job_root: Path, name: str) -> Path:
@@ -681,6 +836,26 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
     glb = str(_latest_output(deli_out, "shell.glb"))
     gameplay = str(_latest_output(deli_out, "shell.gameplay.json"))
 
+    # WHERE EACH BUILDING COMES FROM, beside where the spec will name it.
+    #
+    # The spec's geometry refs are relative to the site's own out dir, because
+    # Lot writes each ext_resource as os.path.join(glb_dir, src) with
+    # glb_dir=".": an absolute src passes straight through and ships as
+    # res://C:/..., which is a request for a folder named "C:" inside the
+    # consumer's project. So the spec says "lot/<id>/site.tscn" and a staging
+    # step run before Lot puts the package there.
+    #
+    # These are ABSOLUTE and stay absolute. They are build inputs, not
+    # deliverables -- the staging step reads them and the fingerprint watches
+    # them, and neither of those happens inside a Godot project.
+    #
+    # CONSTRUCTED, NOT PROBED, for the same reason the rest of this function
+    # is: it runs while the plan is built, before any compose job has produced
+    # anything. Nothing here may ask whether a source exists in order to decide
+    # what to do; the staging step refuses at run time if one is missing.
+    staged_packages: dict[str, str] = {}
+    staged_glbs: dict[str, str] = {}
+
     # A LOT OF DIFFERENT BUILDINGS, when the brief asks for one. Roadmap 37:
     # this function measured ONE shell and gave it N placements, so a
     # four-building site was one building four times and stairs and ladders
@@ -707,11 +882,37 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
     library = getattr(model, "lot_library", None)
     if library and (themed_map or not themed_scene):
         from packages.pipeline import building_library
-        complete, incomplete = building_library.index(library)
+        complete, incomplete, non_source = building_library.index(library)
         if incomplete:
             print(f"[site] {len(incomplete)} archetype(s) excluded from the lot "
                   f"for a missing manifest: "
                   + ", ".join(e["id"] for e in incomplete[:5]))
+        if non_source:
+            # A DIFFERENT SENTENCE FROM THE ONE ABOVE, and it has to be. These
+            # are not archetypes with a hole in them; they are this pipeline's
+            # own composed output and Deli Counter's facades, sitting in the
+            # source library because `deli_counter/build/` is both the source
+            # and the sink. Printing them as "a missing manifest" would send
+            # somebody to rebuild a file that should never have been indexed.
+            print(f"[site] {len(non_source)} entr(y/ies) in {library} are not "
+                  f"source archetypes and were not offered to the lot: "
+                  + ", ".join(e["id"] for e in non_source[:5]))
+        if themed_map:
+            # The themed pool is narrower, and it must be the SAME narrowing
+            # `_lot_for_compose` applied: compose published one scene per
+            # archetype and `themed_map` is keyed on those ids. A wider pool
+            # here selects buildings that have no composed scene, `_source`
+            # finds no match, and the row stands as greybox with every stage
+            # reporting success -- the defect this file keeps finding, one
+            # layer down.
+            #
+            # NOT applied to the greybox branch. That places levels already
+            # built and graded, and re-selecting them would be different
+            # levels wearing the same grades.
+            before = len(complete)
+            complete = building_library.require_themed_shells(complete, count)
+            print(f"[site] themed lot: {len(complete)} of {before} shell(s) "
+                  f"can carry a theme")
         lot = building_library.pick_lot(complete, seed, count)
         if len(lot) < count:
             # Loud, not silent. A short lot means the library is smaller than
@@ -722,15 +923,25 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
 
     if lot:
         footprints = building_library.footprints_for(lot, shell_footprint)
-        placed = site_placements(seed, len(lot), footprints=footprints)
+        placed = site_placements(seed, len(lot), footprints=footprints,
+                                 shape=model.site_shape)
         # `scene` when this archetype has been composed, `glb` otherwise --
         # never both, same rule as the single-shell path. A lot part-way
         # through the art pass therefore stands its themed buildings themed and
         # its untouched ones as greybox, rather than failing or silently
         # dressing one as another.
         def _source(entry):
+            aid = str(entry["id"])
             scene = (themed_map or {}).get(entry["id"])
-            return {"scene": scene} if scene else {"glb": entry["glb"]}
+            if scene:
+                # The package is the composed scene's whole DIRECTORY: site.tscn
+                # is useless without the site_base.glb and art/ beside it, every
+                # one of which it references as res://<name> rooted at that
+                # package.
+                staged_packages[aid] = str(Path(scene).parent)
+                return {"scene": f"lot/{aid}/site.tscn"}
+            staged_glbs[aid] = str(entry["glb"])
+            return {"glb": f"buildings/{aid}.glb"}
 
         buildings = [
             {"id": f"b{i}", **_source(e), "gameplay": e["gameplay"],
@@ -738,7 +949,8 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
              "at": p["at"], "rot": p["rot"]}
             for i, (e, p) in enumerate(zip(lot, placed["buildings"]))
         ]
-        span_x, span_y = ground_size(len(lot), footprints=footprints)
+        span_x, span_y = ground_size(len(lot), footprints=footprints,
+                                     shape=model.site_shape)
         footprint = None            # the row is measured per building now
     else:
         # Measure the shell once: the spacing between origins and the size of
@@ -757,8 +969,14 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         # The greybox site is the one the candidate was judged on, so a themed
         # site that stood its buildings anywhere else would be a different
         # level wearing the same evaluation.
-        source = ({"scene": themed_scene}
-                  if themed_scene and not themed_map else {"glb": glb})
+        # Same defect, same fix, on the path that predates the varied lot: this
+        # one has been emitting res://C:/ for as long as it has existed.
+        if themed_scene and not themed_map:
+            staged_packages["shell"] = str(Path(themed_scene).parent)
+            source = {"scene": "lot/shell/site.tscn"}
+        else:
+            staged_glbs["shell"] = glb
+            source = {"glb": "buildings/shell.glb"}
         buildings = [
             {"id": f"b{i}", **source, "gameplay": gameplay,
              "at": p["at"], "rot": p["rot"]}
@@ -806,6 +1024,13 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         # emitting one at an arbitrary point would be a number nobody
         # chose, dressed as a decision. It stays absent until something
         # in the brief or the route says where one belongs.
+        # HOW MANY PEOPLE ARRIVE. Lot writes one `LT_PlayerSpawn` per crew
+        # member from this, because Laser Tag drops every one of them on
+        # `player_spawns[i % size()]` -- one hook and a crew of four is four
+        # capsules inside each other, which graded 10/BROKEN with zero shots
+        # fired. The spec is the contract between the brief and Lot, so the
+        # number travels here rather than as a new function parameter.
+        "crew_size": int(getattr(model, "crew_size", 1) or 1),
         # Building ids Lot resolves into the walkable scene's spawn_pos /
         # objective_pos / extraction_pos.
         "spawn": placed["spawn"],
@@ -853,6 +1078,29 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
             / "site.json")
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(pretty_dumps(spec), encoding="utf-8")
+
+    # The staging manifest, beside the spec it belongs to. Separate file rather
+    # than extra keys in the spec because Lot reads the spec and this is not
+    # Lot's business -- and because a spec that carried absolute source paths
+    # would be exactly the artifact this change exists to stop shipping.
+    #
+    # `gameplay` refs stay absolute in the spec on purpose. They are read by
+    # merge_gameplay at build time and never appear in any emitted scene, so
+    # they are a build input like these are, and keeping them resolvable is
+    # what lets fingerprint_inputs keep watching them.
+    repos = ws.load_tools_local().get("repositories", {})
+    lot_repo = str(repos.get("lot", ""))
+    manifest = {
+        "packages": staged_packages,
+        "glbs": staged_glbs,
+        # Lot's walk scene, asked for portably, names these bare at the site
+        # root rather than under addons/lot/ -- so the pack never has to claim
+        # an addons/ directory inside somebody else's project.
+        "addon_dir": (str(Path(lot_repo) / "godot" / "addons" / "lot")
+                      if lot_repo else ""),
+    }
+    (dest.parent / "packages.json").write_text(
+        pretty_dumps(manifest), encoding="utf-8")
     return dest
 
 
@@ -1497,6 +1745,32 @@ def cmd_cache(args) -> int:
     cache = _cache(ws)
     if args.action == "inspect":
         print(pretty_dumps(cache.inspect()))
+    elif args.action == "forget":
+        # THE DIGEST COMES FROM THE JOB'S OWN RECEIPT. The scheduler writes
+        # `fingerprint.last.json` beside every job on every evaluation,
+        # explicitly so that "but I changed the slots!" can be answered without
+        # archaeology. Reading it here means a caller names a JOB -- the thing
+        # they actually distrust -- instead of computing a digest by hand.
+        if not getattr(args, "job_id", None):
+            print("cache forget needs a job id, e.g. "
+                  "lot_demo_001.presentation_compose")
+            return EXIT_CONFIG
+        receipt = ws.jobs_dir / args.job_id / "fingerprint.last.json"
+        if not receipt.is_file():
+            print(f"no fingerprint receipt for '{args.job_id}' at {receipt}")
+            print("  the job has never been evaluated in this workspace")
+            return EXIT_CONFIG
+        try:
+            digest = json.loads(receipt.read_text(encoding="utf-8"))["digest"]
+        except (OSError, ValueError, KeyError) as exc:
+            print(f"receipt unreadable: {exc}")
+            return EXIT_CONFIG
+        dropped = cache.forget(digest)
+        print(pretty_dumps({"job_id": args.job_id, "digest": digest,
+                            "forgotten": dropped,
+                            "note": ("the job will re-run on the next pass"
+                                     if dropped else
+                                     "nothing was cached under that digest")}))
     else:
         print(pretty_dumps(cache.prune()))
     return EXIT_OK
@@ -1621,28 +1895,97 @@ def cmd_certify(args) -> int:
     return EXIT_OK
 
 
+def walk_content_dir(jobs_dir, mission_id):
+    """``(dir, stage)`` -- which artifact `walk` should wrap. ``(None, "")``
+    when the mission has produced neither.
+
+    THE ASSEMBLED SITE, NOT THE COMPOSE INTERMEDIATE. This named
+    `presentation_compose` unconditionally, and on 2026-08-08 that put a
+    five-building lot's preview on one building: the run composed five distinct
+    scenes under `lot/<id>/`, `themed_site_assemble` placed them into a 26,731
+    byte `site.tscn`, and `walk` opened compose's own 47,272 byte single-shell
+    scene instead. The review frame showed one building against 86.7% void and
+    every self-check passed.
+
+    IT DOES NOT BRANCH ON WHETHER THE LOT IS VARIED. `themed_site_assemble` is
+    the last stage that makes a PLACE -- buildings standing on ground -- while
+    compose makes a content package for one building, and that is as true of a
+    single-shell mission as of a five-building one. A `building_count > 1` test
+    here would be a second derivation of "is this a varied lot" living in a
+    third place, which is the shape of the last four defects in this file.
+
+    The SCENE decides, not the directory. A job directory exists from the
+    moment the scheduler creates it, before its tool has written anything --
+    the same distinction `resolve_layer` exists to make.
+    """
+    jobs_dir = Path(str(jobs_dir))
+    site_dir = jobs_dir / f"{mission_id}.themed_site_assemble" / "out"
+    if (site_dir / "site.tscn").is_file():
+        return site_dir, "themed_site_assemble"
+    compose_dir = (jobs_dir / f"{mission_id}.presentation_compose" / "out"
+                   / "presentation")
+    if compose_dir.is_dir():
+        return compose_dir, "presentation_compose"
+    return None, ""
+
+
 def cmd_walk(args) -> int:
     """Build (and optionally open) a DEV-ONLY first-person walk preview that
-    wraps the composed themed level so you can walk it and make refinements.
+    wraps the mission's PORTABLE EXPORT so you can walk it and make refinements.
 
     This is deliberately NOT part of the drop-in package: the package is content
     a stranger instances into their own project, so it stays project-agnostic. A
     player needs its own project, so the preview is a separate, throwaway project
-    that instances the same content scene and adds LF's dependency-free player. It
-    is never exported.
+    that instances the export's `mission.tscn` and adds LF's dependency-free
+    player. The preview project is never exported.
+
+    It wraps the EXPORT rather than the job outputs so that what gets walked is
+    what gets shipped -- see the WALK WHAT SHIPS note below.
     """
     import subprocess
     from packages.preview.walk_preview import build_walk_preview
 
     ws = _ws(args)
     mission_id = args.mission_id
-    content_dir = (ws.jobs_dir / f"{mission_id}.presentation_compose" / "out"
-                   / "presentation")
-    if not content_dir.exists():
-        print(f"no composed level for {mission_id}; run `run {mission_id} --art` "
-              f"first (the walk preview wraps the presentation_compose output)",
-              file=sys.stderr)
+    content_dir, source_stage = walk_content_dir(ws.jobs_dir, mission_id)
+    if content_dir is None:
+        print(f"no walkable level for {mission_id}; run `run {mission_id} "
+              f"--art` first", file=sys.stderr)
         return EXIT_BLOCKED
+
+    # WALK WHAT SHIPS. The job outputs are an intermediate: `lux.applied.tscn`
+    # references `res://addons/lux/` six times and renders nothing without the
+    # Lux checkout on disk, which PIPELINE_MAP calls "an instrument that
+    # escaped". `export_mission` localizes that, `scan_closure` judges it, and
+    # `write_entry_scene` writes a `mission.tscn` whose own comment says
+    # "Self-contained (no addons)". Wrapping the export is how the preview shows
+    # the lit look without carrying a tool into it.
+    #
+    # By CALLING `cmd_export` rather than reassembling its inputs. The handoff
+    # dir, composed root, lux dir, addon sources, layer set and functional-lock
+    # regression check are seventy lines of decisions; a second copy of them
+    # here is the defect this file keeps finding in other people's code.
+    #
+    # A consequence, stated rather than left to be discovered: an export blocked
+    # by the regression check now blocks the walk. That is the right way round.
+    # A package that failed its own gate is not a thing to go and form opinions
+    # about.
+    import copy as _copy
+    export_args = _copy.copy(args)
+    export_args.mode = "portable-godot"
+    export_args.format = "dir"
+    export_args.include_walk = False
+    code = cmd_export(export_args)
+    if code != EXIT_OK:
+        print(f"walk needs an export and the export was refused; fix that "
+              f"first", file=sys.stderr)
+        return code
+    export_dir = ws.internal_dir / "exports" / f"{mission_id}.portable-godot"
+    if (export_dir / "mission.tscn").is_file():
+        content_dir, source_stage = export_dir, "export (portable-godot)"
+    else:
+        print(f"[walk] the export produced no {export_dir / 'mission.tscn'}; "
+              f"falling back to {source_stage}", file=sys.stderr)
 
     player_src = Path(__file__).resolve().parents[3] / "assets" / "godot"
     dest = ws.internal_dir / "preview" / f"{mission_id}_walk"
@@ -1670,6 +2013,10 @@ def cmd_walk(args) -> int:
 
     origin = report["spawn_transform"][9:]
     print(f"walk preview: {report['dest']}")
+    # SAY WHICH ARTIFACT. "wraps site.tscn" was true of both the compose
+    # intermediate and the assembled site, and that ambiguity is how a
+    # one-building preview of a five-building lot read as normal.
+    print(f"  source: {source_stage}")
     print(f"  wraps {report['level_scene']} + player at {report['spawn_source']} "
           f"(x={origin[0]}, y={origin[1]}, z={origin[2]})")
 

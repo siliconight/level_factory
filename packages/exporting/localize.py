@@ -58,6 +58,7 @@ class LocalizeReport:
     sanitized_json: list[str] = field(default_factory=list)
     unresolved: list[str] = field(default_factory=list)
     repaired_bare_refs: list[str] = field(default_factory=list)
+    rerooted_refs: list[str] = field(default_factory=list)
     entry_scene: str | None = None
 
     def as_dict(self) -> dict:
@@ -69,6 +70,7 @@ class LocalizeReport:
             "sanitized_json": sorted(self.sanitized_json),
             "unresolved": sorted(self.unresolved),
             "repaired_bare_refs": sorted(self.repaired_bare_refs),
+            "rerooted_refs": sorted(self.rerooted_refs),
             "entry_scene": self.entry_scene,
         }
 
@@ -208,6 +210,120 @@ def _build_class_map(addon_sources: dict[str, Path]) -> dict[str, tuple[str, str
     return out
 
 
+#: Disposable QA harnesses that have no business in a deliverable.
+#: `site_navqa.tscn` is Lot's nav-QA scene and `lot_navqa_setup.gd` is the
+#: script that wires it to `res://addons/heist_nav_qa/nav_qa_director.gd` --
+#: an addon a portable package cannot carry by contract. `mp_smoke*` is named
+#: alongside them in ENGINE_GATES and is listed here for the same reason,
+#: whether or not a given mission emits one.
+_QA_HARNESS_FILES = ("site_navqa.tscn", "lot_navqa_setup.gd",
+                     "mp_smoke.gd", "mp_smoke_node.gd")
+
+#: Dev-only walk chrome. Kept apart from `_QA_HARNESS_FILES` on purpose: that
+#: list goes unconditionally because nothing may ask for a QA harness, while
+#: these two ARE asked for when a profile says include_walk -- `lot.py` emits
+#: the walk scene naming both. So they go only alongside the walk scene, and
+#: only when nothing else still references them.
+#:
+#: Measured on lot_demo_001 --mode pure-shell: both shipped, referenced by
+#: nothing, in a package documented as functional geometry + collision +
+#: anchors only. Closure scanning cannot catch this -- an unreferenced file
+#: resolves fine, it simply has no business being in a deliverable.
+_WALK_CHROME_FILES = ("lot_player.gd", "lot_site_walk.gd")
+
+
+def _still_referenced(export_dir: Path, target: Path) -> bool:
+    """Does any surviving text resource name this file?
+
+    Matched by BASENAME and deliberately wide: a reference can arrive as
+    ``res://lot_player.gd``, as a bare relative ``lot_player.gd``, or inside a
+    preload in a .gd. Erring wide keeps a file that could have gone, which
+    costs bytes; erring narrow deletes a script a scene still needs, which
+    costs a package -- and with CLOSURE_ENFORCED True, an export.
+    """
+    for f in sorted(export_dir.rglob("*")):
+        if not (f.is_file() and f.suffix in _TEXT_SUFFIXES) or f == target:
+            continue
+        try:
+            if target.name in f.read_text(encoding="utf-8"):
+                return True
+        except (OSError, UnicodeDecodeError):
+            continue
+    return False
+
+
+#: Any res:// reference in a text resource.
+_RES_REF = re.compile(r'res://([^"\')\s]+)')
+
+
+def _reroot_subpackages(export_dir: Path, report: LocalizeReport) -> None:
+    """Reroot a package that was staged as its own res:// root.
+
+    `res://x` is `<project root>/x` exactly. Deli Counter stages each themed
+    building as its own res:// root, so `lot/<archetype>/site.tscn` names its
+    modules `res://art/zoo/wall.glb` and its shell `res://site_base.glb`.
+    Copying that package into a subdirectory of the export root does not move
+    the references with it.
+
+    Measured on lot_demo_001.portable-godot: five building scenes, 25 dangling
+    art references each -- and a 26th, `res://site_base.glb`, which RESOLVES,
+    to the site's 255 KB base mesh instead of the building's 108 KB one. Not
+    missing, not misrooted, not detectable by any closure category: five
+    buildings quietly standing the wrong geometry.
+
+    So ask the disk which root the file was written against, rather than
+    assuming `lot/<id>` is a package boundary: walk from the file's directory
+    upward, take the DEEPEST ancestor under which strictly more of its
+    references resolve than resolve at the export root, and rewrite only the
+    references that actually resolve there. No ancestor wins -> no edit. A
+    file already at the export root is already at its own root and is skipped.
+    """
+    for f in sorted(export_dir.rglob("*")):
+        if not (f.is_file() and f.suffix in _TEXT_SUFFIXES):
+            continue
+        if f.parent == export_dir:
+            continue
+        try:
+            text = f.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        refs = sorted(set(_RES_REF.findall(text)))
+        if not refs:
+            continue
+        at_root = sum(1 for r in refs if (export_dir / r).exists())
+        if at_root == len(refs):
+            continue
+
+        root_rel = None
+        cand = f.parent.relative_to(export_dir)
+        while cand != Path("."):
+            if sum(1 for r in refs if (export_dir / cand / r).exists()) > at_root:
+                root_rel = cand.as_posix()
+                break
+            cand = cand.parent
+        if root_rel is None:
+            continue
+
+        new = text
+        moved = 0
+        for r in refs:
+            if r.startswith(root_rel + "/"):
+                continue
+            if not (export_dir / root_rel / r).exists():
+                continue
+            # The lookahead is what keeps `.../wall_w30.glb` from matching
+            # inside `.../wall_w300.glb`: a reference always ends at a quote,
+            # whitespace or a closing paren.
+            new = re.sub(r'res://' + re.escape(r) + r'(?=["\'\s)])',
+                         f'res://{root_rel}/{r}', new)
+            moved += 1
+        if moved and new != text:
+            f.write_text(new, encoding="utf-8")
+            report.rerooted_refs.append(
+                f"{f.relative_to(export_dir).as_posix()}: {moved} ref(s) -> "
+                f"res://{root_rel}/")
+
+
 def localize_export(export_dir: Path, *, addon_sources: dict[str, Path],
                     strip_walk: bool = True, max_passes: int = 10) -> LocalizeReport:
     """Repair the export's resource closure in place."""
@@ -218,6 +334,38 @@ def localize_export(export_dir: Path, *, addon_sources: dict[str, Path],
         for walk in sorted(export_dir.rglob("*_walk.tscn")):
             report.stripped_scenes.append(walk.relative_to(export_dir).as_posix())
             walk.unlink()
+
+    # THE NAV QA HARNESS IS THE SAME CLASS OF FILE and was never named, so it
+    # shipped. `ENGINE_GATES.md`: "`nav_qa_director.gd` and `mp_smoke.gd` are
+    # disposable QA harnesses, and neither may grow into a player controller."
+    #
+    # Measured on lot_demo_001's portable export: `lot_navqa_setup.gd` shipped
+    # and referenced `res://addons/heist_nav_qa/nav_qa_director.gd`, which a
+    # portable package cannot contain by contract -- one of 21 unresolved
+    # references. An instrument in the deliverable, and a dangling one.
+    #
+    # Stripped unconditionally, not under `strip_walk`. That flag exists so a
+    # profile can ASK for the walk scene; nothing asks for the QA harness, and
+    # a parameter nobody passes is an unfinished thought. If a caller ever
+    # wants it, it gets its own flag and its own reason.
+    for name in _QA_HARNESS_FILES:
+        for stray in sorted(export_dir.rglob(name)):
+            report.stripped_scenes.append(
+                stray.relative_to(export_dir).as_posix())
+            stray.unlink()
+
+    # The walk scene was the only thing naming its player and setup scripts,
+    # so deleting the scene orphaned them and they shipped anyway. Runs AFTER
+    # both strips above, so that anything already deleted cannot count as a
+    # referrer and keep a file alive on the strength of a scene that is gone.
+    if strip_walk:
+        for name in _WALK_CHROME_FILES:
+            for stray in sorted(export_dir.rglob(name)):
+                if _still_referenced(export_dir, stray):
+                    continue
+                report.stripped_scenes.append(
+                    stray.relative_to(export_dir).as_posix())
+                stray.unlink()
 
     # Data-file hygiene: tool outputs (Lot gameplay/site data) embed absolute
     # input paths as provenance strings. In a clean project those paths are
@@ -261,6 +409,13 @@ def localize_export(export_dir: Path, *, addon_sources: dict[str, Path],
                         f"{f.relative_to(export_dir).as_posix()}: rewrite failed ({exc})")
         if not changed:
             break
+
+    # Reroot packages staged as their own res:// root (building packages under
+    # lot/<archetype>/). BEFORE the bare-ref repair below, which would rewrite
+    # a building's `res://site_base.glb` to `res://assets/site_base.glb` on a
+    # basename match and point it at the SITE's base -- the same wrong mesh by
+    # another route. Evidence-backed rewrite first; basename fallback after.
+    _reroot_subpackages(export_dir, report)
 
     # Repair dangling bare res://<file> refs to their bundled assets/ copy.
     # A presentation scene generated in a DIFFERENT staging context (Lux apply

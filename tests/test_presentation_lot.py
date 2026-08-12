@@ -33,9 +33,14 @@ def tree(tmp_path):
     repo = tmp_path / "deli"
     repo.mkdir()
     (repo / "portable_building.py").write_text("x")
+    # ONE KIT PER BUILDING, plus the mission shell's. A kit is cut to one
+    # building's slot dims, so a fixture with a single shared kit dir cannot
+    # tell a per-building kit from the shared one that put 3.300 m walls in
+    # eight buildings (measured 2026-08-09).
     mods = tmp_path / "kit"
     mods.mkdir()
     (mods / "wall.glb").write_text("x")
+    kits = {"": str(mods)}
     build = tmp_path / "build"
     build.mkdir()
     lot = []
@@ -46,6 +51,10 @@ def tree(tmp_path):
                     "glb": str(build / (aid + ".glb")),
                     "slots": str(build / (aid + ".slots.json")),
                     "gameplay": str(build / (aid + ".gameplay.json"))})
+        kit = tmp_path / f"kit_{aid}"
+        kit.mkdir()
+        (kit / "wall.glb").write_text("x")
+        kits[aid] = str(kit)
     shell = tmp_path / "shell"
     shell.mkdir()
     for nm in ("shell.glb", "shell.slots.json", "shell.gameplay.json"):
@@ -55,7 +64,7 @@ def tree(tmp_path):
         "slots_path": str(shell / "shell.slots.json"),
         "gameplay_path": str(shell / "shell.gameplay.json"),
         "greybox_glb": str(shell / "shell.glb"),
-        "modules_dir": str(mods),
+        "modules_dir": kits,
         "theme": "rockay", "style": 1,
     }
     ctx = {"work_dir": str(tmp_path / "work"), "python_executable": "python"}
@@ -122,13 +131,30 @@ def test_archetype_scenes_land_in_their_own_directories(tree):
     assert len(set(rels)) == len(lot)          # no two share a path
 
 
-def test_every_archetype_gets_the_same_theme_and_kit(tree):
+def test_every_archetype_gets_the_same_theme(tree):
     """A lot is one street. Buildings differ; the theme does not."""
     spec, ctx, lot = tree
     spec["lot_archetypes"] = lot
     for cmd in PresentationAdapter().plan_commands(spec, ctx):
         assert _flag(cmd, "--theme") == "rockay"
-        assert _flag(cmd, "--modules") == spec["modules_dir"]
+
+
+def test_every_archetype_gets_ITS_OWN_kit(tree):
+    """The kit is not the theme, and this test used to assert it was.
+
+    It read `--modules == spec["modules_dir"]` for every command, which passed
+    precisely because one kit went to all of them. A theme is a material and is
+    shared; a kit is geometry cut to one building's slot dims and is not.
+    """
+    spec, ctx, lot = tree
+    spec["lot_archetypes"] = lot
+    seen = {}
+    for cmd in PresentationAdapter().plan_commands(spec, ctx):
+        out = Path(_flag(cmd, "--out"))
+        aid = "" if out.name == "presentation" else out.name
+        seen[aid] = _flag(cmd, "--modules")
+    assert seen == spec["modules_dir"], seen
+    assert len(set(seen.values())) == len(lot) + 1
 
 
 # --- selection travels with the spec -------------------------------------

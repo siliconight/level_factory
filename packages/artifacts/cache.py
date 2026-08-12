@@ -106,6 +106,32 @@ class ContentCache:
                 return None
         return manifest
 
+    def forget(self, fingerprint: str) -> bool:
+        """Drop the manifest for ``fingerprint``. True if one was there.
+
+        A cache entry records the outputs a build produced. When a build
+        produced the WRONG outputs, the entry is not stale -- it is poisoned,
+        and re-running cannot notice, because the fingerprint covers the inputs
+        and the inputs did not change. The only exit is to forget the answer
+        and let the job run again.
+
+        Measured 2026-08-09: a leftover in a reused work dir was swept up by
+        `collect_outputs`, published as a legitimate output, and recorded here.
+        Clearing the work dir stopped new adoptions and did nothing for the
+        entry already written -- a cache hit materialized the leftover straight
+        back. Removing that one manifest by hand was the only way through, and
+        a step that must be done by hand is a step that gets skipped.
+
+        BLOBS ARE LEFT ALONE. They are content-addressed and shared: another
+        fingerprint may reference the same bytes, and deleting them here would
+        reach past this entry. `prune()` collects whatever ends up unreferenced.
+        """
+        mp = self._manifest_path(fingerprint)
+        if not mp.exists():
+            return False
+        mp.unlink()
+        return True
+
     def _blob_path(self, content_hash: str) -> Path:
         h = content_hash.split(":", 1)[-1]
         return self.blobs / h[:2] / h

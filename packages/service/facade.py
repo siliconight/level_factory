@@ -365,8 +365,25 @@ class FactoryService:
     def art_pass(self, mission_id: str) -> list[ArtPassSection]:
         sections: list[ArtPassSection] = []
         for name, stage in _ART_SECTIONS:
-            out = self._job_out(f"{mission_id}.{stage}")
-            status = "done" if out.exists() and any(out.iterdir()) else "not_started"
+            # AGGREGATE, not one row per building, and it is not a preference.
+            # The placement stages run once per building now, so their job
+            # directories are `<mission>.<stage>.<archetype>` and the single
+            # `<mission>.<stage>` this looked for does not exist at all. Left
+            # alone the screen reported "not_started" for a stage that had
+            # completed five times -- an empty answer that looks exactly like a
+            # quiet one.
+            #
+            # Per building ROWS were the alternative. Rejected: the lot size
+            # would decide how many sections the screen has, and a row per
+            # building says nothing the stage row does not until there is
+            # something per building to say. DONE means EVERY building's job
+            # published, so four of five finished still reads as unfinished.
+            roots = (sorted(self.ws.jobs_dir.glob(f"{mission_id}.{stage}"))
+                     + sorted(self.ws.jobs_dir.glob(f"{mission_id}.{stage}.*")))
+            outs = [r / "out" for r in roots]
+            status = ("done" if outs and all(
+                o.exists() and any(o.iterdir()) for o in outs)
+                else "not_started")
             sections.append(ArtPassSection(name=name, status=status))
         return sections
 

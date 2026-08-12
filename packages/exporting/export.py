@@ -14,6 +14,7 @@ vertex/lightmap data so no Lux runtime is required. The default is 'localized'.
 from __future__ import annotations
 
 import datetime as _dt
+import re
 import shutil
 import zipfile
 from dataclasses import dataclass, field
@@ -41,16 +42,35 @@ HANDOFF_LANGUAGE = (
 
 #: Whether a broken resource closure fails the export outright.
 #:
-#: False for the same reason ``deli_counter.stairwell.CONTAINMENT_ENFORCED`` and
-#: ``WALKTEST_ENFORCED`` are: no export has ever been scanned at this point in
-#: the pipeline, the first run that did found the current one broken, and
-#: promoting on day one would fail every export before anyone has looked at one.
+#: TRUE since 2026-08-12. It was False for the same reason
+#: ``deli_counter.stairwell.CONTAINMENT_ENFORCED`` and ``WALKTEST_ENFORCED``
+#: are: no export had ever been scanned at this point in the pipeline, the
+#: first run that did found the current one broken, and promoting on day one
+#: would have failed every export before anyone had looked at one. The stated
+#: precondition was "wants the missing-art copy fixed first -- otherwise it
+#: fails on a defect it did not cause."
+#:
+#: That precondition is met, and meeting it took three fixes, not one:
+#:
+#:   * THE MISSING ART. QA harnesses stripped, and the root `site.tscn` copy
+#:     decided by the presentation scene instead of guessed. 21 unresolved -> 0.
+#:   * THE SCANNER. It resolved `res://` by suffix -- which Godot has never
+#:     done -- and certified the broken package at `ok: true, 0 missing`. With
+#:     the suffix match renamed to what it actually finds: 132 misrooted.
+#:   * THE PACKAGES. Each building is staged as its own `res://` root and was
+#:     copied under another without rewriting. 137 references rerooted, 5 of
+#:     which had been resolving to the site's base mesh instead of dangling.
+#:
+#: lot_demo_001 --mode portable-godot then passed with the engine agreeing:
+#: `parser_error_count: 0`, `shader_error_count: 0`, `scene_instantiated: true`,
+#: `status: PASS` in a clean Godot 4.7 project.
 #:
 #: The scan ALWAYS runs and ALWAYS writes its verdict to
 #: export_closure_scan.json. This flag decides only whether the verdict stops
-#: the build. Flipping it is its own pass, and wants the missing-art copy fixed
-#: first -- otherwise it fails on a defect it did not cause.
-CLOSURE_ENFORCED = False
+#: the build. Setting it back to False for a mode nobody has scanned yet is a
+#: legitimate move -- but write down WHICH mode and WHY, because the comment
+#: that used to sit here outlived its own reason without anyone noticing.
+CLOSURE_ENFORCED = True
 
 
 class ExportClosureError(RuntimeError):
@@ -101,7 +121,8 @@ class ExportResult:
 
 
 def _copy_tree(src: Path, dst: Path, *, skip: set[str] = frozenset(),
-               skip_dirs: set[str] = frozenset()) -> None:
+               skip_dirs: set[str] = frozenset(),
+               skip_rel: set[str] = frozenset()) -> None:
     dst.mkdir(parents=True, exist_ok=True)
     for item in src.rglob("*"):
         if item.is_dir():
@@ -109,6 +130,15 @@ def _copy_tree(src: Path, dst: Path, *, skip: set[str] = frozenset(),
         if item.name in skip or item.name.endswith(".provenance.json"):
             continue
         rel = item.relative_to(src)
+        # `skip_rel` matches a RELATIVE PATH, which `skip` cannot: the note
+        # below already says `skip` matches names, and a composed root holds
+        # `site.tscn` at its root AND one per building under `lot/<id>/`.
+        # Skipping by name took all six. Measured: five of them, and
+        # `lux.applied.tscn: unresolved res://lot/<archetype>/site.tscn` x5,
+        # with the review frame going from 88% void to 98% because every
+        # building had left the package.
+        if rel.as_posix() in skip_rel:
+            continue
         # `skip` matches file NAMES. A directory cannot be excluded that way --
         # this walks files, so .godot/ would arrive one cache entry at a time.
         if skip_dirs and any(part in skip_dirs for part in rel.parts[:-1]):
@@ -116,6 +146,31 @@ def _copy_tree(src: Path, dst: Path, *, skip: set[str] = frozenset(),
         target = dst / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(item, target)
+
+
+#: `res://site.tscn`, as an ext_resource line would carry it.
+_ROOT_SITE_REF = re.compile(r'^\[ext_resource[^\]]*path="res://site\.tscn"',
+                            re.M)
+
+
+def _root_site_wanted(presentation_dir: Path | None) -> bool:
+    """Does the presentation scene reference the composer's root ``site.tscn``?
+
+    TRUE WHEN THERE IS NO PRESENTATION SCENE TO ASK. A graybox export has no
+    art pass, its entry IS `site.tscn` (`write_entry_scene` says so), and
+    withholding it on the strength of a question nobody answered would ship an
+    empty package. Absence of evidence decides toward including, always.
+    """
+    if presentation_dir is None:
+        return True
+    scene = Path(presentation_dir) / "lux.applied.tscn"
+    if not scene.is_file():
+        return True
+    try:
+        return bool(_ROOT_SITE_REF.search(
+            scene.read_text(encoding="utf-8", errors="replace")))
+    except OSError:
+        return True
 
 
 def _write_project_godot(export_dir: Path, entry_scene: str, mission_id: str) -> None:
@@ -254,11 +309,36 @@ def export_mission(
         # site_main.tscn stays skipped. It is Deli Counter's own entry stub for
         # opening the composed building on its own, nothing shipped references
         # it, and an export carries one entry -- the one section 4 writes.
+        # site.tscn: ASKED, not decided here for a third time.
+        #
+        # The comment above records this being skipped, then un-skipped when
+        # closure broke with `lux.applied.tscn: unresolved res://site.tscn`.
+        # Both positions were right for their own mission shape. A single-shell
+        # compose INLINES its geometry and its presentation scene DOES name
+        # `res://site.tscn`. A themed multi-building site instances five
+        # packages and names `res://lot/<archetype>/site.tscn` instead --
+        # measured on lot_demo_001: five such refs, no `res://site.tscn`.
+        #
+        # Shipping it anyway is not free. The composer's `art/dressing`,
+        # `art/fixtures` and `art/zoo` are EMPTY for a themed mission, and
+        # `_copy_tree` walks files, so three empty directories copy as nothing
+        # and the scene arrives referencing twenty modules that exist nowhere
+        # on disk. Measured: EXPORT_CLOSURE_BROKEN, 21 unresolved of 40
+        # resources. The buildings' own modules are fine under
+        # `lot/<archetype>/art/zoo/` and resolve.
+        #
+        # So the presentation scene decides. It is the artefact that knows.
+        # BY RELATIVE PATH, not by name. `skip` matches basenames anywhere in
+        # the tree and a composed root holds `site.tscn` at its root AND one
+        # per building under `lot/<id>/`; a name skip took all six, and the
+        # presentation scene came back with five unresolved buildings.
+        wanted = _root_site_wanted(presentation_dir)
         _copy_tree(composed_root, export_dir,
                    skip={"project.godot", "HANDOFF.md",
                          "portable_resource_manifest.json",
                          "compose.summary.json",
                          "site_main.tscn"},
+                   skip_rel=set() if wanted else {"site.tscn"},
                    skip_dirs={".godot", "addons"})
 
     # 3. Source authoring (only in source mode).
@@ -304,18 +384,28 @@ def export_mission(
     (export_dir / "export_closure_scan.json").write_text(
         pretty_dumps(scan.as_dict()), encoding="utf-8")
     if not scan.ok:
+        # EVERY counter `ClosureResult.ok` reads, or the message lies. This
+        # reported five of seven for as long as there were seven: an export
+        # failing purely on misrooted or unresolved-relative references raised
+        # with every number in its own summary reading zero. Tolerable while
+        # the flag only printed; the moment it raises, this string IS the
+        # diagnosis. A counter added to `ok` gets added here in the same edit.
         summary = (
             "EXPORT_CLOSURE_BROKEN: %d unresolved res:// reference(s), "
-            "%d absolute path(s), %d external reference(s), "
-            "%d required plugin(s), %d required autoload(s)"
-            % (scan.missing_resource_count, scan.absolute_path_count,
+            "%d misrooted, %d unresolved relative, %d absolute path(s), "
+            "%d external reference(s), %d required plugin(s), "
+            "%d required autoload(s)"
+            % (scan.missing_resource_count, scan.misrooted_resource_count,
+               scan.unresolved_relative_count, scan.absolute_path_count,
                scan.external_reference_count, scan.required_plugin_count,
                scan.required_autoload_count))
         detail = "\n  ".join(scan.issues[:20])
         if len(scan.issues) > 20:
             detail += "\n  ... and %d more" % (len(scan.issues) - 20)
         if CLOSURE_ENFORCED:
-            raise ExportClosureError(summary + "\n  " + detail)
+            raise ExportClosureError(
+                summary + "\n  " + detail + "\n  full verdict: "
+                + str(export_dir / "export_closure_scan.json"))
         print("[export] WARNING " + summary)
         for issue in scan.issues[:20]:
             print("[export]   " + issue)

@@ -100,7 +100,7 @@ stream = _stream
 
 
 def site_placements(seed: int, count: int, *, spacing: int = 45,
-                    footprints=None) -> dict:
+                    footprints=None, shape=None) -> dict:
     """Deterministic placement + role assignment for one candidate's buildings.
 
     Returns ``{"buildings": [{"at": [x, y], "rot": deg}, ...], "spawn": id,
@@ -120,7 +120,7 @@ def site_placements(seed: int, count: int, *, spacing: int = 45,
     # deli needs would put the stadium through its neighbour. `footprints`
     # (one per building, in row order) switches to per-gap offsets. Absent, the
     # uniform row below is unchanged, which every existing caller relies on.
-    offsets = row_offsets(footprints) if footprints else None
+    offsets = layout_offsets(shape, footprints) if footprints else None
     # Whole metres: the offsets are, the spacing is, and a site spec full of
     # x = -67.5 reads as arithmetic having happened to it rather than as a
     # placement someone chose. An even count sits half a space off-centre by
@@ -130,8 +130,14 @@ def site_placements(seed: int, count: int, *, spacing: int = 45,
         rot = _YAW[next(rng) % len(_YAW)]
         along = _ALONG[next(rng) % len(_ALONG)]
         across = _ACROSS[next(rng) % len(_ACROSS)]
-        base = offsets[i] if offsets else (i * spacing - origin)
-        buildings.append({"at": [base + along, across], "rot": rot})
+        # The nudges stay world-axis-aligned whatever the shape: `_ALONG` in x,
+        # `_ACROSS` in y, drawn in that order, per building. Keeping the DRAW
+        # ORDER is what makes this opt-in -- a brief that names no shape gets
+        # the row it always had, from the same three numbers, and no candidate
+        # anyone has already graded re-rolls.
+        base = offsets[i] if offsets else (i * spacing - origin, 0)
+        buildings.append({"at": [base[0] + along, base[1] + across],
+                          "rot": rot})
 
     # Roles: which building you start at, which one holds the objective, which
     # one you leave from. On a one-building site all three collapse onto it,
@@ -228,6 +234,140 @@ def row_offsets(footprints, *, street: float = STREET) -> list[int]:
     return [int(round(x - span / 2.0)) for x in xs]
 
 
+#: The shapes a site can be laid out in. `row` is the historical line and stays
+#: the default for an unset or unrecognised `site_shape`, so a brief that says
+#: nothing gets the placement it has always had.
+SHAPES = ("row", "L", "courtyard")
+
+#: What a brief may write for each. Case-insensitive; anything else is a row,
+#: because refusing a spelling would stop a build over a label.
+_SHAPE_ALIASES = {
+    "": "row", "row": "row", "street_row": "row", "street": "row",
+    "line": "row", "strip": "row",
+    "l": "L", "ell": "L", "corner": "L", "l_shape": "L",
+    "courtyard": "courtyard", "court": "courtyard", "ring": "courtyard",
+    "block": "courtyard", "quad": "courtyard",
+}
+
+
+def shape_of(site_shape) -> str:
+    """The layout a brief's ``site_shape`` names. Unknown spellings are rows."""
+    return _SHAPE_ALIASES.get(str(site_shape or "").strip().lower(), "row")
+
+
+def _steps(shape: str, count: int) -> list:
+    """Unit steps between consecutive buildings, in site XY.
+
+    A layout is a walk: each building is placed one gap along from the last, in
+    a direction this decides. `row` never turns, `L` turns once, `courtyard`
+    turns three times and closes. Expressing them this way means the gap
+    arithmetic below is written once and every shape gets the same rule.
+    """
+    n = max(1, int(count)) - 1
+    if n <= 0:
+        return []
+    if shape == "L":
+        first = (n + 1) // 2
+        return [(1.0, 0.0)] * first + [(0.0, 1.0)] * (n - first)
+    if shape == "courtyard":
+        # THREE sides, not four. A closed ring walks the last building back
+        # onto the first: measured on five shells, b4 landed within a metre of
+        # b0, and the pairwise widening below then inflated every gap trying to
+        # separate two points that scale together -- ending at a 280 x 292 m
+        # plate, wider than the row it exists to shorten.
+        #
+        # Three sides leave a mouth, and the mouth is the way in. That is what
+        # a courtyard is; a sealed one is a building.
+        per = [n // 3] * 3
+        for i in range(n % 3):
+            per[i] += 1
+        out = []
+        for direction, k in zip(((1.0, 0.0), (0.0, 1.0), (-1.0, 0.0)), per):
+            out += [direction] * k
+        return out
+    return [(1.0, 0.0)] * n
+
+
+#: Worst case each nudge table can close a gap on its own axis. `_ALONG` moves
+#: a building in x and `_ACROSS` moves it in y, and they are different sizes --
+#: so the slack a gap needs depends on which way the gap runs. Getting this
+#: wrong in the x direction would change every existing row.
+def _slack(axis: int) -> float:
+    return max(abs(v) for v in (_ALONG if axis == 0 else _ACROSS))
+
+
+def _pairs_clear(points, reaches) -> bool:
+    """Can any two shells touch, for ANY combination of their nudges?
+
+    The separating-axis test `overlapping()` will apply, made worst-case: two
+    buildings clear if their gap on either axis survives both of them being
+    nudged toward each other. Yaw is already absorbed by `_reach`, which takes
+    the longer axis on both.
+    """
+    for i in range(len(points)):
+        for j in range(i + 1, len(points)):
+            need = reaches[i] + reaches[j]
+            dx = abs(points[i][0] - points[j][0]) - 2.0 * _slack(0)
+            dy = abs(points[i][1] - points[j][1]) - 2.0 * _slack(1)
+            if dx < need and dy < need:
+                return False
+    return True
+
+
+def _walk(steps, reaches, street: float, spread: float) -> list:
+    points = [(0.0, 0.0)]
+    for i, direction in enumerate(steps, start=1):
+        axis = 0 if direction[0] else 1
+        gap = math.ceil((reaches[i - 1] + reaches[i] + float(street)
+                         + 2.0 * _slack(axis)) * spread)
+        points.append((points[-1][0] + direction[0] * gap,
+                       points[-1][1] + direction[1] * gap))
+    return points
+
+
+def layout_offsets(shape, footprints, *, street: float = STREET) -> list:
+    """``(x, y)`` per building for a site laid out as ``shape``, centred on 0.
+
+    ``row`` DELEGATES to :func:`row_offsets` rather than reproducing it. One
+    implementation, so the line a thousand existing candidates stand on cannot
+    drift away from the line this function draws.
+
+    Every other shape walks the same gap rule step by step, then widens every
+    gap uniformly until no two shells can touch under any nudge. Widening
+    rather than refusing because `_write_site_spec` RAISES on `overlapping()`:
+    a generator that can emit an overlap is a generator that can stop a build,
+    and a slightly wider street is not a defect.
+
+    Whole metres, for the reason `site_placements` gives: a spec full of
+    x = -67.5 reads as arithmetic having happened to it rather than as a
+    placement someone chose.
+    """
+    reaches = [_reach(f) for f in (footprints or [])]
+    if not reaches:
+        return []
+    shape = shape_of(shape)
+    if shape == "row":
+        return [(x, 0) for x in row_offsets(footprints, street=street)]
+
+    steps = _steps(shape, len(reaches))
+    spread = 1.0
+    points = _walk(steps, reaches, street, spread)
+    # Bounded, and it converges: every gap grows with `spread`, so the pairwise
+    # distances do too. Thirty tries is a 20x street before it gives up, which
+    # is past any site anyone has built.
+    tries = 0
+    while not _pairs_clear(points, reaches) and tries < 30:
+        spread += 0.1
+        tries += 1
+        points = _walk(steps, reaches, street, spread)
+
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    cx = (min(xs) + max(xs)) / 2.0
+    cy = (min(ys) + max(ys)) / 2.0
+    return [(int(round(x - cx)), int(round(y - cy))) for x, y in points]
+
+
 def row_spacing(footprint: tuple[float, float] | None = None,
                 *, street: float = STREET) -> int:
     """Metres between building origins, wide enough for the shells between them.
@@ -249,7 +389,7 @@ def row_spacing(footprint: tuple[float, float] | None = None,
 
 def ground_size(count: int, *, spacing: int = 45,
                 footprint: tuple[float, float] | None = None,
-                footprints=None) -> tuple[int, int]:
+                footprints=None, shape=None) -> tuple[int, int]:
     """Ground plate big enough for the whole placed row, whatever seed placed it.
 
     Sized from the shells rather than from the count, and bounded over every
@@ -273,10 +413,15 @@ def ground_size(count: int, *, spacing: int = 45,
         # Sized from the row this module actually places, building by building:
         # the plate has to reach past whichever shell ends up furthest out, and
         # on a mixed row that is not simply the last one.
-        offs = row_offsets(footprints)
+        # Bound the placement this module actually makes, on BOTH axes. The row
+        # version could take its y from the stagger table alone because every
+        # building sat on y = 0; a shape that turns puts them somewhere else,
+        # and a plate sized for a row under an L is the defect this module's
+        # header is about, wearing the other hat.
+        offs = layout_offsets(shape, footprints)
         reaches = [_reach(f) for f in footprints]
-        half_x = max(abs(o) + slack + r for o, r in zip(offs, reaches))
-        half_y = max(abs(v) for v in _ACROSS) + max(reaches)
+        half_x = max(abs(o[0]) + _slack(0) + r for o, r in zip(offs, reaches))
+        half_y = max(abs(o[1]) + _slack(1) + r for o, r in zip(offs, reaches))
     else:
         reach = _reach(footprint)
         half_x = (count - 1) * spacing / 2.0 + slack + reach

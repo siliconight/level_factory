@@ -96,11 +96,27 @@ _HOOK_PREFIXES = ("LT_PlayerSpawn", "LT_EnemySpawnPoints", "LT_ObjectivePoint",
 
 @dataclass(frozen=True)
 class Box:
-    """An axis-aligned box collider, positioned in scene-root space."""
+    """An axis-aligned box collider, positioned in scene-root space.
+
+    ``approximate`` marks a box that is the BOUNDING BOX of a collision mesh
+    rather than a shape that is genuinely a box. A wall mesh with doorways cut
+    in it reduces to a solid box across every opening, so an approximate box
+    can seal a building this reader has no way to see into.
+
+    Measured 2026-08-09: `cr_garage` declares seven ground-level entries,
+    including two 5 m garage doors, and its collision read as an unbroken ring
+    at 0.5 m cells. Under this model no mission point inside any building can
+    be reachable.
+
+    Nothing in this module treats the two kinds differently. The flag exists so
+    a caller deciding whether to REFUSE A BUILD can tell a wall it measured
+    from a wall it inferred -- see `spawn_placement._optimistic_reach`.
+    """
 
     name: str
     centre: Vec3
     size: Vec3
+    approximate: bool = False
 
     @property
     def top(self) -> float:
@@ -344,7 +360,11 @@ def _instanced(target: str, at, resolve, seen: frozenset[Path]) -> Reading:
         placed = []
         for solid in reading.solids:
             centre, size = _placed(at, solid.centre, solid.size)
-            placed.append(Box(f"{label}:{solid.name}", centre, size))
+            # APPROXIMATE by construction: `collision_solids` reports each
+            # collision MESH's bounding box, and a mesh is where the doorways
+            # are. See `Box`.
+            placed.append(Box(f"{label}:{solid.name}", centre, size,
+                              approximate=True))
         return Reading(tuple(placed), ())
 
     if not lower.endswith((".tscn", ".scn")):
@@ -358,7 +378,10 @@ def _instanced(target: str, at, resolve, seen: frozenset[Path]) -> Reading:
     moved = []
     for box in sub.boxes:
         centre, size = _placed(at, box.centre, box.size)
-        moved.append(Box(f"{name}:{box.name}", centre, size))
+        # The flag rides through the instance transform with the box: geometry
+        # inferred inside the sub-scene is still inferred out here.
+        moved.append(Box(f"{name}:{box.name}", centre, size,
+                         approximate=box.approximate))
     return Reading(tuple(moved), tuple(f"{name}:{o}" for o in sub.opaque))
 
 

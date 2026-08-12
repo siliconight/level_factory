@@ -20,6 +20,7 @@ from typing import Iterable, Mapping, Sequence
 
 from packages.adapters.sdk import BaseAdapter, PlannedCommand
 from packages.core.hashing import hash_file
+from packages.validation.kit_dims import kit_dimension_findings
 
 
 class ZooAdapter(BaseAdapter):
@@ -228,6 +229,18 @@ class ZooAdapter(BaseAdapter):
                         "blocking": True, "raw_source_path": str(p),
                     })
                 continue
+            # THE KIT IS MEASURED AGAINST ITS OWN INDEX. Every entry states the
+            # dims the planner asked for; the .glb beside it is what was built.
+            # Nothing compared the two until 2026-08-09, when one shared kit was
+            # found to have put 3.300 m walls in eight buildings whose slots
+            # asked 3.1 to 5.2 -- a 0.95 m gap under every wall in `depot_a01`,
+            # through every gate in the pipeline.
+            #
+            # HERE rather than downstream because this is the job that made
+            # them: the producer holds both the claim and the artifact, so the
+            # check needs nothing that could drift from the thing it checks.
+            if p.name.endswith("_kit.built.json"):
+                issues.extend(kit_dimension_findings(p))
             # Some modules can fail to build (Zoo exits 2, resolver falls back to
             # base for the rest). The kit is still usable — surface the miss as a
             # non-blocking quality finding for review, not a blocker.

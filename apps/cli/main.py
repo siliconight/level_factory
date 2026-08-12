@@ -123,7 +123,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(func=cmd_reject)
 
     sp = sub.add_parser("walk", help="build a dev-only first-person walk preview "
-                                     "of the composed themed level (never exported)")
+                                     "that wraps the portable export (the "
+                                     "preview project itself is never exported)")
     sp.add_argument("mission_id")
     sp.add_argument("--open", action="store_true",
                     help="launch Godot editor on the preview project")
@@ -208,7 +209,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(func=cmd_release)
 
     sp = sub.add_parser("cache", help="cache maintenance")
-    sp.add_argument("action", choices=["inspect", "prune"])
+    sp.add_argument("action", choices=["inspect", "prune", "forget"])
+    sp.add_argument("job_id", nargs="?",
+                    help="for 'forget': the job whose cached answer to drop, "
+                         "read from its own fingerprint receipt")
     sp.set_defaults(func=cmd_cache)
 
     sp = sub.add_parser("diagnostics", help="show a job diagnostic bundle")

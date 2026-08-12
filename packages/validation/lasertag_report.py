@@ -144,6 +144,61 @@ def report_score(data: Mapping[str, object]):
     return None
 
 
+#: The categories that measure the GEOMETRY, with agents moving through it.
+#: `cover` is shots stopped by collision, `npc_pathing` is stuck events where
+#: agents actually walk, `sightlines` is `LT_MapSampler` exposure sampled
+#: against real collision. Sixty points, all of them about the level.
+MAP_CATEGORIES = ("cover", "npc_pathing", "sightlines")
+
+#: The categories that measure the ENCOUNTER and the bot, not the level.
+#:
+#: `traversal` reads `route_completion_rate`, and `LT_BotPlayerController` only
+#: advances its route in the ``else`` of "can I see an enemy" -- so with six
+#: guards alive on a 260 m plate it is zero whatever the map looks like.
+#: `combat_pacing` reads the enemy's first shot, which `player_count`,
+#: `enemy_count` and `enemy_sight_range` dominate.
+#:
+#: MEASURED, not asserted. `lot_demo_001` seed 5118 was evaluated four times on
+#: 11 August while materials, lighting, enemy occlusion and the encounter all
+#: changed. The total read 45, 45, 10, 45 -- and the one move was the harness
+#: failing to run, not the map changing. Forty of the hundred points were
+#: reporting on a `.tres` and an `@export`.
+ENCOUNTER_CATEGORIES = ("traversal", "combat_pacing")
+
+
+def category_scores(data: Mapping[str, object]) -> dict:
+    """The report's per-category scores, or ``{}`` if it did not write them."""
+    block = data.get("categories")
+    if not isinstance(block, Mapping):
+        return {}
+    return {str(k): v for k, v in block.items()
+            if isinstance(v, (int, float))}
+
+
+def _partial(data: Mapping[str, object], names) -> object:
+    """Sum ``names`` out of the report's categories, or ``None``.
+
+    ``None`` when any of them is missing, rather than a total computed from
+    whatever happened to be present. A number that silently describes four
+    fifths of a table is worse than no number: it looks actionable and is not,
+    which is the whole complaint this split exists to answer.
+    """
+    scores = category_scores(data)
+    if not scores or any(name not in scores for name in names):
+        return None
+    return sum(scores[name] for name in names)
+
+
+def map_score(data: Mapping[str, object]):
+    """Of 60. What Laser Tag measured about the LEVEL."""
+    return _partial(data, MAP_CATEGORIES)
+
+
+def encounter_score(data: Mapping[str, object]):
+    """Of 40. What Laser Tag measured about the scenario and the bot."""
+    return _partial(data, ENCOUNTER_CATEGORIES)
+
+
 def report_runs(data: Mapping[str, object]):
     value = data.get("runs")
     return value if isinstance(value, int) else None
@@ -462,6 +517,19 @@ def metrics(data: Mapping[str, object]) -> dict:
         # this key exists to stop. None means the report did not measure it.
         "lasertag_route_completion": route_completion_rate(data),
         "lasertag_passes": len(passing_findings(data)),
+        # THE SAME REPORT, READ AS THE TWO THINGS IT MEASURES. The total stays
+        # exactly as it was -- it is Laser Tag's number and redefining it would
+        # be a second opinion about somebody else's report. These are additions.
+        #
+        # `lasertag_map_score` is the one to look at when a change to the LEVEL
+        # is supposed to have done something. Four evaluations of seed 5118 on
+        # 11 August returned 45, 45, 10, 45 while the palette, the lighting, the
+        # occlusion model and the encounter all changed; the only move was the
+        # harness failing to run. Sixty of those points are geometry and forty
+        # are a `.tres`, and averaging them hid every change that mattered.
+        "lasertag_map_score": map_score(data),
+        "lasertag_encounter_score": encounter_score(data),
+        "lasertag_categories": category_scores(data) or None,
         "lasertag_note": (
             "no navigation during evaluation; score describes the "
             "direct-movement fallback, not the map"
@@ -482,6 +550,15 @@ def summarize(reports: Sequence[Mapping[str, object]]) -> str:
     # "3/3 evaluated" over three navigation-less runs is the sentence this
     # module exists to stop printing.
     tail = f", {degraded} without navigation" if degraded else ""
+    # The split on the run line, because a single number nobody can act on is
+    # the thing this is for. Omitted rather than guessed when the reports do not
+    # carry categories.
+    halves = [(map_score(r), encounter_score(r)) for r in evaluated]
+    scored = [(m, e) for m, e in halves if m is not None and e is not None]
+    if scored:
+        best_map = max(m for m, _e in scored)
+        best_enc = max(e for _m, e in scored)
+        tail += f", best map {best_map}/60, best encounter {best_enc}/40"
     if len(evaluated) == total:
         return f"laser_tag: {len(evaluated)}/{total} evaluated{tail}"
     return (f"laser_tag: {len(evaluated)}/{total} evaluated{tail}, "
