@@ -219,6 +219,14 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
     specs: dict[str, dict] = {}
     jobs_dir = ws.jobs_dir
 
+    # DOES THIS RUN HAVE AN ART LAYER? Read off the planned graph rather than
+    # threaded down as a flag: `themed_site_assemble` is planned or it is not,
+    # and a parameter somebody has to remember to pass is the shape of defect
+    # this file keeps finding. It decides which pool the GREYBOX pass draws
+    # from -- see the narrowing in `_write_site_spec`, and addendum item J.
+    _art_run = any(j.stage_id == "themed_site_assemble"
+                   for j in plan.graph.jobs())
+
     # ONE derivation per candidate. `_lot_for_compose` lists a directory and
     # prints what it excluded; with the placement stages fanned out there are
     # now twenty-odd jobs that need the same answer, and doing it per job would
@@ -301,7 +309,8 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                 deli_job = job.depends_on[0]
             deli_out = jobs_dir / deli_job
             site_spec = _write_site_spec(
-                ws, model, deli_out, seed=seed, themed_scene=themed_scene)
+                ws, model, deli_out, seed=seed, themed_scene=themed_scene,
+                art_run=_art_run)
             specs[job.job_id] = {
                 "site_spec_path": str(site_spec),
                 # Written beside the spec by _write_site_spec. The adapter
@@ -806,7 +815,8 @@ def _write_dispatch_spec(ws: Workspace, model: MissionBrief,
 
 
 def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
-                     *, seed: int, themed_scene: str | None = None) -> Path:
+                     *, seed: int, themed_scene: str | None = None,
+                     art_run: bool = False) -> Path:
     """Write ONE candidate's Lot site spec (named 'site.json' so Lot's stem-based
     outputs are canonical: site.tscn / site_walk.tscn / site.site.gameplay.json).
 
@@ -897,7 +907,28 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
             print(f"[site] {len(non_source)} entr(y/ies) in {library} are not "
                   f"source archetypes and were not offered to the lot: "
                   + ", ".join(e["id"] for e in non_source[:5]))
-        if themed_map:
+        # THE FOURTH LINE, and the one that was missing. The three above
+        # describe what the library CONTAINS; this one describes whether any of
+        # it is current. On 2026-08-12 all three printed over a library 4.2
+        # days behind its code, and every gate downstream -- nav, walk, Laser
+        # Tag, the export, a human's eyes -- graded geometry Deli Counter no
+        # longer produces.
+        #
+        # Reported, not enforced. LF cannot rebuild somebody else's library,
+        # and a gate that blocks without being able to fix anything is a gate
+        # that gets worked around. Both commands are named so the next line
+        # after this one is the fix.
+        stale, worst_days = building_library.stale_shells(library)
+        if stale:
+            print(f"[site] STALE LIBRARY: {len(stale)} shell(s) in {library} "
+                  f"are older than the code that builds them (worst "
+                  f"{worst_days:.1f} days). Every gate below is grading "
+                  f"geometry this code no longer produces.")
+            print(f"[site]   name them:  python build_freshness.py --list"
+                  f"   (in Deli Counter)")
+            print(f"[site]   rebuild:    python build.py --all")
+
+        if themed_map or art_run:
             # The themed pool is narrower, and it must be the SAME narrowing
             # `_lot_for_compose` applied: compose published one scene per
             # archetype and `themed_map` is keyed on those ids. A wider pool
@@ -906,13 +937,29 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
             # reporting success -- the defect this file keeps finding, one
             # layer down.
             #
-            # NOT applied to the greybox branch. That places levels already
-            # built and graded, and re-selecting them would be different
-            # levels wearing the same grades.
+            # NOW APPLIED TO THE GREYBOX BRANCH TOO, when the run has an art
+            # layer. The comment that used to sit here said the opposite:
+            # "NOT applied to the greybox branch. That places levels already
+            # built and graded, and re-selecting them would be different levels
+            # wearing the same grades." That protected the STABILITY of a
+            # grade, and `probe_pool_divergence.py` measured what it was
+            # stabilising -- across lot_demo_001's three candidates, 14 of 15
+            # building slots already carried an archetype other than the one
+            # Laser Tag graded, and 13 graded archetypes never shipped at all.
+            # One slot in the mission agreed. The thing that comment feared had
+            # already happened; keeping the wider draw preserved the
+            # consistency of a number about a level nobody receives.
+            #
+            # So: grade the pool that ships. With an art layer the themed pool
+            # is the deliverable, so the greybox pass draws from it as well.
+            # Without one the greybox IS the deliverable and this does not
+            # fire -- `art_run` is false and nothing changes.
             before = len(complete)
             complete = building_library.require_themed_shells(complete, count)
-            print(f"[site] themed lot: {len(complete)} of {before} shell(s) "
-                  f"can carry a theme")
+            which = "themed lot" if themed_map else "graded lot (art run)"
+            print(f"[site] {which}: {len(complete)} of {before} shell(s) "
+                  f"can carry a theme -- the graded draw and the shipped draw "
+                  f"come from the same pool")
         lot = building_library.pick_lot(complete, seed, count)
         if len(lot) < count:
             # Loud, not silent. A short lot means the library is smaller than
@@ -1235,7 +1282,22 @@ def cmd_run(args) -> int:
         print(f"  {o.job.job_id:<48} {tag}")
 
     print(f"\n{diversity_line}")
-    agg = aggregate(summary.all_issues)
+    # THE ELIMINATED SET GOES IN. The scheduler discards a candidate whose own
+    # job failed and carries on with the rest -- and until this was passed, one
+    # discarded candidate's blocker labelled the whole mission "Blocked:
+    # unresolved blocking issues" while `blocked_job` was never set. Addendum
+    # item I: "N candidates exist so that some can be bad."
+    _dropped = frozenset(getattr(summary, "eliminated_candidates", {}) or {})
+    agg = aggregate(summary.all_issues, eliminated_candidates=_dropped)
+    if _dropped:
+        # `cmd_batch_run` has printed this for a while and `cmd_run` never did,
+        # so on a single-mission run the reason the mission survived was
+        # invisible. Not a failure line.
+        print(f"  {len(_dropped)} candidate(s) eliminated (the rest carried "
+              f"on): {', '.join(sorted(_dropped))}")
+        if agg["blocking_eliminated"]:
+            print(f"  {len(agg['blocking_eliminated'])} blocker(s) belong to "
+                  f"eliminated candidate(s) and do not block the mission")
 
     # Record what this run left the mission in. Nothing wrote the missions table
     # before, so `status` with no mission id listed nothing and `batch report`
@@ -2019,6 +2081,15 @@ def cmd_walk(args) -> int:
     print(f"  source: {source_stage}")
     print(f"  wraps {report['level_scene']} + player at {report['spawn_source']} "
           f"(x={origin[0]}, y={origin[1]}, z={origin[2]})")
+    # SAY WHAT IT WAS BUILT FROM, and leave the same words in the folder. A
+    # preview read after a later `run` is the previous walk, and nothing said
+    # so -- addendum item F. `walk.source.json` beside the scene carries this
+    # verbatim, so the answer survives the terminal scrolling away.
+    _prov = report.get("provenance") or {}
+    if _prov:
+        print(f"  content: {_prov['content_digest']} "
+              f"({_prov['file_count']} file(s)) built {_prov['built_at']}")
+        print(f"  recorded in {report['dest']}\\walk.source.json")
 
     # TRAVERSAL + VISUAL GATE. The preview exists so a human can find out whether
     # the level is broken. The bots find that out first, in seconds, every time
@@ -2032,10 +2103,12 @@ def cmd_walk(args) -> int:
         walk_v = shot_v = None
         try:
             if "walk_bot.gd" in report["bots"]:
-                walk_v = _bot.run_walk_bot(godot_exe, report["dest"])
+                walk_v = _bot.run_walk_bot(godot_exe, report["dest"],
+                                           scene=report.get("level_scene"))
             if "shot_bot.gd" in report["bots"] and not getattr(
                     args, "no_shots", False):
-                shot_v = _bot.run_shot_bot(godot_exe, report["dest"])
+                shot_v = _bot.run_shot_bot(godot_exe, report["dest"],
+                                           scene=report.get("level_scene"))
         except _bot.BotUnavailable as exc:
             # The engine failed, not the level. Say which -- reporting this as a
             # level defect would train people to ignore the gate.

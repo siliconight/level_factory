@@ -212,6 +212,87 @@ def index(build_dir) -> tuple[list[dict], list[dict], list[dict]]:
     return complete, incomplete, non_source
 
 
+def _geometry_sources(src: Path) -> list[Path]:
+    """The files `build_freshness.py` compares against, READ from it.
+
+    That tool owns the freshness rule and names the geometry modules in a
+    `GEOMETRY_SOURCES` tuple. Copying the list here would be two copies of one
+    rule in two repos -- the objection `Building._cap_thick` states as "one
+    rule, one place, because both wall emitters need it and two copies drift".
+    So it is parsed out of the assignment, with no import and no subprocess
+    across the boundary.
+
+    Comparing against every `*.py` instead is not close enough. Measured
+    2026-08-12, minutes apart on one library: the owning tool said "138
+    shell(s) newer than deli_counter.py -- up to date" while a newest-of-all-py
+    rule said 7.2 days behind, because `check.py` had just been edited and
+    `check.py` builds no geometry.
+
+    Returns [] when the tool or the tuple cannot be found. A check that cries
+    stale because it could not locate the rule gets ignored, and one that
+    reports fresh for the same reason is worse -- both are worse than silence.
+    """
+    tool = src / "build_freshness.py"
+    if not tool.is_file():
+        return []
+    try:
+        text = tool.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+    m = re.search(r"^GEOMETRY_SOURCES\s*=\s*(\([^)]*\))", text, re.M)
+    if not m:
+        return []
+    try:
+        import ast
+        names = ast.literal_eval(m.group(1))
+    except (ValueError, SyntaxError):
+        return []
+    if isinstance(names, str):
+        names = (names,)
+    return [src / n for n in names if isinstance(n, str) and (src / n).is_file()]
+
+
+def stale_shells(build_dir) -> tuple[list[str], float]:
+    """``(names, worst_gap_days)`` for shells older than the code building them.
+
+    THE CONSUMER'S GUARD, NOT THE AUTHORITY. `deli_counter/build_freshness.py`
+    owns this question, was written for it on 2026-08-05 after `nav_gate --all`
+    graded ten stairs across seven fossil shells, and names every stale file
+    with `--list`. This is the cheap version at the point of USE, because a
+    Level Factory run reads this library every time and printed three lines
+    about its health on 2026-08-12 while every shell in it was 4.2 days behind.
+
+    Deli Counter's sources sit one directory up from its `build/`, which is the
+    same relationship `build_freshness.py` assumes. If that stops being true
+    this returns nothing rather than guessing, because a freshness check that
+    reports "fresh" because it looked in the wrong place is worse than none.
+
+    mtime, with the caveat the owning tool records: a fresh clone or a checkout
+    that rewrites sources marks everything stale, asking for a rebuild that was
+    not needed -- the safe direction. The unsafe direction needs a source
+    written with an OLDER timestamp than the build, which git does not do in
+    normal use.
+    """
+    build = Path(build_dir)
+    src = build.parent
+    if not build.is_dir() or not src.is_dir():
+        return [], 0.0
+    sources = _geometry_sources(src)
+    if not sources:
+        return [], 0.0
+    try:
+        newest = max((p.stat().st_mtime for p in sources), default=0.0)
+        if not newest:
+            return [], 0.0
+        gaps = [(p.name, newest - p.stat().st_mtime)
+                for p in sorted(build.glob("*.glb"))
+                if p.stat().st_mtime < newest]
+    except OSError:
+        return [], 0.0
+    worst = max((g for _n, g in gaps), default=0.0) / 86400.0
+    return [n for n, _g in gaps], worst
+
+
 def art_incomplete(lot: list[dict]) -> list[dict]:
     """Which of the PICKED buildings cannot be dressed as themselves.
 

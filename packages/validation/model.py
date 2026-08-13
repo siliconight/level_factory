@@ -82,12 +82,33 @@ def issue_from_normalized(
     )
 
 
-def aggregate(issues: list[ValidationIssue], accepted_issue_ids: frozenset[str] = frozenset()) -> dict:
-    """Aggregate findings for reporting and gating (TDD 22.4, 22.5)."""
+def aggregate(issues: list[ValidationIssue],
+              accepted_issue_ids: frozenset[str] = frozenset(),
+              eliminated_candidates: frozenset[str] = frozenset()) -> dict:
+    """Aggregate findings for reporting and gating (TDD 22.4, 22.5).
+
+    `eliminated_candidates` are candidates the scheduler already discarded --
+    `SchedulerSummary.eliminated_candidates`. A blocker belonging to one of
+    them is reported separately and does NOT count against the mission,
+    because the mission is not blocked by a candidate it stopped building.
+    N candidates exist so that some can be bad.
+
+    Measured 2026-08-12 on lot_demo_001: one candidate's `dispatch_handoff`
+    exited 1, the scheduler eliminated that candidate and carried on, all
+    three candidates built, and the summary line still read "Blocked:
+    unresolved blocking issues". `blocked_job` was never set. The run that
+    continued reported as the run that halted.
+
+    OPT-IN. The default is empty, and with it every blocking issue lands in
+    `blocking_open` exactly as before -- a caller that does not know which
+    candidates were eliminated gets today's behaviour unchanged, which is the
+    safe direction for a gate.
+    """
     by_severity: dict[str, int] = {s: 0 for s in SEVERITY_ORDER}
     by_category: dict[str, int] = {}
     by_tool: dict[str, int] = {}
     blocking_open: list[str] = []
+    blocking_eliminated: list[str] = []
     accepted: list[str] = []
 
     for issue in issues:
@@ -97,13 +118,22 @@ def aggregate(issues: list[ValidationIssue], accepted_issue_ids: frozenset[str] 
         if issue.issue_id in accepted_issue_ids:
             accepted.append(issue.issue_id)
         elif issue.blocking:
-            blocking_open.append(issue.issue_id)
+            if issue.candidate_id in eliminated_candidates:
+                blocking_eliminated.append(issue.issue_id)
+            else:
+                blocking_open.append(issue.issue_id)
 
     return {
         "by_severity": by_severity,
         "by_category": dict(sorted(by_category.items())),
         "by_tool": dict(sorted(by_tool.items())),
         "blocking_open": sorted(blocking_open),
+        # Kept apart, not dropped. A blocker on a discarded candidate is still
+        # a real finding about a real defect -- it just is not the mission's
+        # to answer for. Folding it into `blocking_open` blocks a run that
+        # carried on; deleting it loses the only record of why the candidate
+        # went.
+        "blocking_eliminated": sorted(blocking_eliminated),
         "accepted": sorted(accepted),
         "has_blockers": len(blocking_open) > 0,
         "total": len(issues),

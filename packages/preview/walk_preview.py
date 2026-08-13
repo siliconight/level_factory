@@ -26,6 +26,9 @@ is left untouched.
 """
 from __future__ import annotations
 
+import datetime as _dt
+import hashlib
+import json
 import re
 import shutil
 from pathlib import Path
@@ -64,6 +67,18 @@ run/main_scene="res://walk.tscn"
 
 [rendering]
 renderer/rendering_method="gl_compatibility"
+
+[debug]
+; Verbatim from export.py::_write_project_godot, and it must stay verbatim:
+; localized tool scripts are strict-clean under their home projects' warning
+; config, while engine DEFAULTS escalate inference-on-Variant to a load-killing
+; error. Proven on hardware -- lux_root.gd:218 took two dependents down as
+; compile knock-ons -- and proven again here on 2026-08-12, where the preview
+; lacked this block and lux_area_light_rig.gd:61 failed to parse in a walk of
+; the same package the export's portability test scored parser_error_count 0.
+; Two projects disagreeing about what a complete project.godot contains is how
+; a human signs off lighting that was missing a rig.
+gdscript/warnings/inference_on_variant=1
 """
 
 
@@ -176,6 +191,42 @@ def _overlay_node(dest) -> str:
         return ""
     return ('\n[node name="DebugOverlay" type="Node" parent="."]\n'
             'script = ExtResource("3_dbg")\n')
+
+
+def _provenance(content_dir: Path, dest: Path, level: str) -> dict:
+    """A digest of the content this preview was built from.
+
+    Over the RELATIVE PATH AND CONTENT of every copied file, sorted. Not the
+    directory mtime -- that moves when nothing did, and a copy sets it on every
+    build. Not a job id either: the preview is handed a directory and cannot
+    see the graph it came from. Bytes are the thing both readers can compare.
+
+    The player, the bots and this file are excluded: they are the preview's own
+    scaffolding, not the content under test, and a new overlay script should
+    not read as a different level.
+    """
+    ours = {"player_walk.gd", "player_walk.tscn", "walk.tscn", "project.godot",
+            "walk_bot.gd", "shot_bot.gd", "debug_overlay.gd",
+            "walk.source.json", "walkbot.json", "shotbot.json"}
+    h = hashlib.sha256()
+    n = 0
+    for p in sorted(dest.rglob("*")):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(dest).as_posix()
+        if rel in ours or rel.endswith(".uid") or rel.startswith(".godot/"):
+            continue
+        h.update(rel.encode("utf-8"))
+        h.update(hashlib.sha256(p.read_bytes()).digest())
+        n += 1
+    return {
+        "schema": "level_factory.walk_provenance.v0.1",
+        "source": str(content_dir),
+        "level_scene": level,
+        "content_digest": "sha256:" + h.hexdigest()[:16],
+        "file_count": n,
+        "built_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+    }
 
 
 def build_walk_preview(content_dir, player_src, dest, *, name="level"):
@@ -328,6 +379,16 @@ def build_walk_preview(content_dir, player_src, dest, *, name="level"):
     (dest / "project.godot").write_text(
         _PROJECT.format(name=name, level=level), encoding="utf-8")
 
+    # 6. WHAT THIS WAS BUILT FROM. `walk` rmtree's and rebuilds, so a preview
+    # is current at the moment it is made -- and nothing recorded that, so
+    # reading the folder after a later `run` (which does not touch it) shows
+    # the previous walk with no way to tell. Roadmap addendum item F: "cost
+    # about an hour and five refuted hypotheses."
+    prov = _provenance(content_dir, dest, level)
+    (dest / "walk.source.json").write_text(
+        json.dumps(prov, indent=2, sort_keys=True), encoding="utf-8")
+
     return {"dest": str(dest), "level_scene": level, "walk_scene": "walk.tscn",
             "spawn_transform": list(spawn), "spawn_source": spawn_src,
-            "lighting": lighting, "content_copied": copied, "bots": bots}
+            "lighting": lighting, "content_copied": copied, "bots": bots,
+            "provenance": prov}

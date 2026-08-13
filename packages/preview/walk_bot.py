@@ -66,12 +66,24 @@ def _read_verdict(path: Path, proc, what: str) -> dict:
         raise BotUnavailable(f"{what} verdict at {path} is unreadable: {exc}")
 
 
-def run_walk_bot(godot_exe, project_dir, *, out_json=None, timeout=600) -> dict:
-    """Physics traversal proof. Returns the parsed verdict dict."""
+def run_walk_bot(godot_exe, project_dir, *, out_json=None, scene=None,
+                 timeout=600) -> dict:
+    """Physics traversal proof. Returns the parsed verdict dict.
+
+    `scene` is the project-relative scene to walk. `walk_bot.gd` reads it from
+    args[1] and has always been able to; nothing passed it, so it fell back to
+    its `res://site.tscn` default. That default stopped existing when the
+    preview began wrapping the export's `mission.tscn`, and the bot failed to
+    load anything while the run still printed a sentence about the level not
+    passing its own check.
+    """
     project_dir = Path(project_dir)
     out = Path(out_json) if out_json else project_dir / "walkbot.json"
-    proc = _run([str(godot_exe), "--headless", "--path", str(project_dir),
-                 "--script", WALK_SCRIPT, "--", str(out)], timeout)
+    argv = [str(godot_exe), "--headless", "--path", str(project_dir),
+            "--script", WALK_SCRIPT, "--", str(out)]
+    if scene:
+        argv.append(_res_path(scene))
+    proc = _run(argv, timeout)
     return _read_verdict(out, proc, "walk bot")
 
 
@@ -104,8 +116,13 @@ def display_wrapper() -> list[str]:
     return [xvfb, "-a"] if xvfb else None
 
 
+def _res_path(scene: str) -> str:
+    """A bare scene name as the bots expect it: a `res://` path."""
+    return scene if str(scene).startswith("res://") else f"res://{scene}"
+
+
 def run_shot_bot(godot_exe, project_dir, *, shots_dir=None, out_json=None,
-                 timeout=900) -> dict:
+                 scene=None, timeout=900) -> dict:
     """Visual proof. Returns the parsed verdict dict, or a ``skipped`` record
     when this machine has no display to render into."""
     project_dir = Path(project_dir)
@@ -116,9 +133,14 @@ def run_shot_bot(godot_exe, project_dir, *, shots_dir=None, out_json=None,
         return {"skipped": True, "ok": None,
                 "reason": "no display and no xvfb-run; the visual pass needs a "
                           "renderer (install xvfb, or run it on a desktop)"}
-    proc = _run([*prefix, str(godot_exe), "--rendering-driver", "opengl3",
-                 "--path", str(project_dir), "--script", SHOT_SCRIPT,
-                 "--", str(out), str(shots)], timeout)
+    argv = [*prefix, str(godot_exe), "--rendering-driver", "opengl3",
+            "--path", str(project_dir), "--script", SHOT_SCRIPT,
+            "--", str(out), str(shots)]
+    if scene:
+        # args[2] for this one; the walk bot reads args[1]. The scripts differ
+        # and the order is theirs, so it is read from them rather than assumed.
+        argv.append(_res_path(scene))
+    proc = _run(argv, timeout)
     return _read_verdict(out, proc, "shot bot")
 
 

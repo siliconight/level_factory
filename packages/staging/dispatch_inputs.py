@@ -87,22 +87,60 @@ def markers_to_anchors(gameplay: dict, source: str, up: str = "z") -> list:
     return anchors
 
 
+#: anchor type -> the `mission_flow` location_tag that binds to it.
+#: `location_tag` matches an anchor's TAGS, never its type, so a type with no
+#: tagged instance is invisible to the mission flow no matter how many of them
+#: the level contains.
+_MISSION_TAG = {"player_start": "mission_start", "extraction": "extraction"}
+
+
 def ensure_mission_anchors(anchors: list, source: str, up: str = "z") -> list:
-    """Guarantee a player_start and an extraction exist so spawn/extraction
-    checks have something to bind to, without inventing a mission. Placed at the
-    centroid / first anchor when absent."""
-    types = {a["type"] for a in anchors}
+    """Guarantee the spawn and extraction TAGS exist, so the mission flow has
+    something to bind to -- without inventing a mission.
+
+    Ensuring the tag rather than the type, because the tag is what binds.
+    `mission_flow` asks for `location_tag: "extraction"` and the binder reads
+    `tags`; an anchor merely TYPED extraction is invisible to it.
+
+    That distinction was the whole defect, and it made correct data worse than
+    missing data. Both branches used to be guarded on the type being absent, so
+    the tag arrived only when the level had nothing. Measured on lot_demo_001,
+    135 anchors: Lot emits no `player_start`, so one was synthesized WITH its
+    tag and `spawn` bound; Lot emits five real `extraction` anchors -- BAY,
+    CENTER_FIELD_TRUCK, DRIVE, LOT, LOT_11, all `"tags": []` -- so the branch
+    was skipped, nothing carried the tag, and Dispatch refused the mission:
+    "BLOCKER [assembly] Proposed beat 'extract' binds to no anchor and has no
+    trigger." Deleting the five would have made it pass.
+
+    Order: already tagged -> leave it; typed but untagged -> tag them, they ARE
+    what the beat asks for; neither -> synthesize at the centroid as before.
+
+    ALL matching anchors get the tag, not the first. `shell_ids` on a beat is a
+    list. Tagging one would say "this extraction point is the mission's", which
+    is a claim about the mission, and this function's contract is not to make
+    those.
+    """
     if anchors:
         cx = sum(a["pos"][0] for a in anchors) / len(anchors)
         cy = sum(a["pos"][1] for a in anchors) / len(anchors)
     else:
         cx = cy = 0.0
-    if "player_start" not in types:
-        anchors.insert(0, {"id": f"{source}:mission_start", "type": "player_start",
-                           "pos": [cx, cy, 0.0], "tags": ["mission_start"]})
-    if "extraction" not in types:
-        anchors.append({"id": f"{source}:extraction", "type": "extraction",
-                        "pos": [cx, cy, 0.0], "tags": ["extraction"]})
+
+    for atype, tag in _MISSION_TAG.items():
+        tagged = [a for a in anchors if tag in (a.get("tags") or ())]
+        if tagged:
+            continue
+        typed = [a for a in anchors if a.get("type") == atype]
+        if typed:
+            for a in typed:
+                a["tags"] = list(a.get("tags") or ()) + [tag]
+            continue
+        made = {"id": f"{source}:{tag}", "type": atype,
+                "pos": [cx, cy, 0.0], "tags": [tag]}
+        if atype == "player_start":
+            anchors.insert(0, made)
+        else:
+            anchors.append(made)
     return anchors
 
 

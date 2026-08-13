@@ -14,6 +14,8 @@ extends SceneTree
 ##   climb         driving the contract climb motion gains height to the top
 ##                 (the slab hole is real; the backside plane doesn't block)
 ##   top_exit      stepping away at the top lands on standable upper floor
+##   landed_on     the collider it came to rest on, by name ("" = nothing)
+##   overhead      the collider above the exit, by name ("" = open sky)
 ##   no_fall       bot never fell through the world at any point
 ##
 ## The bot uses the same movement law as player_walk.gd (climb = up+into over
@@ -209,11 +211,52 @@ func _test_ladder(l: Area3D) -> Dictionary:
 	rel = linv * bot.global_position
 	v["top_exit"] = bot.is_on_floor() and rel.y > climb_h - 1.2
 	v["final_rel_y"] = snappedf(rel.y, 0.01)
+	# WHAT it exited onto, and whether anything is above -- not just that it
+	# stood somewhere. `top_exit` alone reads true for a ladder through a
+	# correctly-holed roof AND for a ladder with no roof at all, because both
+	# end on a floor at climb height. Roadmap addendum item E: "missing
+	# geometry and extra geometry are opposite failure modes; one scalar
+	# cannot carry both." `_diagnose_stall` has always named its blocker; the
+	# success path named nothing, and that asymmetry misled two diagnoses.
+	v["landed_on"] = _name_below(bot)
+	v["overhead"] = _name_above(bot)
 
 	v["ok"] = v["ground"] and v["approach"] and v["latch"] \
 		and v["climb"] and v["top_exit"] and v["no_fall"]
 	bot.queue_free()
 	return v
+
+
+func _name_below(bot: CharacterBody3D) -> String:
+	## The collider the bot is standing on, by node name; "" for nothing.
+	## Same idiom as `_diagnose_stall`'s blocker ray, pointed the other way.
+	var space: PhysicsDirectSpaceState3D = bot.get_world_3d().direct_space_state
+	var q := PhysicsRayQueryParameters3D.create(
+		bot.global_position + Vector3.UP * 0.2,
+		bot.global_position + Vector3.DOWN * 1.5)
+	q.exclude = [bot.get_rid()]
+	var hit: Dictionary = space.intersect_ray(q)
+	if hit.is_empty():
+		return ""
+	return String((hit["collider"] as Node).name)
+
+
+func _name_above(bot: CharacterBody3D) -> String:
+	## The collider above the exit point, by node name; "" is open sky.
+	## THE PRESENCE TERM. A roof with its ladder void cut still has roof either
+	## side of the hole, so stepping off the ladder and looking up finds one.
+	## A building with no roof at all finds nothing. That is the difference
+	## `top_exit` could not carry, and `void %` could not either -- it reads
+	## 52.66% for a correctly-open roof and 52.66% for no roof.
+	var space: PhysicsDirectSpaceState3D = bot.get_world_3d().direct_space_state
+	var q := PhysicsRayQueryParameters3D.create(
+		bot.global_position + Vector3.UP * 0.2,
+		bot.global_position + Vector3.UP * 6.0)
+	q.exclude = [bot.get_rid()]
+	var hit: Dictionary = space.intersect_ray(q)
+	if hit.is_empty():
+		return ""
+	return String((hit["collider"] as Node).name)
 
 
 func _diagnose_stall(bot: CharacterBody3D, l: Area3D, lt: Transform3D,
