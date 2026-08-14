@@ -34,7 +34,21 @@ UNKNOWN = "UNKNOWN"        # no version to compare (unpinned tool / no source)
 #: code it names. Sits below DRIFT because the numbers still agree -- what has
 #: gone stale is the claim that the number means anything.
 STALE = "STALE"
-_SEVERITY = {OK: 0, UNKNOWN: 1, STALE: 2, DRIFT: 3, INCOMPATIBLE: 4}
+#: The CHANGELOG documents versions the tool never claimed to be -- entries
+#: exist above what VERSION says. `lot` carried nine of them, 0.33.0 through
+#: 0.41.0, against a VERSION file reading 0.33.0. The record is right; VERSION
+#: should follow it.
+UNRELEASED = "UNRELEASED"
+#: A release with no entry -- VERSION is ahead of the newest heading. `zoo`
+#: shipped 0.32.0 while its CHANGELOG still stopped at 0.31.0. The version is
+#: right; the record owes an entry.
+UNDOCUMENTED = "UNDOCUMENTED"
+#: Both outrank DRIFT. A pin being behind has an obvious fix; a tool that does
+#: not know its own version cannot be pinned at all, so it has to be the
+#: louder finding. `lot` was DRIFT and STALE and neither said the useful
+#: thing.
+_SEVERITY = {OK: 0, UNKNOWN: 1, STALE: 2, DRIFT: 3, UNDOCUMENTED: 4,
+             UNRELEASED: 4, INCOMPATIBLE: 5}
 
 
 LOCK_FILENAME = "tools.lock.json"
@@ -98,6 +112,9 @@ class ContractResult:
     #: For STALE: the newest source file that outran VERSION. Naming it is the
     #: difference between a verdict and a place to look.
     stale_because: str | None = None
+    #: The version in the newest CHANGELOG heading. None when the tool has no
+    #: CHANGELOG, which is not a finding -- see `newest_changelog_entry`.
+    documented: str | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -105,6 +122,7 @@ class ContractResult:
             "installed": self.installed, "status": self.status,
             "certified_from": self.source,
             "stale_because": self.stale_because,
+            "documented": self.documented,
         }
 
     @property
@@ -116,6 +134,14 @@ class ContractResult:
                     f"VERSION is older than the code it names"
                     + (f" ({self.stale_because})" if self.stale_because else "")
                     + " -- bump the tool version, then re-certify")
+        if self.status == UNRELEASED:
+            return (f"the CHANGELOG documents {self.documented} but VERSION "
+                    f"says {self.installed} -- the record is ahead of the "
+                    f"version; bump VERSION to follow it, then re-pin")
+        if self.status == UNDOCUMENTED:
+            return (f"VERSION says {self.installed} but the newest CHANGELOG "
+                    f"entry is {self.documented} -- this release has no "
+                    f"entry; write one")
         if self.status == DRIFT:
             return (f"installed {self.installed} != certified {self.certified} "
                     f"(same major) — re-run the real-tool smoke and re-certify")
@@ -230,14 +256,26 @@ def verify_manifest(factory_root) -> list:
             str(manifest["tools"][name].get("version", "")))
         if str(manifest["tools"][name].get("version", "")) == "unpinned":
             pinned = None
+        from pathlib import Path as _P
+        tool_dir = _P(str(factory_root)) / str(
+            manifest["tools"][name].get("path", name))
         status = compare(pinned, installed.get(name))
         because = None
-        if status == OK:
-            # ONLY from OK. If the numbers already disagree the staleness
-            # question is moot, and DRIFT's message is the more useful one.
-            from pathlib import Path as _P
-            tool_dir = _P(str(factory_root)) / str(
-                manifest["tools"][name].get("path", name))
+        documented = newest_changelog_entry(tool_dir)
+
+        # THE THIRD NUMBER IS CHECKED FIRST, AND NOT ONLY FROM OK -- which
+        # is the opposite of how STALE is reached, on purpose. STALE
+        # escalates only from OK because if the numbers already disagree,
+        # DRIFT's message is more useful. That does not survive `lot`: it
+        # was DRIFT (pin 0.32.0, VERSION 0.33.0), and DRIFT says "re-run the
+        # smoke and re-certify" -- which would have pinned 0.33.0, wrong by
+        # eight releases, while its CHANGELOG said 0.41.0. A tool that does
+        # not know its own version cannot be pinned, so that has to outrank
+        # the pin being behind.
+        disagreement = self_disagreement(installed.get(name), documented)
+        if disagreement:
+            status = disagreement
+        elif status == OK:
             because = stale_source(tool_dir)
             if because:
                 status = STALE
@@ -248,8 +286,53 @@ def verify_manifest(factory_root) -> list:
             status=status,
             source="factory.manifest",
             stale_because=because,
+            documented=documented,
         ))
     return results
+
+
+def newest_changelog_entry(tool_dir) -> str | None:
+    """The version in the newest CHANGELOG heading, or None.
+
+    BOTH SHAPES IN USE HERE ARE ACCEPTED. `patina` writes `## [0.19.0] -
+    2026-08-02`, `dispatch` writes `## v0.3.0 - 2026-07-11`, `pipeline`
+    writes `## [v0.1.0] - 2026-07-17`. A reader that took only the bracketed
+    form reported `dispatch` -- a tool in perfect agreement with itself -- as
+    disagreeing. An instrument that misreads the record is the failure this
+    module exists to catch.
+
+    NEWEST MEANS FIRST, NOT HIGHEST. These files are written newest-first and
+    the top entry is the claim being made. Taking the maximum instead would
+    have hidden `zoo`, whose stray entry sat ABOVE the document title with a
+    number already used further down.
+
+    ``None`` when there is no CHANGELOG or no heading in it. That is not a
+    finding: `laser_tag` is an addon directory holding VERSION and addons/,
+    and may never want one. A missing file means no opinion, the same way a
+    missing version degrades to UNKNOWN rather than to a false OK.
+    """
+    from pathlib import Path as _P
+    p = _P(str(tool_dir)) / "CHANGELOG.md"
+    try:
+        text = p.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    m = re.search(r"^##\s*\[?v?(\d+\.\d+\.\d+)\]?", text, re.M)
+    return m.group(1) if m else None
+
+
+def self_disagreement(installed: str | None,
+                      documented: str | None) -> str | None:
+    """UNRELEASED, UNDOCUMENTED, or None -- does the tool agree with itself?
+
+    Compares the two numbers the TOOL owns. The manifest pin is not involved:
+    a tool that does not know its own version cannot be pinned correctly by
+    anyone, so this is answerable without asking what was certified.
+    """
+    i, d = parse_semver(installed), parse_semver(documented)
+    if i is None or d is None or i == d:
+        return None
+    return UNDOCUMENTED if i > d else UNRELEASED
 
 
 def stale_source(tool_dir) -> str | None:

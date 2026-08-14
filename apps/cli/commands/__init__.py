@@ -1935,6 +1935,13 @@ def cmd_verify_manifest(args) -> int:
         return EXIT_CONFIG
     if worst == contracts.DRIFT:
         return EXIT_CONFIG if getattr(args, "strict", False) else EXIT_FINDINGS
+    if worst in (getattr(contracts, "UNRELEASED", "UNRELEASED"),
+                 getattr(contracts, "UNDOCUMENTED", "UNDOCUMENTED")):
+        # The tool disagrees with ITSELF -- its CHANGELOG and its VERSION name
+        # different releases. Nothing can be pinned correctly until that is
+        # settled, so this exits the same way INCOMPATIBLE does under --strict
+        # and as findings otherwise.
+        return EXIT_CONFIG if getattr(args, "strict", False) else EXIT_FINDINGS
     if worst == getattr(contracts, "STALE", "STALE"):
         # A pin that matches a VERSION file older than its own code is not a
         # pass. Same exit treatment as DRIFT, because it wants the same thing

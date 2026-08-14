@@ -1,3 +1,59 @@
+## [0.25.0] - the CHANGELOG is the third number, and now it is read
+
+0.24.0 taught `verify-manifest` to notice a pin matching a stale VERSION, and
+closed by naming what it still could not see:
+
+    KNOWN AND NOT ADDRESSED HERE: the CHANGELOG is a third number this does
+    not read. `lot`'s CHANGELOG documents 0.41.0 while its VERSION says
+    0.33.0 and the manifest pins 0.32.0 -- three answers to one question, and
+    this check compares two of them.
+
+On 2026-08-14 finding that out cost twenty staged files and a person reading
+them. The check said `lot` was STALE, which was true and the least
+interesting true thing about it. `zoo` was worse and entirely invisible: it
+had shipped 0.32.0 with no entry for it, and its CHANGELOG carried the number
+0.31.0 twice -- once above the document's own title.
+
+- **Two statuses, not one.** `UNRELEASED` is the CHANGELOG ahead of VERSION:
+  entries for releases the tool never claimed to be. `UNDOCUMENTED` is
+  VERSION ahead of the CHANGELOG: a release with no entry. They want opposite
+  fixes -- bump the version, or write the entry -- and one status could not
+  say which.
+- **Checked first, and not only from OK.** STALE escalates only from OK on
+  the argument that DRIFT's message is more useful when the numbers already
+  disagree. `lot` refutes that: it was DRIFT, and DRIFT says "re-run the
+  smoke and re-certify", which would have pinned 0.33.0 -- wrong by eight
+  releases. A tool that does not know its own version cannot be pinned by
+  anyone, so it outranks a pin being behind. `_SEVERITY` gains two ranks
+  between DRIFT and INCOMPATIBLE.
+- **`newest_changelog_entry` reads both heading shapes in use.** `patina`
+  writes `## [0.19.0] - ...`, `dispatch` writes `## v0.3.0 - ...`, `pipeline`
+  writes `## [v0.1.0] - ...`. The first cut of this reader took only the
+  bracketed form and reported `dispatch` -- in perfect agreement with itself
+  -- as disagreeing. An instrument that misreads the record is precisely the
+  failure this module exists to catch, so the bug is recorded rather than
+  quietly fixed.
+- **Newest means FIRST, not highest.** These files are written newest-first
+  and the top entry is the claim being made. Taking the maximum would have
+  hidden `zoo`, whose stray entry sat above the title carrying a number
+  already used below it.
+- **No CHANGELOG means no opinion.** `laser_tag` is an addon directory
+  holding VERSION and `addons/`. A missing file yields None and the tool is
+  judged on the two numbers it has, the same way a missing version degrades
+  to UNKNOWN rather than to a false OK.
+- **`cli/commands`:** both statuses exit EXIT_FINDINGS, or EXIT_CONFIG under
+  `--strict`.
+
+Against the factory as of factory-v1.16.0 this reports nine tools OK and one
+UNDOCUMENTED: `pipeline`, whose VERSION says 0.5.0 while its newest entry is
+v0.1.0 -- four releases with no entry. That one is real and still open.
+
+Worth noting which status that is, because the first draft of this entry said
+UNRELEASED and its own selftest refuted it. `pipeline` has releases with no
+entries, not entries with no release; the CHANGELOG is BEHIND. Two statuses
+exist precisely so that distinction cannot be waved at, and it caught the
+person who wrote them within a minute of their existing.
+
 ## [0.24.0] - A pin that matches a stale VERSION is not a pass
 
 `verify-manifest` compared the manifest's pin against each tool's VERSION
