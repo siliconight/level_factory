@@ -1,3 +1,101 @@
+## [0.29.0] - the lock protects the site
+
+The repair. `docs/FUNCTIONAL_LOCK.md`, accepted 2026-08-14, is the spec;
+every decision here is argued there.
+
+    collision_fingerprint   + surfaces node names, ground sources,
+                              openings, vertical_links
+    anchor_registry_hash    markers, keyed on `name`, WITH position
+    route_graph_hash        retired
+
+- **`surfaces` contributes node names only.** The material dict beside each
+  node is rewritten by Patina and Pixelcoat during the art pass; hashing it
+  would report drift on every normal run, and a gate that cries drift gets
+  switched off. A lock that never fires and a lock that always fires protect
+  the same amount.
+- **`ground` contributes each building's source glb.** Swapping a building's
+  mesh is exactly what this gate is for and need not rename a single node.
+- **`openings` and `vertical_links` are hashed whole**, breach fields
+  included. A door that stops being vaultable is a functional change even if
+  it does not move. Lot's four `vertical_links` are a different population
+  from Deli's two `stair_systems`, not a replacement: both are kept.
+- **`markers` replaces `anchors`, keyed on `name`.** `id` is `"FRONT"` scoped
+  to a building and every building has one; the old registry sorted and keyed
+  on `id`, so two distinct anchors normalised to identical entries and it
+  silently under-counted.
+- **Anchor position joins the registry, and that is a change of meaning.**
+  The art pass could move every spawn point in the level and the hash would
+  not move. Nothing else checks anchor position either.
+- **`route_graph_hash` is retired**, not left hashing two empty dicts. An
+  empty signature is not neutral -- it reads as coverage, and its drift
+  message has never been capable of firing. Nothing in the factory publishes
+  a route graph; if one is wanted it belongs in `lot`'s output contract.
+- **`collision` is deliberately not used.** It is a four-field report
+  (`colliders: 1067`) and a count is a weak fingerprint: geometry can be
+  replaced wholesale at 1067 colliders. It looks like the obvious mapping and
+  it is the wrong one.
+
+AND THEN IT BLOCKED THE EXPORT ANYWAY, WHICH IS THE ENTRY
+
+The selftest passed 29 of 29 and the unit suite passed. Then the export
+printed the schema warning and stopped:
+
+    export blocked by functional regression:
+    <nothing>
+
+`drift` was empty, exactly as designed. `passed` was False -- also as
+designed, because nothing was compared -- and `cmd_export` reads
+`passed` as the block signal. So a version bump blocked every export,
+which is the outcome `docs/FUNCTIONAL_LOCK.md` argued against in those
+words, and which the paragraph below repeats. The doc and the code
+disagreed and the doc was right.
+
+Reasoning carefully about one field and then routing the same failure
+through another is a new variant of a pattern this factory has now hit
+four times in two days. The fix is shaped to stop it: the decision is a
+named predicate, `blocks_export(result)`, living beside the result it
+reads, so a test can exercise the actual decision instead of asserting
+that a line of source contains a substring.
+
+The empty reason was a second defect. `export blocked by functional
+regression:` printed its header unconditionally and its detail from a
+loop over `drift`, so any blocking condition that is not a drift entry
+produced a bare header. It now names its reason or says it has none and
+calls that a bug in level_factory.
+
+An export against a stale lock proceeds with a warning. The lock is
+regenerable, the skew is this release's own doing, and refusing to ship
+a level because a hash format changed is how a gate gets deleted.
+
+SCHEMA v0.2, AND A MISMATCH IS NOT DRIFT
+
+The signatures change definition, so an old lock and a new one are not
+comparable; diffing them reports every field as drift, for every mission,
+immediately. That is version skew. `verify_no_drift` now returns
+`needs_recompute` with the comparison SKIPPED, `passed` False and `drift`
+empty -- a comparison that did not happen did not pass, and calling it drift
+would block every export on a version bump and teach the next reader that
+drift means nothing.
+
+THE DELI BACKFILL STAYS AND IS NOW VISIBLE
+
+`stair_systems`, `ladders`, `platforms`, `fire_escapes` still come from Deli.
+That was never wrong. What was wrong is that it silently propped up a
+signature carrying nothing else, which is why the whole thing looked healthy
+for months. `coverage.backfilled_from_deli` names them now.
+
+NOT DONE HERE
+
+`LOCK_COVERAGE_ENFORCED` stays False. The order the doc sets is: land the
+mapping, recompute a real lock, confirm `guards_no_site` is false, then flip
+and name the mission that earned it. Recomputing `lot_demo_001` needs
+`approve --gate functional_shell_locked`, which resolves job paths through
+the `seed_XXXX` marker -- so the marker has to be repaired first. That is the
+next patch.
+
+Whether Lot's `vertical_links` need splitting by `kind` is open: all four are
+`hatch`, which is too small a sample to decide.
+
 ## [0.28.0] - the lock says what it is guarding
 
 `tools/probe_selection_drift.py` established that every functional lock this

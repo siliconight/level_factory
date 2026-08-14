@@ -17,22 +17,28 @@ from packages.core.hashing import hash_json
 
 
 #: The keys each protected signature actually reads. This is the same list
-#: `_collision_signature`, `_anchor_registry` and `_route_graph` use, written
+#: `_collision_signature` and `_anchor_registry` use, written
 #: once so the coverage report cannot drift away from what is hashed. A key
 #: added to a signature gets added here in the same edit.
 PROTECTED_KEYS: dict[str, tuple[str, ...]] = {
     "collision_fingerprint": ("stair_systems", "ladders", "platforms",
-                              "fire_escapes", "collision_hulls", "doorways"),
-    "anchor_registry_hash": ("anchors",),
-    "route_graph_hash": ("route", "route_graph", "nav_hints"),
+                              "fire_escapes", "openings",
+                              "vertical_links", "surfaces", "ground"),
+    "anchor_registry_hash": ("markers",),
 }
+
+#: The schema a lock written by THIS code carries. Bumped whenever a
+#: signature changes definition, because two locks with different
+#: definitions are not comparable and diffing them produces drift
+#: reports that mean nothing. See docs/FUNCTIONAL_LOCK.md.
+SCHEMA = "level_factory.functional_lock.v0.2"
 
 #: Which keys `_merged_gameplay` backfills from the Deli side. These can carry
 #: content while the SITE contributes nothing, which is precisely how a lock
 #: that protects no site data still produces a non-empty signature and looks
 #: healthy from the outside.
 BACKFILLED_FROM_DELI = frozenset(
-    {"stair_systems", "ladders", "platforms", "fire_escapes", "anchors"})
+    {"stair_systems", "ladders", "platforms", "fire_escapes"})
 
 COVERAGE_SCHEMA = "level_factory.lock_coverage.v0.1"
 
@@ -134,17 +140,66 @@ def _load(path: Path) -> dict:
         return {}
 
 
+def _anchor_identity(a: dict) -> str:
+    """The name that identifies one anchor across the whole site.
+
+    NOT `id`. Lot's markers carry `id: "FRONT"` scoped to a building,
+    and every building has one -- `_anchor_registry` sorted and keyed on
+    `id`, so two distinct anchors normalised to identical entries and
+    the registry silently under-counted. `name` is already namespaced
+    (`b0/ATTACKER_SPAWN_FRONT`); `ids.namespaced_anchor` exists for the
+    same reason.
+    """
+    name = a.get("name")
+    if name:
+        return str(name)
+    ident = a.get("id") or a.get("shell_id")
+    building = a.get("building")
+    return f"{building}/{ident}" if building and ident else str(ident)
+
+
 def _anchor_registry(gameplay: dict) -> list[dict]:
-    """Stable, order-independent view of the gameplay anchors."""
-    anchors = gameplay.get("anchors", [])
+    """Stable, order-independent view of the gameplay anchors.
+
+    Reads Lot's `markers` first, Deli's `anchors` second. The fallback is
+    not compatibility scaffolding: a Deli-shaped anchor list is a real
+    input, and the unit fixtures are written that way.
+
+    POSITION IS PART OF THE REGISTRY. It was not, so the art pass could
+    move every spawn point in the level and this hash would not change.
+    Nothing else checks anchor position either. See
+    docs/FUNCTIONAL_LOCK.md -- this is a change of meaning, not a rename.
+    """
+    anchors = gameplay.get("markers") or gameplay.get("anchors") or []
     norm = []
     for a in anchors:
         norm.append({
-            "id": a.get("id") or a.get("shell_id"),
+            "id": _anchor_identity(a),
             "type": a.get("type") or a.get("anchor_type"),
             "authority": a.get("required_authority") or a.get("authoritative_owner"),
+            "at": [a.get("x"), a.get("y"), a.get("z")],
+            "facing": a.get("facing"),
         })
     return sorted(norm, key=lambda x: str(x["id"]))
+
+
+def _collision_nodes(gameplay: dict) -> list[str]:
+    """Every collision node name Lot published, sorted and de-duped."""
+    out = set()
+    for s in gameplay.get("surfaces") or []:
+        if isinstance(s, dict) and s.get("node"):
+            out.add(str(s["node"]))
+    return sorted(out)
+
+
+def _ground_sources(gameplay: dict) -> dict:
+    """Each building -> the mesh its collision came from."""
+    ground = gameplay.get("ground") or {}
+    if not isinstance(ground, dict):
+        return {}
+    return {str(k): (v or {}).get("source")
+            for k, v in sorted(ground.items())
+            if isinstance(v, dict)}
 
 
 def _collision_signature(gameplay: dict) -> dict:
@@ -154,15 +209,20 @@ def _collision_signature(gameplay: dict) -> dict:
         "ladders": gameplay.get("ladders", []),
         "platforms": gameplay.get("platforms", []),
         "fire_escapes": gameplay.get("fire_escapes", []),
-        "collision_hulls": gameplay.get("collision_hulls", []),
-        "doorways": gameplay.get("doorways", []),
-    }
-
-
-def _route_graph(gameplay: dict) -> dict:
-    return {
-        "route": gameplay.get("route", gameplay.get("route_graph", {})),
-        "nav_hints": gameplay.get("nav_hints", {}),
+        # Lot's vocabulary. `collision_hulls` and `doorways` were read
+        # here and Lot has never published either; see
+        # docs/FUNCTIONAL_LOCK.md for what it publishes instead.
+        "openings": gameplay.get("openings", []),
+        "vertical_links": gameplay.get("vertical_links", []),
+        # NODE NAMES ONLY. The material dict beside them is rewritten by
+        # Patina and Pixelcoat during the art pass; hashing it would
+        # report drift on every normal run, and a gate that cries drift
+        # gets switched off.
+        "collision_nodes": _collision_nodes(gameplay),
+        # Which mesh each building's collision came from. Swapping a
+        # source glb is exactly this gate's job and need not rename a
+        # single node.
+        "ground_sources": _ground_sources(gameplay),
     }
 
 
@@ -171,12 +231,11 @@ class FunctionalLock:
     mission_id: str
     candidate_id: str
     seed: int
-    schema: str = "level_factory.functional_lock.v0.1"
+    schema: str = SCHEMA
     deli_spec_hash: str = ""
     lot_spec_hash: str = ""
     collision_fingerprint: str = ""
     anchor_registry_hash: str = ""
-    route_graph_hash: str = ""
     clearance_metrics: dict = field(default_factory=dict)
     locked_at: str = field(default_factory=_now)
     #: What this lock protects. Empty on locks written before 0.28.0 --
@@ -195,7 +254,6 @@ class FunctionalLock:
             "lot_spec_hash": self.lot_spec_hash,
             "collision_fingerprint": self.collision_fingerprint,
             "anchor_registry_hash": self.anchor_registry_hash,
-            "route_graph_hash": self.route_graph_hash,
             "clearance_metrics": self.clearance_metrics,
             "locked_at": self.locked_at,
             "coverage": self.coverage,
@@ -247,7 +305,6 @@ def compute_lock(
         deli_spec_hash=deli_spec_hash, lot_spec_hash=lot_spec_hash,
         collision_fingerprint=hash_json(_collision_signature(gameplay)),
         anchor_registry_hash=hash_json(_anchor_registry(gameplay)),
-        route_graph_hash=hash_json(_route_graph(gameplay)),
         clearance_metrics=gameplay.get("clearance_metrics", {}),
         coverage=coverage,
     )
@@ -268,6 +325,12 @@ class RegressionResult:
     #: signature kept alive entirely by Deli's backfill is not guarding
     #: the assembled site, however non-empty its hash looks.
     site_unguarded: bool = False
+    #: The lock predates the current signature definitions, so nothing
+    #: was compared. NOT drift -- reporting a version skew as drift
+    #: would block every export on a schema bump and teach the reader
+    #: that drift means nothing. `passed` is False with no drift
+    #: entries: a comparison that did not happen did not pass.
+    needs_recompute: bool = False
     #: What THIS COMPARISON protected, measured from the files handed
     #: in. Distinct from `lock.coverage`, which is what the lock
     #: protected when it was WRITTEN. Not merged: if they disagree the
@@ -279,7 +342,26 @@ class RegressionResult:
         return {"mission_id": self.mission_id, "passed": self.passed,
                 "drift": self.drift, "vacuous_lock": self.vacuous_lock,
                 "site_unguarded": self.site_unguarded,
+                "needs_recompute": self.needs_recompute,
                 "coverage": self.coverage}
+
+
+def blocks_export(result: RegressionResult) -> bool:
+    """Does this result stop an export?
+
+    ONE PREDICATE, HERE, so it can be tested. The first cut of 0.29.0
+    left the decision inline in `cmd_export` as `if not
+    result.passed`, and a schema mismatch -- which sets `passed` False
+    because nothing was compared -- blocked every export. The doc had
+    argued against exactly that, in those words, one release earlier.
+
+    A schema mismatch does NOT block. The lock is regenerable, the skew
+    is this release's own doing, and refusing to ship a level because a
+    hash format changed is how a gate gets deleted. `passed` stays False
+    -- a comparison that did not happen did not pass -- it simply is not
+    what gates the export.
+    """
+    return not result.passed and not result.needs_recompute
 
 
 def verify_no_drift(
@@ -293,13 +375,20 @@ def verify_no_drift(
     functional shell yields identical signatures.
     """
     gameplay = _merged_gameplay(post_art_site_gameplay_path, post_art_deli_gameplay_path)
+    coverage = signature_coverage(
+        gameplay, _load(post_art_site_gameplay_path))
+    if str(getattr(lock, "schema", "")) != SCHEMA:
+        return RegressionResult(
+            mission_id=lock.mission_id, passed=False, drift=[],
+            needs_recompute=True,
+            vacuous_lock=bool(coverage.get("vacuous")),
+            site_unguarded=bool(coverage.get("guards_no_site")),
+            coverage=coverage)
     drift: list[str] = []
     if hash_json(_collision_signature(gameplay)) != lock.collision_fingerprint:
         drift.append("collision_fingerprint changed after art pass")
     if hash_json(_anchor_registry(gameplay)) != lock.anchor_registry_hash:
         drift.append("gameplay-anchor registry changed after art pass")
-    if hash_json(_route_graph(gameplay)) != lock.route_graph_hash:
-        drift.append("route graph changed after art pass")
     # MEASURED HERE, NOT READ OFF THE LOCK. The first version of this
     # took `lock.coverage`, which only exists on locks written by 0.28.0
     # or later -- so on every lock that exists today it was empty, and

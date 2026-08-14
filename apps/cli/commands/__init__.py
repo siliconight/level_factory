@@ -2286,13 +2286,23 @@ def cmd_export(args) -> int:
     lock_file = _lock_path(ws, mission_id)
     lot_out = _selected_lot_out(ws, mission_id)
     if lock_file.exists() and lot_out is not None:
-        from packages.approvals.lock import FunctionalLock, verify_no_drift
+        from packages.approvals.lock import (FunctionalLock,
+                                             blocks_export,
+                                             verify_no_drift)
         lock = FunctionalLock.from_dict(json.loads(lock_file.read_text(encoding="utf-8")))
         seed = lock.seed
         deli_out = ws.jobs_dir / f"{mission_id}.deli_generate.candidate.seed_{seed}" / "out"
         regression = verify_no_drift(
             lock, lot_out / "site.site.gameplay.json", deli_out / "shell.gameplay.json")
-        if regression.vacuous_lock or regression.site_unguarded:
+        if regression.needs_recompute:
+            # NOT DRIFT, and not a pass either. The lock predates the
+            # current signature definitions, so nothing was compared.
+            print(f"[export] the functional lock for {mission_id} "
+                  f"predates the current signature definitions; "
+                  f"nothing was compared. Recompute it with "
+                  f"approve --gate functional_shell_locked.",
+                  file=sys.stderr)
+        elif regression.vacuous_lock or regression.site_unguarded:
             # THE MOMENT A HUMAN IS TOLD SOMETHING REASSURING AND FALSE.
             # `passed` here means little was compared, not that nothing
             # moved. Printed on the pass, because the failure path
@@ -2312,10 +2322,20 @@ def cmd_export(args) -> int:
                   f"reads. Run tools/probe_selection_drift.py, or read "
                   f"the coverage block in the report.",
                   file=sys.stderr)
-        if not regression.passed:
-            print("export blocked by functional regression:", file=sys.stderr)
+        if blocks_export(regression):
+            print("export blocked by functional regression:",
+                  file=sys.stderr)
             for d in regression.drift:
                 print(f"  - {d}", file=sys.stderr)
+            if not regression.drift:
+                # THE HEADER USED TO PRINT ALONE. A blocked export whose
+                # reasons are an empty list tells a reader nothing and
+                # reads like a crash. If a future condition blocks
+                # without producing drift entries, it says so.
+                print("  - no drift entries; the block came from somewhere\n"
+                      "    other than a signature comparison. This is a bug\n"
+                      "    in level_factory, not a problem with the mission.",
+                      file=sys.stderr)
             return EXIT_BLOCKED
 
     # WHICH LEVEL THIS IS. `lot_demo_001` at seed 5219 and at seed 5017
