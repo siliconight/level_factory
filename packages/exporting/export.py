@@ -22,6 +22,7 @@ from pathlib import Path
 
 from packages.core.canonical import pretty_dumps
 from packages.core.hashing import hash_file
+from packages.core.ids import export_build_dir_name
 
 MODE_PORTABLE = "portable-godot"
 MODE_PURE_SHELL = "pure-shell"
@@ -229,7 +230,7 @@ def export_mission(
     addon_sources: dict[str, Path] | None = None,
     composed_root: Path | None = None,
 ) -> ExportResult:
-    export_dir = out_root / f"{mission_id}.{profile.mode}"
+    export_dir = out_root / export_build_dir_name(mission_id, profile.mode)
     if export_dir.exists():
         shutil.rmtree(export_dir)
     export_dir.mkdir(parents=True, exist_ok=True)
@@ -438,7 +439,11 @@ def export_mission(
 
 def zip_export(result: ExportResult) -> Path:
     """Deterministic ZIP (sorted entries, fixed timestamps)."""
-    zip_path = result.export_dir.with_suffix(".zip")
+    # APPEND, do not substitute. `with_suffix(".zip")` reads
+    # `.portable-godot` as a file extension and replaces it, which is the
+    # whole reason the archive was `lot_demo_001.zip` with no profile in
+    # it. Nobody decided to drop it; a path helper ate it.
+    zip_path = result.export_dir.parent / (result.export_dir.name + ".zip")
     files = sorted(p for p in result.export_dir.rglob("*") if p.is_file())
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for f in files:

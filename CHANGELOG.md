@@ -1,3 +1,58 @@
+## [0.26.0] - the export name has one home
+
+`docs/EXPORT_NAMING.md`, accepted 2026-08-14, specifies three names for an
+export. Before writing any of them, the grammar was measured: it is composed
+in five places.
+
+    export.py       out_root / f"{mission_id}.{profile.mode}"
+    export.py       zip_path = result.export_dir.with_suffix(".zip")
+    commands        f"{mission_id}.portable-godot"      hardcoded, in cmd_walk
+    commands        export_root / f"{mission_id}.{mode}"
+    commands        f"{mission_id}.{mode}.portability.json"
+
+- **`ids.export_build_dir_name`** is now the only definition. It lives beside
+  `candidate_id` and `job_id` because those already own the rule that an id
+  becoming a directory is refused rather than sanitised, and this is the same
+  rule for the same reason.
+- **The build dir keeps the profile**, and the docstring says why: the
+  workspace holds `portable-godot` and `pure-shell` at once, so one stable
+  name would have the second export overwrite the first. The folder a
+  recipient drops in has the opposite requirement — it must not change between
+  exports or their `res://` paths move — which is why the doc specifies three
+  names and not two. That correction came from reading `export.py:232`; the
+  first draft of the doc had two and was wrong.
+- **The archive stops losing its profile, and that needed no plumbing.**
+  `with_suffix(".zip")` treats `.portable-godot` as a file extension and
+  replaces it. That is the entire reason the archive was `lot_demo_001.zip`.
+  Appending instead of substituting gives
+  `LF_lot_demo_001.portable-godot.zip`.
+- **`cmd_walk` stops hardcoding the profile** four lines after setting it. It
+  was right, and it would have gone on looking in the same place if the
+  default above it had ever changed.
+
+- **The import merged into the line that was already there.**
+  `commands/__init__.py` has imported `slugify` from `packages.core.ids`
+  since before this work started. The patch's first draft assumed it imported
+  nothing from there and was going to insert a second import line. It refused
+  and named the file instead of writing one, which is the guard doing its
+  job -- recorded because the near-miss is the useful part, not the fix.
+
+Renames on disk: `lot_demo_001.portable-godot/` becomes
+`LF_lot_demo_001.portable-godot/`, and the `.portability.json` beside it
+follows. Existing export directories are not migrated — they are regenerable
+output under `.level_factory/`.
+
+NOT DONE HERE, AND NAMED SO IT IS NOT MISTAKEN FOR DONE: the full archive
+name (`LF_<mission>_s<seed>_<utc>_f<factory>_<profile>.zip`) needs the seed,
+the build time and the factory version plumbed to `export_mission`, which
+changes its signature; `LF_MANIFEST.json` and repacking the archive under a
+stable `LF_<mission>/` come with them. The interior renames
+(`lot/<building>/` -> `sites/<building>/`, dropping `assets/lot.glb`) change
+`res://` paths inside the package and want their own portability run.
+
+`cmd_portability_test` composes one of the five names and is updated here, so
+its pass has to be re-earned by a real run rather than assumed.
+
 ## [0.25.0] - the CHANGELOG is the third number, and now it is read
 
 0.24.0 taught `verify-manifest` to notice a pin matching a stale VERSION, and

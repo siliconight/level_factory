@@ -17,7 +17,7 @@ from packages.artifacts.cache import ContentCache
 from packages.core import states
 from packages.core.canonical import pretty_dumps
 from packages.core.hashing import hash_json
-from packages.core.ids import slugify
+from packages.core.ids import export_build_dir_name, slugify
 from packages.core.models import MissionBrief
 from packages.jobs.scheduler import Scheduler
 from packages.pipeline.planner import (
@@ -2054,7 +2054,11 @@ def cmd_walk(args) -> int:
         print(f"walk needs an export and the export was refused; fix that "
               f"first", file=sys.stderr)
         return code
-    export_dir = ws.internal_dir / "exports" / f"{mission_id}.portable-godot"
+    # ASK FOR THE MODE THIS BLOCK SET, four lines up, rather than naming
+    # it again. Hardcoding it was right only for as long as the default
+    # above never changed, and nothing would have said so if it had.
+    export_dir = (ws.internal_dir / "exports"
+                  / export_build_dir_name(mission_id, export_args.mode))
     if (export_dir / "mission.tscn").is_file():
         content_dir, source_stage = export_dir, "export (portable-godot)"
     else:
@@ -2245,7 +2249,7 @@ def cmd_portability_test(args) -> int:
     export_root = ws.internal_dir / "exports"
     # Default to the portable-godot export if a mode isn't given.
     mode = args.mode
-    export_dir = export_root / f"{mission_id}.{mode}"
+    export_dir = export_root / export_build_dir_name(mission_id, mode)
     if not export_dir.exists():
         print(f"no export at {export_dir}; run 'export --mode {mode}' first",
               file=sys.stderr)
@@ -2257,7 +2261,8 @@ def cmd_portability_test(args) -> int:
         work_root=ws.temp_dir,
     )
     # Persist the report next to the export.
-    (export_root / f"{mission_id}.{mode}.portability.json").write_text(
+    (export_root / (export_build_dir_name(mission_id, mode)
+                    + ".portability.json")).write_text(
         pretty_dumps(report.as_dict()), encoding="utf-8")
     print(pretty_dumps(report.as_dict()))
     return EXIT_OK if report.status == "PASS" else EXIT_BLOCKED
