@@ -1,3 +1,31 @@
+## [0.23.0] - A blocked candidate is not a blocked mission
+
+- **validation/model.py:** `aggregate()` takes `eliminated_candidates` and
+  partitions blockers into `blocking_open` and `blocking_eliminated`;
+  `has_blockers` follows `blocking_open` as it always did. The scheduler has
+  scoped candidate failures for a while -- a candidate-scoped failure
+  eliminates that candidate and the run carries on -- but the reporting never
+  followed. Measured 2026-08-12 on lot_demo_001: one candidate's
+  `dispatch_handoff` exited 1, all three candidates built, `blocked_job` was
+  never set, and the summary still read "Blocked: unresolved blocking
+  issues". The run that continued reported as the run that halted.
+  Opt-in: the default is an empty set and every issue lands in
+  `blocking_open` exactly as before, so `cmd_validate` and both suites are
+  byte-identical.
+- **cli/commands:** `cmd_run` passes the eliminated set and prints the
+  eliminations. `cmd_batch_run` had printed them for a while; on a
+  single-mission run the reason the mission survived was invisible.
+- Findings are partitioned, never dropped: `total` still counts a blocker on
+  a discarded candidate, because it is still a real finding about a real
+  defect -- it is just not the mission's to answer for.
+
+Downstream of this: `lot_demo_001` was re-run on the art layer and its three
+candidates graded 40 / 55 / 60. SESSION_0811 concluded Laser Tag's score was a
+step function stuck on a plateau, from five evaluations that all returned 45 --
+but those were grading the greybox draw while the themed draw shipped. Grading
+what ships, the score separates the candidates. The plateau was an artifact of
+grading the wrong geometry.
+
 ## [0.22.0] - a candidate that fails is eliminated, not fatal
 
 Five candidates are generated so the weak ones can be dropped. Mission-wide
