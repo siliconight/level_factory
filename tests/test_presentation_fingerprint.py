@@ -76,10 +76,18 @@ def test_missing_repo_degrades_rather_than_raising():
 
 def test_missing_source_files_are_skipped_not_faked(dc_repo):
     """A DC version that lacks one of these must fingerprint the rest, not
-    substitute a placeholder that collides across versions."""
-    pathlib.Path(dc_repo, "circulation.py").unlink()
+    substitute a placeholder that collides across versions.
+
+    Deletes the FIRST declared source rather than naming one. This said
+    `circulation.py`, which is a real member of the list and does not
+    exist in DC 0.89.0 -- the fixture writes it, so the test passed on a
+    file no shipping DC has. Hardcoding one member of a list the same
+    module parametrises over breaks on an edit that has nothing to do
+    with this test."""
+    gone = _COMPOSER_SOURCES[0]
+    pathlib.Path(dc_repo, gone).unlink()
     fp = _composer_fingerprint({"deli_repo": dc_repo}, {})
-    assert "circulation.py" not in fp
+    assert gone not in fp
     assert len(fp) == len(_COMPOSER_SOURCES) - 1
 
 

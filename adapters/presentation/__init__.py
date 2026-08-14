@@ -99,6 +99,63 @@ def resolve_layer(directory: str, suffix: str) -> tuple[str, str]:
     return str(hits[0]), ""
 
 
+#: The DC modules whose CONTENT decides what a composed building looks
+#: like. Hand-maintained, not a computed closure: a DC version may lack
+#: one of these and a future one may add a module this list has to
+#: learn about. Measured against DC 0.89.0 -- the import closure of
+#: `portable_building` is itself plus `themed_tscn`.
+#:
+#: `circulation.py` is declared and does not exist in 0.89.0. That is
+#: deliberate: it was part of the composer when this guard was
+#: specified, and an absent declared source is SKIPPED rather than
+#: faked. A placeholder hash for a missing file would be identical
+#: across every DC version that lacks it, which is the opposite of a
+#: fingerprint.
+#:
+#: NOT here: presets.py, and every test_*.py. A cache that invalidates
+#: on everything is a cache nobody keeps.
+_COMPOSER_SOURCES = (
+    "portable_building.py",
+    "themed_tscn.py",
+    "circulation.py",
+)
+
+
+def _composer_fingerprint(job_spec, context) -> dict:
+    """Hash the DC code this job EXECUTES, not just the data it reads.
+
+    THE HOLE THIS CLOSES, measured 2026-08-05: `strip_greybox_base` was
+    fixed in DC. DC committed, DC's suite went green, `run --art
+    --force` reported `deli_generate SUCCEEDED` and `zoo_kit_build
+    SUCCEEDED`, and this job reported `cache`. The composed
+    `site_base.glb` came back byte-identical and the invisible wall it
+    was supposed to remove was still there. The rebuild looked real and
+    was not.
+
+    `verify-contracts` catches a sub-tool DRIFTING out from under an
+    adapter. This is that failure with the opposite sign -- a sub-tool
+    FIX not reaching a cached job.
+
+    Degrades to {} rather than raising. A bad or absent repo path is
+    `plan_commands`' problem to report; raising here would turn it into
+    a crash at cache-lookup time, on a code path whose entire job is to
+    answer a question about staleness.
+    """
+    repo = (job_spec or {}).get("deli_repo") or \
+        (context or {}).get("repository")
+    if not repo:
+        return {}
+    root = Path(str(repo))
+    if not root.is_dir():
+        return {}
+    out: dict = {}
+    for rel in _COMPOSER_SOURCES:
+        p = root / rel
+        if p.is_file():
+            out[rel] = hash_file(p)
+    return out
+
+
 def _driver_path() -> Path:
     # <repo_root>/assets/scripts/run_presentation_compose.py
     return (Path(__file__).resolve().parents[2]
@@ -257,6 +314,15 @@ class PresentationAdapter(BaseAdapter):
                 }
                 for a in lot
             }
+        # THE CODE, not only the data. This job executes DC's composer,
+        # so a DC fix that changes what a building looks like moves no
+        # input hash and the job reports `cache`. That happened, on
+        # 2026-08-05, and shipped an invisible wall.
+        #
+        # Empty when the repo is unknown -- the key is still written, so
+        # a mission that gains a resolvable deli_repo recomposes once
+        # rather than silently keeping a fingerprint taken without it.
+        fp["composer"] = _composer_fingerprint(job_spec, context)
         return fp
 
     def plan_commands(self, job_spec, context) -> Sequence[PlannedCommand]:

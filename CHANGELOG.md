@@ -1,3 +1,68 @@
+## [0.32.0] - the composer fingerprint, which was never there
+
+`pytest tests` has been aborting during collection on
+`tests/test_presentation_fingerprint.py`, which imports `_COMPOSER_SOURCES`
+from `adapters.presentation`. I went in expecting a stale import against a
+renamed symbol.
+
+Neither `_COMPOSER_SOURCES` nor `_composer_fingerprint` exists anywhere in
+the repository, and `fingerprint_inputs` has no `composer` key. The test is
+not stale. It describes a guard that was never implemented, and because
+collection aborted, nothing ever said so.
+
+WHAT THE GUARD IS FOR, IN THE TEST'S OWN WORDS
+
+Measured 2026-08-05. `strip_greybox_base` was fixed in Deli Counter. DC
+committed, DC's suite went green, `run --art --force` reported
+`deli_generate SUCCEEDED` and `zoo_kit_build SUCCEEDED`, and this job
+reported `cache`. The composed `site_base.glb` came back byte-identical and
+the invisible wall the fix was supposed to remove was still there.
+
+The presentation job does not merely read DC's data -- it EXECUTES DC's code,
+`portable_building.build_package` through a driver. Its output can change
+while every input hash stays identical. Nothing hashed DC's source.
+
+`verify-contracts` catches a sub-tool drifting out from under an adapter.
+This is that failure with the opposite sign: a sub-tool FIX not reaching a
+cached job.
+
+One line in the file already knew. The comment above the `lot` block reads
+"The composer fingerprint had exactly this hole for its own sources and it
+took a walk to find" -- written about something that is not in the file.
+
+WHICH SOURCES, MEASURED
+
+The import closure of `portable_building` inside DC 0.89.0 is two modules:
+`portable_building.py` and `themed_tscn.py`. Both are declared.
+
+`circulation.py` is declared too and does not exist in 0.89.0. That is
+deliberate -- `_COMPOSER_SOURCES` is a hand-maintained list of what composes
+a building, not a computed closure, and an absent declared source is SKIPPED,
+never faked. A placeholder hash for a missing file is identical across every
+DC version that lacks it, which is the opposite of a fingerprint.
+
+`presets.py` and every `test_*.py` are deliberately excluded. A cache that
+invalidates on everything is a cache nobody keeps.
+
+ONE LINE OF ONE TEST IS REPAIRED
+
+`test_missing_source_files_are_skipped_not_faked` unlinked `circulation.py`
+by name. It now deletes the first declared source, whatever that is --
+hardcoding one member of a list the same module parametrises over breaks on
+an unrelated edit. Nothing else in that file changes. It was right the whole
+time; it just could not run.
+
+WHAT THIS COSTS
+
+Every mission recomposes once. `composer` is a new fingerprint key, so no
+existing compose matches. That is the correct behaviour for a guard whose
+whole premise is that a stale compose is invisible -- and it is the last
+recompose that will be needed for this reason.
+
+The key is written even when the DC repo cannot be resolved, as `{}`. A
+mission that later gains a resolvable `deli_repo` then recomposes once,
+rather than silently keeping a fingerprint taken without one.
+
 ## [0.31.0] - the coverage report counts, and the gate turns on
 
 `LOCK_COVERAGE_ENFORCED` is True. The mission that earned it is
