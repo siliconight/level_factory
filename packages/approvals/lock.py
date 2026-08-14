@@ -24,7 +24,7 @@ PROTECTED_KEYS: dict[str, tuple[str, ...]] = {
     "collision_fingerprint": ("stair_systems", "ladders", "platforms",
                               "fire_escapes", "openings",
                               "vertical_links", "surfaces", "ground"),
-    "anchor_registry_hash": ("markers",),
+    "anchor_registry_hash": ("markers", "anchors"),
 }
 
 #: The schema a lock written by THIS code carries. Bumped whenever a
@@ -38,7 +38,28 @@ SCHEMA = "level_factory.functional_lock.v0.2"
 #: that protects no site data still produces a non-empty signature and looks
 #: healthy from the outside.
 BACKFILLED_FROM_DELI = frozenset(
-    {"stair_systems", "ladders", "platforms", "fire_escapes"})
+    {"stair_systems", "ladders", "platforms", "fire_escapes",
+     # `_merged_gameplay` has always backfilled this, and
+     # `_anchor_registry` still falls back to it. 0.29.0 removed it from
+     # this set while leaving both behaviours in place.
+     "anchors"})
+
+#: Keys where BOTH tools publish real content and neither restates the
+#: other, so the lock protects the UNION.
+#:
+#: `_merged_gameplay` had exactly one rule for a shared key -- the site
+#: wins -- which is right when Lot restates what Deli said and wrong
+#: when they each say something the other does not. Measured
+#: 2026-08-14 by tools/probe_site_vocabulary.py: of Deli's 14 markers,
+#: ONE appeared in Lot's 42. The other thirteen -- CREW_SPAWN_A,
+#: RESPONDER_SPAWN_1 and eleven cover points -- were being dropped from
+#: the gameplay-anchor registry by a rule written for the other case.
+#:
+#: `surfaces` is deliberately NOT here: 25 of Deli's 238 collision
+#: nodes are story -1 and window sub-parts that Lot appears never to
+#: place, and hashing geometry the package does not contain would
+#: report drift the day Lot legitimately stops emitting it.
+UNIONED_WITH_DELI = frozenset({"markers"})
 
 COVERAGE_SCHEMA = "level_factory.lock_coverage.v0.1"
 
@@ -64,7 +85,42 @@ class VacuousLockError(RuntimeError):
 #: The measurement ALWAYS runs and ALWAYS lands in the lock file. This flag
 #: decides only whether it stops the gate. Flip it once a mapping exists and
 #: one real mission produces a non-vacuous lock -- and name that mission here.
-LOCK_COVERAGE_ENFORCED = False
+#: FLIPPED 2026-08-14. The mission that earned it is `lot_demo_001`,
+#: recomputed under schema v0.2 after 0.30.0:
+#:
+#:     counts       markers 55, openings 76, surfaces 1029,
+#:                  vertical_links 4, ground 5, stair_systems 2
+#:     site_counts  markers 42, openings 76, surfaces 1029,
+#:                  vertical_links 4, ground 5, stair_systems 0
+#:
+#: markers 55 against 42 is the union -- the thirteen Deli anchors
+#: 0.30.0 stopped dropping. stair_systems 2 against 0 is the Deli
+#: backfill, and it is ALL this lock protected before 0.29.0: two
+#: records, for months. It now carries 1,171. vacuous False,
+#: guards_no_site False, unguarded empty.
+#:
+#: THIS REFUSES A VACUOUS LOCK ONLY -- every signature empty. It does
+#: NOT refuse `guards_no_site`, which is stricter and more meaningful,
+#: because exactly ONE mission has been measured under this spec.
+#: Refusing on the stricter test would fail missions nobody has looked
+#: at. Widen it when a second and third have been measured, and name
+#: them here the way this names lot_demo_001.
+LOCK_COVERAGE_ENFORCED = True
+
+
+def _size(d: dict, key: str) -> int:
+    """How many records a key carries. 0 when absent or empty.
+
+    THE NUMBER `guarding` DOES NOT CARRY. `markers: guarding=True`
+    reads the same whether the registry holds fifty-five anchors or
+    one, and before 0.29.0 the collision signature reported guarding
+    while carrying two Deli stair systems and nothing else. Every
+    report agreed with it. A count would not have.
+    """
+    v = d.get(key)
+    if isinstance(v, (list, dict, str)):
+        return len(v)
+    return 0 if v is None else 1
 
 
 def _has_content(d: dict, key: str) -> bool:
@@ -90,6 +146,10 @@ def signature_coverage(gameplay: dict, site_gameplay: dict) -> dict:
             "backfilled_from_deli": [k for k in have
                                      if k in BACKFILLED_FROM_DELI
                                      and not _has_content(site_gameplay, k)],
+            # Visible for the same reason the backfill is: a signature
+            # carrying two tools' records should say so.
+            "unioned_with_deli": [k for k in keys
+                                  if k in UNIONED_WITH_DELI],
             "guarding": bool(have),
         }
     unguarded = sorted(n for n, v in sigs.items() if not v["guarding"])
@@ -106,6 +166,13 @@ def signature_coverage(gameplay: dict, site_gameplay: dict) -> dict:
         # is true here.
         "guards_no_site": not any(_has_content(site_gameplay, k)
                                   for k in read),
+        # WHAT IS HASHED, and what the site alone published. The pair is
+        # the point: for a unioned key they differ by exactly what the
+        # other tool contributed, so a reader can do the subtraction
+        # from the lock file without a probe.
+        "counts": {k: _size(gameplay, k) for k in sorted(read)},
+        "site_counts": {k: _size(site_gameplay, k)
+                        for k in sorted(read)},
         "vacuous": len(unguarded) == len(PROTECTED_KEYS),
     }
 
@@ -265,6 +332,32 @@ class FunctionalLock:
         return cls(**known)
 
 
+def _tail(ident: str) -> str:
+    """The part of an identity after its namespace prefix."""
+    return str(ident).rsplit("/", 1)[-1]
+
+
+def _union_by_tail(site_records: list, deli_records: list) -> list:
+    """Site records, plus Deli records the site does not already carry.
+
+    DEDUPED BY NAME-TAIL, not by exact identity. Lot namespaces the
+    anchors it does restate -- Deli's `VAULT` becomes `b0/VAULT` -- so
+    an exact-match dedupe would keep both and count one anchor twice.
+    Of Deli's 14 markers in lot_demo_001, exactly one matches this way;
+    the rule exists for that one.
+    """
+    out = list(site_records)
+    have = {_tail(_anchor_identity(r)) for r in site_records
+            if isinstance(r, dict)}
+    for r in deli_records:
+        if not isinstance(r, dict):
+            continue
+        if _tail(_anchor_identity(r)) in have:
+            continue
+        out.append(r)
+    return out
+
+
 def _merged_gameplay(site_gameplay_path: Path, deli_gameplay_path: Path | None) -> dict:
     """The functional gameplay view, merging DC collision/anchors into the Lot
     site. compute_lock and verify_no_drift MUST use this same extraction so an
@@ -277,6 +370,10 @@ def _merged_gameplay(site_gameplay_path: Path, deli_gameplay_path: Path | None) 
             merged.setdefault(k, deli_gp.get(k, []))
         if not merged.get("anchors"):
             merged["anchors"] = deli_gp.get("anchors", [])
+        # UNION, not overwrite. See UNIONED_WITH_DELI.
+        for k in UNIONED_WITH_DELI:
+            merged[k] = _union_by_tail(merged.get(k) or [],
+                                       deli_gp.get(k) or [])
         gameplay = merged
     return gameplay
 

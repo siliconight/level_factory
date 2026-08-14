@@ -1,3 +1,143 @@
+## [0.31.0] - the coverage report counts, and the gate turns on
+
+`LOCK_COVERAGE_ENFORCED` is True. The mission that earned it is
+`lot_demo_001`, recomputed under schema v0.2:
+
+    counts       markers 55, openings 76, surfaces 1029,
+                 vertical_links 4, ground 5, stair_systems 2
+    site_counts  markers 42, openings 76, surfaces 1029,
+                 vertical_links 4, ground 5, stair_systems 0
+
+`markers` 55 against 42 is the union -- exactly the thirteen Deli
+anchors 0.30.0 stopped dropping. `stair_systems` 2 against 0 is the
+Deli backfill, and it is everything this lock protected before 0.29.0:
+two records, for months, under three signatures that all reported
+healthy. The protected set now carries 1,171.
+
+IT REFUSES A VACUOUS LOCK, NOT AN UNGUARDED SITE
+
+Enforcement rejects a lock whose every signature is empty. It does NOT
+reject `guards_no_site`, which is stricter and more meaningful, because
+exactly one mission has been measured under this spec and refusing on
+the stricter test would fail missions nobody has looked at. That is the
+argument `CLOSURE_ENFORCED`'s comment makes, and it is the second time
+this factory has avoided a day-one over-enforcement by copying it.
+Widen it when a second and third mission have been measured, naming
+them where this names lot_demo_001.
+
+THE GATE IMMEDIATELY FAILED THE UNIT SUITE, AND IT WAS RIGHT TO
+
+`test_anchor_drift_is_detected` uses a Deli-shaped fixture -- `anchors`,
+no `markers` -- and turning enforcement on made it raise. Not a bad
+test: `_anchor_registry` falls back to Deli's `anchors` when the site
+publishes no `markers`, and 0.29.0 wrote that fallback while leaving
+`anchors` out of `PROTECTED_KEYS`. So coverage reported the registry
+UNGUARDED while it was hashing that very list, and the same omission
+had dropped `anchors` from `BACKFILLED_FROM_DELI` even though
+`_merged_gameplay` still backfills it.
+
+Harmless while the flag was off. The moment it went on, a misreading
+became a refusal. 0.28.0's selftest asserts exactly this invariant for
+`_collision_signature` -- that coverage reads what the signature reads
+-- and there was never an equivalent for the registry. There is now.
+
+AND AN ORDERING BUG I HAD ALREADY FIXED ONCE, IN THE SAME FUNCTION
+
+`cmd_approve` recorded the approval and then called
+`_store_functional_lock`. With enforcement on, a refused lock raises
+out of a gate already recorded as approved -- an approved
+`functional_shell_locked` with no lock behind it, delivered as a
+traceback. 0.28.0 fixed precisely this for `--candidate`, four lines
+higher, and I did not look for it here. The lock is now attempted
+before anything is recorded, and a refusal returns EXIT_BLOCKED with
+the coverage report.
+
+WHY COUNTS, ORIGINALLY
+
+`coverage` answered "is something there" and never "how much".
+`markers: guarding=True` read identically whether the registry held
+fifty-five anchors or one.
+
+That is the gap that hid the whole defect. Before 0.29.0 the collision
+signature reported `guarding=True` while carrying two Deli stair systems and
+nothing else, and every report in the system agreed with it. A count would
+have shown it the first time anyone looked.
+
+- **`coverage.counts`** -- per protected key, in the MERGED view. What is
+  actually hashed.
+- **`coverage.site_counts`** -- the same keys in the site file alone.
+
+The pair is the useful part. For a unioned key the two differ by exactly what
+the other tool contributed, so the union's effect is a subtraction a reader
+can do in their head, from the lock file, without a probe.
+
+WHAT THE HASHES ALONE COULD NOT SAY
+
+After 0.30.0 the recomputed lock's `anchor_registry_hash` moved from
+`b47f0dc` to `6dd9d16` while `collision_fingerprint` stayed at `091d798` --
+the registry changed, the collision signature did not, which is the right
+shape: Deli's anchors in, Deli's 238 surfaces still out. It proved the union
+fired. It could not say how many anchors it added, and the difference between
+"it fired" and "it added thirteen" is the entire lesson of the last two days.
+
+## [0.30.0] - the registry stops dropping Deli's anchors
+
+`tools/probe_site_vocabulary.py` compared what both tools publish for the
+keys they share:
+
+    markers   site 42, deli 14 -- of deli's 14, ONE appears in the site's 42
+    no match: CREW_SPAWN_A, RESPONDER_SPAWN_1, COVER_LOW_AUTO_TELLER_COUNTER,
+              COVER_LOW_AUTO_DESK_MANAGER_OFFICE_0, ... (13 in all)
+
+Thirteen gameplay anchors -- two spawns and eleven cover points -- were being
+dropped from the gameplay-anchor registry.
+
+THEY WERE NEVER A SUBSET
+
+Lot's markers are site-level (`b0/ATTACKER_SPAWN_FRONT`, building entries).
+Deli's are interior anchors, and the same report's `rooms` line confirms it:
+Deli's unmatched `manager_office`, `security_room` and `vault_room` are
+exactly where those cover points live. The same shape as `vertical_links`
+(4 hatches) against `stair_systems` (2) -- complementary, not competing.
+
+`_merged_gameplay` had one rule for a shared key: the site wins. That is
+right when Lot restates what Deli said and wrong when each says something the
+other does not, and nothing distinguished the two cases.
+
+- **`UNIONED_WITH_DELI` is the second rule**, beside `BACKFILLED_FROM_DELI`,
+  and `markers` is its only member. Both tools' records are kept.
+- **Deduped by NAME-TAIL, not exact id.** Lot namespaces what it does
+  restate -- Deli's `VAULT` becomes `b0/VAULT` -- so an exact-match dedupe
+  would keep both and count one anchor twice. Exactly one of Deli's 14
+  matches this way; the rule exists for that one.
+- **`coverage.unioned_with_deli` names it**, for the reason
+  `backfilled_from_deli` exists: a signature carrying two tools' records
+  should say so.
+
+WHY NOT `surfaces`
+
+213 of Deli's 238 matched by tail. The 25 that did not are `int_col_-1_2_*`
+-- story -1, a basement -- and window sub-parts (pane, sill, lintel). If Lot
+never places that geometry it is not in the shipped level, and hashing it
+would protect what the package does not contain, and report drift the day Lot
+legitimately stops emitting it. Deli's markers ship: the Dispatch handoff
+carries them into the export. That asymmetry is the whole argument.
+
+`openings` is 0 of 19, but that compares whole records against coordinates
+Lot transforms when it places a shell. Undecidable from these two files, and
+not decided here.
+
+NOT DONE HERE
+
+`LOCK_COVERAGE_ENFORCED` stays False. The order is land the change, recompute
+`lot_demo_001`, confirm the registry grew by 13, THEN flip. Flipping now
+would assert the fix worked without looking, which is the failure this
+factory has hit five times in two days.
+
+Those 25 collision nodes are a question for `lot`: geometry present in the
+shell and absent from the assembled site is either a deliberate drop nobody
+recorded, or loss between two stages. The lock cannot tell which.
+
 ## [0.29.0] - the lock protects the site
 
 The repair. `docs/FUNCTIONAL_LOCK.md`, accepted 2026-08-14, is the spec;

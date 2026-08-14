@@ -1789,7 +1789,38 @@ def _selected_lot_out(ws: Workspace, mission_id: str) -> Path | None:
     return ws.jobs_dir / f"{mission_id}.lot_assemble.candidate.seed_{seed}" / "out"
 
 
-def _store_functional_lock(ws: Workspace, mission_id: str) -> None:
+def _refuse_vacuous_lock(ws: Workspace, mission_id: str) -> int:
+    """Compute the lock and throw it away, to see whether it is refused.
+
+    A dry run, so the decision happens BEFORE the approval is recorded.
+    The cost is computing the signatures twice; the alternative is
+    splitting `_store_functional_lock` in half for the sake of one
+    branch, and hashing a few thousand records twice is cheaper than a
+    seam nobody maintains.
+
+    stderr is swallowed here because the real write below prints the
+    same coverage report, and a warning printed twice reads like two
+    problems.
+    """
+    import contextlib
+    import io
+    from packages.approvals.lock import VacuousLockError
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            _store_functional_lock(ws, mission_id, write=False)
+    except VacuousLockError as exc:
+        print(f"functional_shell_locked REFUSED for {mission_id}: the "
+              f"lock this would write protects nothing.",
+              file=sys.stderr)
+        print(str(exc), file=sys.stderr)
+        print("  nothing was recorded and no lock was written.",
+              file=sys.stderr)
+        return EXIT_BLOCKED
+    return EXIT_OK
+
+
+def _store_functional_lock(ws: Workspace, mission_id: str,
+                           write: bool = True) -> None:
     from packages.approvals.lock import compute_lock
     cand = _resolve_selected_candidate(ws, mission_id)
     lot_out = _selected_lot_out(ws, mission_id)
@@ -1802,6 +1833,8 @@ def _store_functional_lock(ws: Workspace, mission_id: str) -> None:
         site_gameplay_path=lot_out / "site.site.gameplay.json",
         deli_gameplay_path=deli_out / "shell.gameplay.json",
     )
+    if not write:
+        return
     p = _lock_path(ws, mission_id)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(pretty_dumps(lock.as_dict()), encoding="utf-8")
@@ -1847,6 +1880,16 @@ def cmd_approve(args) -> int:
     # path because nothing here had ever refused anything.
     if args.gate == gates.CANDIDATE_SELECTED and args.candidate:
         rc = _refuse_bad_candidate(ws, args.mission_id, args.candidate)
+        if rc != EXIT_OK:
+            return rc
+    # SAME REASON, SAME FUNCTION, AND I MISSED IT THE FIRST TIME.
+    # 0.28.0 moved the candidate check above store.record so a refusal
+    # could not leave an approved gate behind it. With
+    # LOCK_COVERAGE_ENFORCED on, a refused LOCK would do exactly that:
+    # an approved functional_shell_locked with no lock behind it,
+    # reported by a traceback out of _store_functional_lock.
+    if args.gate == gates.FUNCTIONAL_SHELL_LOCKED:
+        rc = _refuse_vacuous_lock(ws, args.mission_id)
         if rc != EXIT_OK:
             return rc
     store = gates.ApprovalStore(ws.internal_dir / "approvals")
