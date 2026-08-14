@@ -1935,6 +1935,11 @@ def cmd_verify_manifest(args) -> int:
         return EXIT_CONFIG
     if worst == contracts.DRIFT:
         return EXIT_CONFIG if getattr(args, "strict", False) else EXIT_FINDINGS
+    if worst == getattr(contracts, "STALE", "STALE"):
+        # A pin that matches a VERSION file older than its own code is not a
+        # pass. Same exit treatment as DRIFT, because it wants the same thing
+        # doing: bump the tool, then re-certify the set.
+        return EXIT_CONFIG if getattr(args, "strict", False) else EXIT_FINDINGS
     if worst == contracts.UNKNOWN:
         return EXIT_FINDINGS if getattr(args, "strict", False) else EXIT_OK
     return EXIT_OK

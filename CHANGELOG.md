@@ -1,3 +1,43 @@
+## [0.24.0] - A pin that matches a stale VERSION is not a pass
+
+`verify-manifest` compared the manifest's pin against each tool's VERSION
+file and stopped there. On 2026-08-14 that reported:
+
+    OK  deli_counter    0.88.0 matches certified 0.88.0
+    OK  level_factory   0.22.0 matches certified 0.22.0
+
+while both tools had nineteen days of commits newer than the VERSION naming
+them. Two numbers agreeing with each other, and with nothing on disk. The
+same failure `deli_counter/build_freshness.py` exists for, and the same one
+that made every recorded Laser Tag grade describe a draw that never shipped
+-- this time in the check whose entire job is catching drift.
+
+- **`packages/tools/contracts.py`:** new `STALE` status, ranked between
+  UNKNOWN and DRIFT. Reached only from what would have been a bare OK: if
+  the numbers already disagree the staleness question is moot and DRIFT's
+  message is the more useful one. `ContractResult` carries
+  `stale_because`, the file that outran VERSION, because naming it is the
+  difference between a verdict and a place to look.
+- **`stale_source()` asks git, not the filesystem.** The first cut compared
+  mtimes and reported six of ten tools stale, every one naming
+  `.gitignore`. Excluding `.gitignore` would only have moved the problem to
+  the next non-source file -- an exclusion list always trails what gets
+  added. History is the allow-list that cannot fall behind, and it is
+  immune to fresh clones, which rewrite every mtime and no commit dates.
+  Unknowable answers (no git, not a repo, no commit touching VERSION)
+  report OK; a warning nobody can act on is worse than silence.
+- **`cli/commands`:** STALE exits EXIT_FINDINGS, or EXIT_CONFIG under
+  `--strict`, matching DRIFT. It wants the same thing doing.
+
+First run against the real factory: 1 OK, 4 DRIFT, 5 STALE, where the
+previous check said 8 OK and 2 DRIFT. Eight of ten tools had moved since
+their versions were written and nothing was saying so.
+
+KNOWN AND NOT ADDRESSED HERE: the CHANGELOG is a third number this does not
+read. `lot`'s CHANGELOG documents 0.41.0 while its VERSION says 0.33.0 and
+the manifest pins 0.32.0 -- three answers to one question, and this check
+compares two of them.
+
 ## [0.23.0] - A blocked candidate is not a blocked mission
 
 - **validation/model.py:** `aggregate()` takes `eliminated_candidates` and

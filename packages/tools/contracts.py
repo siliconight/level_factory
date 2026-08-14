@@ -30,7 +30,12 @@ OK = "OK"
 DRIFT = "DRIFT"            # same major, different minor/patch — re-certify
 INCOMPATIBLE = "INCOMPATIBLE"  # different major — adapter likely broken
 UNKNOWN = "UNKNOWN"        # no version to compare (unpinned tool / no source)
-_SEVERITY = {OK: 0, UNKNOWN: 1, DRIFT: 2, INCOMPATIBLE: 3}
+#: The pin matches the VERSION file, and the VERSION file is older than the
+#: code it names. Sits below DRIFT because the numbers still agree -- what has
+#: gone stale is the claim that the number means anything.
+STALE = "STALE"
+_SEVERITY = {OK: 0, UNKNOWN: 1, STALE: 2, DRIFT: 3, INCOMPATIBLE: 4}
+
 
 LOCK_FILENAME = "tools.lock.json"
 LOCK_SCHEMA = "level_factory.tools_lock.v0.1"
@@ -90,18 +95,27 @@ class ContractResult:
     installed: str | None
     status: str
     source: str  # "lock" or "grounded"
+    #: For STALE: the newest source file that outran VERSION. Naming it is the
+    #: difference between a verdict and a place to look.
+    stale_because: str | None = None
 
     def as_dict(self) -> dict:
         return {
             "adapter": self.adapter_id, "certified": self.certified,
             "installed": self.installed, "status": self.status,
             "certified_from": self.source,
+            "stale_because": self.stale_because,
         }
 
     @property
     def message(self) -> str:
         if self.status == OK:
             return f"{self.installed} matches certified {self.certified}"
+        if self.status == STALE:
+            return (f"{self.installed} matches certified {self.certified}, but "
+                    f"VERSION is older than the code it names"
+                    + (f" ({self.stale_because})" if self.stale_because else "")
+                    + " -- bump the tool version, then re-certify")
         if self.status == DRIFT:
             return (f"installed {self.installed} != certified {self.certified} "
                     f"(same major) — re-run the real-tool smoke and re-certify")
@@ -216,11 +230,83 @@ def verify_manifest(factory_root) -> list:
             str(manifest["tools"][name].get("version", "")))
         if str(manifest["tools"][name].get("version", "")) == "unpinned":
             pinned = None
+        status = compare(pinned, installed.get(name))
+        because = None
+        if status == OK:
+            # ONLY from OK. If the numbers already disagree the staleness
+            # question is moot, and DRIFT's message is the more useful one.
+            from pathlib import Path as _P
+            tool_dir = _P(str(factory_root)) / str(
+                manifest["tools"][name].get("path", name))
+            because = stale_source(tool_dir)
+            if because:
+                status = STALE
         results.append(ContractResult(
             adapter_id=name,
             certified=pinned,
             installed=installed.get(name),
-            status=compare(pinned, installed.get(name)),
+            status=status,
             source="factory.manifest",
+            stale_because=because,
         ))
     return results
+
+
+def stale_source(tool_dir) -> str | None:
+    """Name a source file whose last commit is newer than VERSION's.
+
+    ASKS GIT, NOT THE FILESYSTEM. The first version of this compared mtimes
+    and reported six of ten tools stale, every one of them naming
+    `.gitignore` -- a file that is repo configuration, not code. Excluding
+    `.gitignore` would only have moved the problem to the next non-source
+    file, because an exclusion list always trails whatever gets added next.
+    `docs/CLEANUP.md` already settled this argument for artifact sweeping:
+    allow-list, never guess. History is the allow-list that cannot fall
+    behind -- it knows exactly which commit touched what.
+
+    ``None`` when the answer is not knowable: no git, not a repo, no commit
+    touching VERSION, or a shallow clone. An unknowable answer is reported as
+    OK rather than as a warning nobody can act on.
+
+    Robust to fresh clones, which is what killed the mtime version: cloning
+    rewrites every mtime but not a single commit date.
+    """
+    import subprocess
+    from pathlib import Path as _P
+    root = _P(str(tool_dir))
+    if not (root / ".git").exists():
+        return None
+
+    #: Files whose change is not a code change. VERSION and CHANGELOG move as
+    #: part of the bump itself; the rest is repo furniture.
+    skip = ["VERSION", "CHANGELOG.md", ".gitignore", ".gitattributes",
+            ".editorconfig", "LICENSE", "LICENSE.md"]
+
+    def _git(args):
+        try:
+            r = subprocess.run(["git", "-C", str(root)] + args,
+                               capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return r.stdout.strip() if r.returncode == 0 else None
+
+    when_version = _git(["log", "-1", "--format=%ct", "--", "VERSION"])
+    if not (when_version or "").isdigit():
+        return None
+
+    pathspec = ["."] + [f":(exclude){s}" for s in skip]
+    when_source = _git(["log", "-1", "--format=%ct", "--"] + pathspec)
+    if not (when_source or "").isdigit():
+        return None
+    if int(when_source) <= int(when_version):
+        return None
+
+    sha = _git(["log", "-1", "--format=%H", "--"] + pathspec)
+    if not sha:
+        return "a commit newer than VERSION"
+    names = (_git(["show", "--name-only", "--format=", sha]) or "").split()
+    names = [n for n in names if n not in skip]
+    if not names:
+        return "a commit newer than VERSION"
+    head = names[0]
+    return head if len(names) == 1 else f"{head} +{len(names) - 1} more"
