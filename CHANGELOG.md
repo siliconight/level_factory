@@ -1,3 +1,100 @@
+## [0.28.0] - the lock says what it is guarding
+
+`tools/probe_selection_drift.py` established that every functional lock this
+factory has written protects nothing: `site.site.gameplay.json` publishes
+twenty top-level keys and none of the eleven `_merged_gameplay` reads. Lot and
+Deli name the same concepts differently and the extraction is written in
+Deli's vocabulary.
+
+THIS IS NOT THAT FIX. Mapping the two vocabularies is a contract question
+between two tool repos, and the obvious-looking pairs -- `collision` ->
+`collision_hulls`, `openings` -> `doorways`, `vertical_links` -> ladders and
+stairs, `markers`/`site_markers` -> anchors -- have not been opened and
+checked. A guessed mapping gives a lock that hashes real data and still
+protects the wrong thing, which is harder to notice than one that hashes
+nothing.
+
+This is the reason nobody noticed for months.
+
+- **`compute_lock` now measures what it is protecting, every time**, and
+  stores it in the lock as `coverage`: which signatures have no content at
+  all, which protected keys the SITE supplied, and -- the field that would
+  have found this years earlier -- `site_publishes_unread`, the site's own
+  keys that nothing here reads. The vocabulary gap, written beside the
+  hashes.
+- **`PROTECTED_KEYS` is now one list.** The coverage report reads the same
+  names the three signatures hash, so it cannot drift away from them.
+- **`verify_no_drift` carries `vacuous_lock` through to
+  `RegressionResult`** -- not folded into `drift`, because a vacuous lock is
+  not drift and reporting it as drift would block exports on a defect in the
+  lock.
+- **`cmd_export` warns when the regression check PASSES against a lock that
+  protects nothing.** That is the moment a human is told something reassuring
+  and false; the failing path already speaks for itself.
+- **The warning has two conditions, because `vacuous` was not the one
+  that is true here.** `vacuous` means all three signatures are empty;
+  Deli's two `stair_systems` keep `collision_fingerprint` non-empty, so
+  a lock guarding no site data at all still reads as partly alive. The
+  condition that describes every lock in this factory is
+  `guards_no_site`: no protected key came from the site. Found by
+  running the report against the real key shape, after this correction
+  had already been written to fix the previous miss.
+- **Coverage is measured by `verify_no_drift` from the files it is
+  handed, not read off the lock.** The first cut of this release read
+  `lock.coverage`, which only exists on locks written by 0.28.0 or
+  later -- so on every lock that exists today it was empty, and the
+  warning this release was built to produce could not fire. It was
+  caught by running the export, not by the selftest, which had asserted
+  the broken behaviour as though it were a virtue: "absence is not a
+  claim" is right about a stored report and wrong here, because the
+  evidence was never absent. Both gameplay files are open in
+  `verify_no_drift`, which already merges them to compute the
+  signatures it compares.
+- **`RegressionResult.coverage` and `lock.coverage` answer different
+  questions** -- what this comparison protected, versus what the lock
+  protected when it was written -- and are deliberately not merged. If
+  they disagree, the site's shape changed between locking and checking.
+- **Old locks load unchanged.** `from_dict` filters to known fields, so a
+  pre-0.28.0 lock arrives with no coverage rather than failing -- and an
+  absent report is not a claim that the lock was covered.
+
+LOCK_COVERAGE_ENFORCED IS False, WHICH IS THE PRECEDENT AND NOT A DODGE
+
+`export.py`'s `CLOSURE_ENFORCED` was False for the same reason, in its own
+words: no export had ever been scanned at that point, the first run that did
+found the current one broken, and promoting on day one would have failed
+every export before anyone had looked at one. Every lock here is vacuous
+today; enforcing would refuse `approve --gate functional_shell_locked` for
+every mission, including ones whose art pass is already running.
+
+The measurement ALWAYS runs and ALWAYS lands in the lock file. The flag
+decides only whether it stops the gate. Flip it once a mapping exists and one
+real mission produces a non-vacuous lock -- and name that mission in the
+comment, the way this one names its reason.
+
+THE SECOND DEFECT, AND THE ORDERING BUG INSIDE IT
+
+`cmd_approve` wrote `--candidate` to `<mission>.selected` verbatim, which is
+how `lot_demo_001.candidate.seed_XXXX` became the selected candidate for a
+day. The shape is now checked and a bad one refused.
+
+Refused BEFORE the approval is recorded, which it was not: `store.record` ran
+first, so a rejected candidate would still have left an approved
+`candidate_selected` gate behind it. Nothing had exercised that path because
+nothing here had ever refused anything.
+
+Job existence is warned about, not refused -- whether `lot_assemble` has run
+when a candidate is selected is an ordering question this has no business
+deciding.
+
+NOT DONE HERE
+
+The vocabulary mapping, which is the actual repair. The marker on disk:
+`workspaces/lot-demo-ws/.level_factory/approvals/lot_demo_001.selected` still
+says `seed_XXXX` while the lock beside it says `seed_5219`; that is data, and
+this does not rewrite data. `_selected_lot_out` still resolves jobs from the
+marker, so `graybox_dir` is still a dead path for that mission.
+
 ## [0.27.0] - the archive says which level it is
 
 Stage 1b of `docs/EXPORT_NAMING.md`. 0.26.0 landed the build directory; this

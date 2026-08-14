@@ -1807,8 +1807,48 @@ def _store_functional_lock(ws: Workspace, mission_id: str) -> None:
     p.write_text(pretty_dumps(lock.as_dict()), encoding="utf-8")
 
 
+def _refuse_bad_candidate(ws: Workspace, mission_id: str,
+                          candidate: str) -> int:
+    """Refuse a candidate id that cannot name a real candidate.
+
+    `lot_demo_001.candidate.seed_XXXX` -- a doc's placeholder -- was the
+    selected candidate for a day, because this file wrote `--candidate`
+    to the marker verbatim and nothing looked at it. Everything
+    downstream builds a job directory from that string.
+
+    SHAPE is refused; EXISTENCE is only warned about. Whether
+    lot_assemble has run by the time a candidate is selected is an
+    ordering question this has no business deciding, but a marker that
+    cannot possibly name a job is wrong at any point in the order.
+    """
+    import re
+    want = re.compile(
+        r"^" + re.escape(str(mission_id)) + r"\.candidate\.seed_\d+$")
+    if not want.match(str(candidate).strip()):
+        print(f"refusing --candidate {candidate!r}: expected "
+              f"{mission_id}.candidate.seed_<number>", file=sys.stderr)
+        print("  nothing is recorded; the gate is not approved",
+              file=sys.stderr)
+        return EXIT_BLOCKED
+    seed = str(candidate).strip().rsplit("_", 1)[-1]
+    job = ws.jobs_dir / f"{mission_id}.lot_assemble.candidate.seed_{seed}"
+    if not job.is_dir():
+        print(f"[approve] WARNING no {job.name} yet; the selection is "
+              f"recorded and will resolve once that job runs",
+              file=sys.stderr)
+    return EXIT_OK
+
+
 def cmd_approve(args) -> int:
     ws = _ws(args)
+    # VALIDATED BEFORE ANYTHING IS RECORDED. It was not: store.record
+    # ran first, so a refused candidate would still have left an
+    # approved candidate_selected gate behind it. Nothing exercised that
+    # path because nothing here had ever refused anything.
+    if args.gate == gates.CANDIDATE_SELECTED and args.candidate:
+        rc = _refuse_bad_candidate(ws, args.mission_id, args.candidate)
+        if rc != EXIT_OK:
+            return rc
     store = gates.ApprovalStore(ws.internal_dir / "approvals")
     protected = _protected_inputs_for_gate(ws, args.mission_id, args.gate)
     store.record(
@@ -2252,6 +2292,26 @@ def cmd_export(args) -> int:
         deli_out = ws.jobs_dir / f"{mission_id}.deli_generate.candidate.seed_{seed}" / "out"
         regression = verify_no_drift(
             lock, lot_out / "site.site.gameplay.json", deli_out / "shell.gameplay.json")
+        if regression.vacuous_lock or regression.site_unguarded:
+            # THE MOMENT A HUMAN IS TOLD SOMETHING REASSURING AND FALSE.
+            # `passed` here means little was compared, not that nothing
+            # moved. Printed on the pass, because the failure path
+            # already speaks for itself.
+            #
+            # TWO CONDITIONS, because `vacuous` (all three signatures
+            # empty) is not what is true here: Deli's stair_systems keep
+            # one signature non-empty, so a lock guarding no site data
+            # at all still reads as partly alive.
+            what = ("protects nothing at all"
+                    if regression.vacuous_lock else
+                    "protects no site data -- every signature it checks "
+                    "is filled from the Deli side")
+            print(f"[export] WARNING the functional lock for "
+                  f"{mission_id} {what}. The post-art regression check "
+                  f"passed on that basis, which is weaker than it "
+                  f"reads. Run tools/probe_selection_drift.py, or read "
+                  f"the coverage block in the report.",
+                  file=sys.stderr)
         if not regression.passed:
             print("export blocked by functional regression:", file=sys.stderr)
             for d in regression.drift:
