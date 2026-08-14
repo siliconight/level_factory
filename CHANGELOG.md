@@ -1,3 +1,138 @@
+## [0.27.0] - the archive says which level it is
+
+Stage 1b of `docs/EXPORT_NAMING.md`. 0.26.0 landed the build directory; this
+lands the archive name, the stable folder inside it, and `LF_MANIFEST.json`.
+
+CORRECTED BEFORE COMMIT, AND THE CORRECTION IS THE INTERESTING PART
+
+The selftest passed 40 of 40 and the real export ran green. Then the
+archive was opened and `LF_MANIFEST.json` -- the file whose whole job is
+telling a recipient what they hold -- was wrong about two fields. Neither
+check would ever have caught it: both asserted that the plumbing carried
+what it was handed, and both times it did. What was handed in was wrong.
+
+    "candidate": "lot_demo_001.candidate.seed_XXXX"
+    "tools": { "deli_counter": "0.2.0", "lot": "0.4.0" }
+
+`tools` was the ADAPTER versions. `export_mission` is handed
+`_adapter_versions()` -- the version of the code that DRIVES each tool --
+and that is correct for `build_license_manifest`, which is what the
+parameter was added for. Putting it under a key named `tools` shipped
+`lot: 0.4.0` to a reader asking what built their level, when lot is
+0.41.0. That is the same defect factory-v1.17.0 was spent on: a number
+under a label naming something else. `tools` is now the pinned set from
+`factory.manifest.json` -- the set `factory_tag` recovers, and therefore
+the only one consistent with the two fields beside it -- and the adapter
+versions keep their place under `adapters`, labelled for what they are.
+
+`candidate` came from `.selected`, which holds the literal string
+`lot_demo_001.candidate.seed_XXXX`. `cmd_approve` writes `--candidate`
+to that file verbatim and nothing checks it; someone approved the gate
+with a doc's placeholder. The functional lock has the real answer, and
+the manifest now reads the lock first -- the same precedence the seed
+already used, which is the only reason `"seed": 5219` was right in the
+same file where `candidate` was not. When the two disagree, `cmd_export`
+now prints both to stderr instead of picking one quietly.
+
+AND THE FIX FOR THAT SHIPPED A NameError, WHICH IS WORTH RECORDING.
+
+The first draft of the correction rewrote only `_factory_pin`'s return
+statement and referred to a `data` the lines above never bind. It
+compiled, applied, and passed a selftest of seventeen checks -- all of
+which read STRINGS out of the patched file rather than calling the
+function. The first real export died with `name 'data' is not defined`
+after the manifest work had already run. The same edit left the
+`except` branch returning a 2-tuple into a 3-way unpack, reachable only
+on an unreadable manifest, which no check would have reached either.
+The selftest now calls `_factory_pin` against this checkout and against
+a deliberately corrupt manifest. A helper that resolves something from
+disk is exercised against disk, or it is not tested.
+
+STILL WRONG, NOT FIXED HERE. `_selected_lot_out` builds a job path from
+that same marker, so `graybox_dir` points at
+`lot_assemble.candidate.seed_XXXX/out`, which does not exist -- the
+export has been succeeding on the Dispatch handoff alone. The same
+function feeds the post-art regression check a `site.site.gameplay.json`
+that is not there. Whether that check still compares anything real
+depends on what the site file contributes to signatures
+`_merged_gameplay` otherwise fills from the Deli side, and that has not
+been measured. Changing which job directory an export reads from does
+not belong in a patch about filenames, and a gate should not be called
+vacuous without running it.
+
+    LF_lot_demo_001_s5219_20260814T203226Z_f1.18.0_portable-godot.zip
+    LF_lot_demo_001/            the folder inside, stable across exports
+    LF_MANIFEST.json            the first file inside that folder
+
+- **`export_mission` gains five keyword-only parameters, all defaulting to
+  `None`** -- seed, candidate_id, factory_version, factory_tag, built_utc.
+  Defaulting is not laziness: `tests/unit/test_closure_export.py` calls this
+  with the old argument set, and a required parameter would fail the unit
+  suite on a patch about filenames. It also decides what a caller with
+  nothing to pass gets, which is the part that matters.
+- **An unknown part is written `NA`, never omitted.** `LF_m1_sNA_<utc>_fNA_
+  portable-godot.zip`. Dropping it would give one artifact two grammars, and
+  the doc's argument for the timestamp -- "fixed width, so it sorts" -- stops
+  holding the moment a field before it can vanish. `fNA` is also a true
+  statement: no factory tag pins that build.
+- **The seed comes from the functional lock first**, the selection marker
+  second. The lock is the approved, drift-checked record of which candidate
+  ships. `cmd_export` resolves it; `export_mission` never goes looking.
+- **The factory version is resolved in the CLI by walking up for
+  `factory.manifest.json`**, and passed down. A tool that reached up into the
+  factory checkout to discover what it is would be code at the factory level
+  wearing a tool's directory name.
+- **The archive name is composed once, at build time**, hung on
+  `ExportResult`, and used by `zip_export`. That is what lets
+  `LF_MANIFEST.json` state `archive_name` and be right: the manifest is
+  written before the archive exists, so a second composition of that string
+  is a chance for the file inside to disagree with the file containing it.
+- **The folder inside the archive is not the build directory.** The build dir
+  carries the profile so two profiles coexist in one workspace; the dropped
+  folder must not change between exports or every `res://` path a recipient
+  integrated moves. `zip_export` rewrites the arcname prefix; the bytes are
+  identical.
+
+THE CONTENT IS STILL DETERMINISTIC; THE NAME IS NOT
+
+Entries are still sorted and timestamps still fixed at 1980-01-01, so the
+same inputs still produce the same archive bytes.
+`test_export_zip_is_deterministic` asserts existence and suffix, not the
+name, and stays green. But the PATH now carries a build time by design --
+two exports of one mission from different weeks must not look alike -- so
+"deterministic" in that test's title now means something narrower than it
+did, and this says so rather than letting a reader find out.
+
+WHAT LF_MANIFEST.json REFUSES TO CLAIM
+
+The doc's example shows `verified: {portability: PASS}`. A build-time
+manifest cannot say that: `portability-test` runs afterwards, as a separate
+command, and at the moment the file is written the answer does not exist. So
+`verified` carries `export_closure` -- the one check that ran inside this
+build -- names portability under `not_run`, and carries a note that
+pipeline-stage results are not visible from here and their absence is not a
+claim they were skipped. A block listing only passes invites the reader to
+assume the rest.
+
+`spec_sha256` IS DELIBERATELY NOT IMPLEMENTED
+
+The doc names one field. `FunctionalLock` carries two hashes -- deli and lot
+-- answering different questions: what the shell generator was told, and what
+the assembler was told. Collapsing them into one field named for neither is
+the kind of decision that looks like an implementation detail and reads as a
+fact later. Left out, and the doc should name the field before anything
+writes it.
+
+NOT DONE HERE
+
+Stage 2, the interior renames (`lot/<building>/` -> `sites/<building>/`,
+dropping `assets/lot.glb`), which move `res://` paths inside the package and
+want their own portability run. `portability-test` does not update
+`LF_MANIFEST.json` afterwards -- it could, and then the build directory's
+copy would carry a verdict the archive's copy does not. `HANDOFF.md` still
+opens with its original 437 bytes; the doc says it should lead with these
+same facts for the human who opens it first.
+
 ## [0.26.0] - the export name has one home
 
 `docs/EXPORT_NAMING.md`, accepted 2026-08-14, specifies three names for an

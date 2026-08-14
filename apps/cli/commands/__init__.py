@@ -1741,6 +1741,42 @@ def cmd_release(args) -> int:
     return EXIT_OK
 
 
+def _factory_pin() -> tuple[str | None, str | None, dict | None]:
+    """The factory version an export was built by, or (None, None).
+
+    Walks up from this file for factory.manifest.json. level_factory is
+    a tool repo that lives INSIDE the factory checkout and nothing hands
+    it the root -- `verify-manifest --factory` defaults to the working
+    directory, which is right only when someone is standing in the right
+    place, and an export should not depend on where it was launched.
+
+    RESOLVED HERE, IN THE CLI, AND PASSED DOWN. A tool that reached up
+    into the factory checkout to discover what it is would be code at
+    the factory level wearing a tool's directory name.
+
+    Not found returns None, which the archive name renders as `fNA`. A
+    guessed number is worse than an absent one: it points a reader at a
+    factory.manifest.json tag that never pinned this build.
+    """
+    for d in Path(__file__).resolve().parents:
+        p = d / "factory.manifest.json"
+        if not p.is_file():
+            continue
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None, None, None
+        v = data.get("factory_version")
+        tools = {
+            name: str(e.get("version"))
+            for name, e in (data.get("tools") or {}).items()
+            if isinstance(e, dict) and e.get("version")
+        } or None
+        return ((str(v), f"factory-v{v}", tools) if v
+                else (None, None, tools))
+    return None, None, None
+
+
 def _lock_path(ws: Workspace, mission_id: str) -> Path:
     return ws.internal_dir / "locks" / f"{mission_id}.json"
 
@@ -2222,6 +2258,47 @@ def cmd_export(args) -> int:
                 print(f"  - {d}", file=sys.stderr)
             return EXIT_BLOCKED
 
+    # WHICH LEVEL THIS IS. `lot_demo_001` at seed 5219 and at seed 5017
+    # are different levels that graded 60 and 40, and the archive name
+    # could not tell them apart. The functional lock first -- it is the
+    # approved, drift-checked record of which candidate ships -- then
+    # the selection marker. Neither existing is recorded as unknown
+    # rather than guessed.
+    selected_candidate = _resolve_selected_candidate(ws, mission_id)
+    export_seed = None
+    if lock_file.exists():
+        try:
+            export_seed = json.loads(
+                lock_file.read_text(encoding="utf-8")).get("seed")
+        except (OSError, ValueError):
+            export_seed = None
+    if export_seed is None and selected_candidate:
+        tail = selected_candidate.rsplit("_", 1)[-1]
+        export_seed = tail if tail.isdigit() else None
+    # WHICH CANDIDATE, from the lock first. Same precedence as the seed
+    # above, and for the same reason -- which is also the only reason
+    # `seed` came out right while `candidate` did not: the marker holds
+    # a literal `seed_XXXX` template that cmd_approve wrote verbatim
+    # from --candidate, and nothing has ever checked it.
+    lock_candidate = None
+    if lock_file.exists():
+        try:
+            lock_candidate = json.loads(
+                lock_file.read_text(encoding="utf-8")).get("candidate_id")
+        except (OSError, ValueError):
+            lock_candidate = None
+    if (lock_candidate and selected_candidate
+            and lock_candidate != selected_candidate):
+        # SAY IT EVERY TIME. This has been true and silent since
+        # 2026-08-13, and it only surfaced because someone opened the
+        # archive and read the file it ended up in.
+        print(f"[export] WARNING the candidate_selected marker and the functional lock disagree:", file=sys.stderr)
+        print(f"[export]   marker: {selected_candidate}", file=sys.stderr)
+        print(f"[export]   lock:   {lock_candidate}", file=sys.stderr)
+        print(f"[export]   the lock wins for the export manifest; jobs are still resolved from the marker", file=sys.stderr)
+    export_candidate = lock_candidate or selected_candidate
+    factory_version, factory_tag, pinned_tools = _factory_pin()
+
     out_root = ws.internal_dir / "exports"
     repos = ws.load_tools_local().get("repositories", {})
     addon_sources = {name: Path(str(p)) for name, p in repos.items()}
@@ -2232,6 +2309,9 @@ def cmd_export(args) -> int:
         graybox_dir=graybox_dir, layers=frozenset(layers),
         addon_sources=addon_sources,
         composed_root=compose_root if compose_root.exists() else None,
+        seed=export_seed, candidate_id=export_candidate,
+        pinned_tools=pinned_tools,
+        factory_version=factory_version, factory_tag=factory_tag,
     )
     if args.format == "zip":
         zip_export(result)

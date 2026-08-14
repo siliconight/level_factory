@@ -22,7 +22,9 @@ from pathlib import Path
 
 from packages.core.canonical import pretty_dumps
 from packages.core.hashing import hash_file
-from packages.core.ids import export_build_dir_name
+from packages.core.ids import (export_archive_name,
+                               export_build_dir_name,
+                               export_package_dir_name)
 
 MODE_PORTABLE = "portable-godot"
 MODE_PURE_SHELL = "pure-shell"
@@ -81,6 +83,12 @@ class ExportClosureError(RuntimeError):
 # Files that carry presentation only (dropped in pure-shell mode).
 _PRESENTATION_FILES = {"lux.applied.tscn", "lux.quality.json"}
 
+#: The first file inside the package, and named so a reader opens it.
+#: Everything the folder name gave up lives here -- see
+#: docs/EXPORT_NAMING.md.
+EXPORT_MANIFEST_NAME = "LF_MANIFEST.json"
+EXPORT_MANIFEST_SCHEMA = "level_factory.export_manifest.v1"
+
 
 def _now() -> str:
     return _dt.datetime.now(_dt.timezone.utc).isoformat()
@@ -110,6 +118,12 @@ class ExportResult:
     mode: str
     export_dir: Path
     zip_path: Path | None = None
+    #: Composed ONCE, at build time, and used by zip_export. The
+    #: manifest inside the package states this string before the
+    #: archive exists, so a second composition of it is a chance for
+    #: the file inside to disagree with the file containing it.
+    archive_name: str | None = None
+    package_dir_name: str | None = None
     resource_manifest: dict = field(default_factory=dict)
     license_manifest: dict = field(default_factory=dict)
 
@@ -118,6 +132,8 @@ class ExportResult:
             "mission_id": self.mission_id, "mode": self.mode,
             "export_dir": str(self.export_dir),
             "zip_path": str(self.zip_path) if self.zip_path else None,
+            "archive_name": self.archive_name,
+            "package_dir_name": self.package_dir_name,
         }
 
 
@@ -229,7 +245,31 @@ def export_mission(
     layers=None,
     addon_sources: dict[str, Path] | None = None,
     composed_root: Path | None = None,
+    # EVERY ONE OF THESE DEFAULTS TO None, and that is not laziness.
+    # tests/unit/test_closure_export.py calls this with the old
+    # argument set; a required parameter would fail the unit suite on a
+    # patch about filenames. It also decides the behaviour for a caller
+    # that has nothing to pass -- the part is written NA, not dropped.
+    seed=None,
+    candidate_id: str | None = None,
+    factory_version: str | None = None,
+    factory_tag: str | None = None,
+    built_utc: str | None = None,
+    # The CERTIFIED SET from factory.manifest.json, which is what
+    # factory_tag recovers. Distinct from `tool_versions` above, which
+    # is the ADAPTER versions -- the code that drives each tool, not the
+    # tool. They differ by an order of magnitude (lot's adapter is
+    # 0.4.0; lot is 0.41.0) and 0.27.0 shipped the wrong one of the two
+    # under a key named `tools`.
+    pinned_tools: dict | None = None,
 ) -> ExportResult:
+    # ONE INSTANT, used by the archive name and the manifest both. Two
+    # calls to the clock would put two different times on one build.
+    built_utc = built_utc or _now()
+    archive_name = export_archive_name(
+        mission_id, profile_mode=profile.mode, seed=seed,
+        built_utc=built_utc, factory_version=factory_version)
+    package_dir_name = export_package_dir_name(mission_id)
     export_dir = out_root / export_build_dir_name(mission_id, profile.mode)
     if export_dir.exists():
         shutil.rmtree(export_dir)
@@ -431,8 +471,50 @@ def export_mission(
         "layers": sorted(layers), "label": "+".join(parts),
     }), encoding="utf-8")
 
+    # 5. LF_MANIFEST.json -- everything the folder name gave up.
+    #
+    # WRITTEN LAST, after build_resource_manifest has already walked the
+    # tree, so the package's resource manifest does not list a file that
+    # describes it.
+    #
+    # `verified` carries the one check that ran INSIDE this build.
+    # portability-test is a separate command that runs afterwards
+    # against the build directory, so at this moment its answer does not
+    # exist and claiming it would be inventing one. The note is there
+    # because a block listing only passes invites a reader to assume the
+    # rest -- and because the absence of walktest or nav-gate results
+    # here is a limit of what export can see, not a claim they were
+    # skipped.
+    (export_dir / EXPORT_MANIFEST_NAME).write_text(pretty_dumps({
+        "schema": EXPORT_MANIFEST_SCHEMA,
+        "mission": mission_id,
+        "candidate": candidate_id,
+        "seed": seed,
+        "profile": profile.mode,
+        "built_utc": built_utc,
+        "factory_version": factory_version,
+        "factory_tag": factory_tag or (
+            f"factory-v{factory_version}" if factory_version else None),
+        "tools": (dict(sorted(pinned_tools.items()))
+                  if pinned_tools else None),
+        "tools_source": ("factory.manifest.json" if pinned_tools
+                         else None),
+        # NOT the same numbers, and no longer pretending to be.
+        "adapters": {k: v for k, v in sorted(tool_versions.items())},
+        "godot_version": profile.godot_version,
+        "package_dir": package_dir_name,
+        "archive_name": archive_name,
+        "layers": sorted(layers),
+        "verified": {
+            "export_closure": "ok" if scan.ok else "BROKEN",
+            "not_run": ["portability -- runs after the build, as a separate command"],
+            "note": "This block records what THIS BUILD checked. Pipeline-stage results (walktest, nav gate, grades) are not visible from here; their absence is not a claim they did not run.",
+        },
+    }), encoding="utf-8")
+
     return ExportResult(
         mission_id=mission_id, mode=profile.mode, export_dir=export_dir,
+        archive_name=archive_name, package_dir_name=package_dir_name,
         resource_manifest=resource_manifest, license_manifest=license_manifest,
     )
 
@@ -443,11 +525,21 @@ def zip_export(result: ExportResult) -> Path:
     # `.portable-godot` as a file extension and replaces it, which is the
     # whole reason the archive was `lot_demo_001.zip` with no profile in
     # it. Nobody decided to drop it; a path helper ate it.
-    zip_path = result.export_dir.parent / (result.export_dir.name + ".zip")
+    # The build-time name if there is one. The fallback is 0.26.0's
+    # behaviour, kept so a caller that built an ExportResult by hand --
+    # the unit suite does -- still gets an archive rather than a crash.
+    zip_path = result.export_dir.parent / (
+        result.archive_name or (result.export_dir.name + ".zip"))
+    # THE FOLDER INSIDE THE ARCHIVE IS NOT THE BUILD DIRECTORY. The
+    # build dir carries the profile so two profiles can coexist in one
+    # workspace; the folder a recipient drops in must NOT change between
+    # exports, or every res:// path they integrated moves. Same bytes,
+    # different name, and the archive is the only place that is true.
+    top = result.package_dir_name or result.export_dir.name
     files = sorted(p for p in result.export_dir.rglob("*") if p.is_file())
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for f in files:
-            arc = f.relative_to(result.export_dir.parent).as_posix()
+            arc = (Path(top) / f.relative_to(result.export_dir)).as_posix()
             info = zipfile.ZipInfo(arc, date_time=(1980, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
             zf.writestr(info, f.read_bytes())
