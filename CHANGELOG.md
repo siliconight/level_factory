@@ -1,3 +1,62 @@
+## [0.36.0] - art-unlit: the same build, shipped twice
+
+0.35.0 made the light layer declinable at RUN time. A mission run unlit
+already exported correctly, with no code: no `lux_apply` output means no
+`presentation/` directory, so `_root_site_wanted` keeps the themed
+`site.tscn` and `write_entry_scene`'s `elif` makes it the entry.
+
+What could not be done was taking a mission that DID run Lux and shipping an
+unlit package from it -- two archives out of one build, so a recipient can
+drop in ours and theirs and compare the same geometry under two lighting
+solutions. `MODE_ART_UNLIT` is that subtraction, at export time.
+
+TWO QUESTIONS THAT LOOKED LIKE ONE
+
+`profile.mode == MODE_PURE_SHELL` gated three separate things and stayed
+correct only while pure-shell was the only mode that declined anything:
+
+    does this mode ship Lux's RESULT?    pure-shell no   art-unlit no
+    does this mode ship the themed ART?  pure-shell no   art-unlit YES
+
+The `_PRESENTATION_FILES` skip and the copy of `presentation/` now ask
+`ships_lux(mode)`. The third branch, which copies the composed themed root,
+still asks about pure-shell alone -- and carries a comment saying why
+`ships_lux` there would strip the art out of the art-without-light mode.
+
+THE MANIFEST DESCRIBES THE PACKAGE, NOT THE RUN
+
+`cmd_export` derives layers from what is on disk, so a lit mission reports
+the light layer -- correctly, `lux_apply` ran. Exporting art-unlit from that
+mission would have declared a layer the package does not contain, which is
+0.34.0's failure with the sign reversed. `export_mission` subtracts the light
+layer whenever the mode ships no Lux.
+
+THE ENTRY SCENE NEEDED NO CODE AND ITS COMMENT DID
+
+`write_entry_scene` prefers the presentation scene and falls back to
+`site.tscn`. With Lux dropped the fallback fires and names the THEMED site,
+which is right. Its docstring said site.tscn is the entry "only for a graybox
+export that has no presentation pass", and an art-unlit export is neither
+graybox nor without an art pass. Code that is correct for a case its own
+explanation excludes is code somebody later 'fixes'. The comment is
+corrected; the condition still asks what EXISTS rather than what mode this
+is, because export.py already decided by not copying the file.
+
+MEASURED
+
+`tests/unit/test_art_unlit_export.py` builds real packages from fabricated
+job directories and reads back what landed: art-unlit keeps `wall.glb` and
+the themed material and drops both Lux files and the whole `presentation/`
+folder; portable-godot still ships both; pure-shell still drops both. The two
+archives differ in name and share an interior folder, so a recipient can swap
+one for the other without every `res://` path moving.
+
+NOT MEASURED
+
+An actual unlit RUN through the real tools, and an art-unlit package opened
+in Godot. Stage 3. These prove which files a mode copies and what the
+manifest claims, not that the engine likes the result.
+
 ## [0.35.0] - Lux becomes a layer you can decline
 
 `LAYER_ART` meant "Zoo + Pixelcoat + Patina + Lux", one indivisible thing, so

@@ -477,9 +477,20 @@ def write_entry_scene(export_dir: Path, report: LocalizeReport) -> str:
     rather than a second level standing beside it.
 
     So the presentation scene wins whenever it exists, and site.tscn is the
-    entry only for a graybox export that has no presentation pass. It still
-    ships either way -- skipping it is what broke closure:
-    `lux.applied.tscn: unresolved res://site.tscn`.
+    entry when there is none. It still ships either way -- skipping it is
+    what broke closure: `lux.applied.tscn: unresolved res://site.tscn`.
+
+    "ONLY FOR A GRAYBOX EXPORT" WAS TOO NARROW, and this logic was already
+    right for the case that sentence excluded. Since 0.36.0 an `art-unlit`
+    export drops Lux's two files, so there is no presentation scene to
+    prefer and the `elif` fires -- on a package that is neither graybox nor
+    without an art pass. The entry it names is the THEMED site.tscn, which
+    is correct and is the whole deliverable of that mode.
+
+    The condition is deliberately about what EXISTS rather than about the
+    mode. A mode test here would be a second place that decides what a
+    package contains, and export.py already decided by not copying the
+    file.
     """
     candidates: list[str] = []
     pres = export_dir / "presentation" / "lux.applied.tscn"

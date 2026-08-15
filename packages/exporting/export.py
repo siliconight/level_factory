@@ -28,7 +28,25 @@ from packages.core.ids import (export_archive_name,
 
 MODE_PORTABLE = "portable-godot"
 MODE_PURE_SHELL = "pure-shell"
+MODE_ART_UNLIT = "art-unlit"
 MODE_SOURCE = "source-authoring"
+
+#: Modes that ship no Lux RESULT. Not the same set as modes that ship no
+#: art: `art-unlit` declines the render and keeps everything Pixelcoat,
+#: Zoo and Patina built, which is the entire reason it exists.
+UNLIT_MODES = frozenset({MODE_PURE_SHELL, MODE_ART_UNLIT})
+
+
+def ships_lux(mode: str) -> bool:
+    """Does a package built in this mode carry Lux's applied scene?
+
+    A NAMED QUESTION because `profile.mode == MODE_PURE_SHELL` was
+    answering three different ones, and only stayed correct while
+    pure-shell was the only mode that declined anything. The third of
+    those branches -- the composed themed root -- deliberately does NOT
+    use this: an unlit art package is exactly the one that wants it.
+    """
+    return mode not in UNLIT_MODES
 
 LUX_LOCALIZED = "localized"
 LUX_BAKED = "baked"
@@ -275,12 +293,20 @@ def export_mission(
         shutil.rmtree(export_dir)
     export_dir.mkdir(parents=True, exist_ok=True)
     layers = frozenset(layers or ())
+    # THE MANIFEST DESCRIBES THE PACKAGE, NOT THE RUN. `cmd_export`
+    # derives layers from what is on disk, so a lit mission reports the
+    # light layer -- correctly, `lux_apply` ran. Exporting art-unlit from
+    # that same mission would then declare a layer this package does not
+    # contain, which is 0.34.0's failure with the sign reversed.
+    if not ships_lux(profile.mode):
+        from packages.pipeline.planner import LAYER_LIGHT
+        layers = layers - {LAYER_LIGHT}
 
     # 1. Copy the functional base. With the Gameplay layer this is the Dispatch
     # handoff (functional + shell contract + advisory objective layer); without
     # it, the graybox Lot site IS the deliverable base.
     skip: set[str] = set()
-    if profile.mode == MODE_PURE_SHELL:
+    if not ships_lux(profile.mode):
         skip |= _PRESENTATION_FILES
     if not profile.include_validation:
         skip |= {"validation"}
@@ -288,8 +314,8 @@ def export_mission(
     if base_dir and base_dir.exists():
         _copy_tree(base_dir, export_dir, skip=skip)
 
-    # 2. Localize presentation (unless pure-shell).
-    if profile.mode != MODE_PURE_SHELL and presentation_dir and presentation_dir.exists():
+    # 2. Localize presentation (unless the mode ships no Lux).
+    if ships_lux(profile.mode) and presentation_dir and presentation_dir.exists():
         pres_target = export_dir / "presentation"
         _copy_tree(presentation_dir, pres_target)
         if profile.lux_strategy == LUX_LOCALIZED:
@@ -324,6 +350,10 @@ def export_mission(
     # compose.summary.json because it is the composer's job log, not content;
     # .godot/ because an import cache is machine-specific and large; addons/
     # because a portable shell carries none by contract.
+    # PURE-SHELL ALONE, and `art-unlit` is deliberately absent from this
+    # one: the composed themed content IS what an unlit art package
+    # ships. `ships_lux` asks a different question and using it here
+    # would strip the art out of the art-without-light mode.
     if (profile.mode != MODE_PURE_SHELL
             and composed_root and composed_root.exists()):
         # RETRACTED, kept above what replaced it. This skipped site.tscn as

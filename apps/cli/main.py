@@ -153,7 +153,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("export", help="export a portable mission package")
     sp.add_argument("mission_id")
     sp.add_argument("--mode", default="portable-godot",
-                    choices=["portable-godot", "pure-shell", "source-authoring"])
+                    choices=["portable-godot", "art-unlit", "pure-shell",
+                             "source-authoring"],
+                    help="art-unlit: the full art pass with no Lux result, "
+                         "for a team bringing its own lighting")
     sp.add_argument("--format", default="folder", choices=["folder", "zip"])
     sp.add_argument("--include-walk", action="store_true",
                     help="localize walk scenes (runtime scripts bundled) instead of stripping them")
@@ -162,7 +165,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("portability-test", help="clean-project portability test")
     sp.add_argument("mission_id")
     sp.add_argument("--mode", default="portable-godot",
-                    choices=["portable-godot", "pure-shell", "source-authoring"])
+                    choices=["portable-godot", "art-unlit", "pure-shell",
+                             "source-authoring"])
     sp.set_defaults(func=cmd_portability_test)
 
     sp = sub.add_parser("team-sign", help="record one approver's sign-off on a gate")
