@@ -30,7 +30,7 @@ from adapters.presentation import PresentationAdapter
 from apps.cli import commands as cmds
 from packages.core.models import MissionBrief
 from packages.pipeline import building_library
-from packages.pipeline.planner import LAYER_ART, plan_mission
+from packages.pipeline.planner import LAYER_ART, LAYER_LIGHT, plan_mission
 
 MISSION = "art_fanout_demo"
 SEED_BASE = 5000
@@ -114,8 +114,14 @@ def _brief(library: Path | None, count: int = LOT) -> MissionBrief:
 
 
 def _plan(brief: MissionBrief):
-    plan = plan_mission(brief, seed_base=SEED_BASE, layers={LAYER_ART})
-    return plan_mission(brief, seed_base=SEED_BASE, layers={LAYER_ART},
+    # ART + LIGHT since 0.35.0. `lux_apply` moved behind its own layer,
+    # and this file asserts it is planned exactly once -- so it has to ask
+    # for the layer that plans it. 0.35.0 updated the same assertions in
+    # test_planner_graph.py and missed this file, which then failed
+    # unnoticed through three releases because nothing ran tests/unit.
+    layers = {LAYER_ART, LAYER_LIGHT}
+    plan = plan_mission(brief, seed_base=SEED_BASE, layers=layers)
+    return plan_mission(brief, seed_base=SEED_BASE, layers=layers,
                         selected_candidate=plan.candidate_ids[0])
 
 

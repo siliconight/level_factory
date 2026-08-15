@@ -36,6 +36,18 @@ MODE_SOURCE = "source-authoring"
 #: Zoo and Patina built, which is the entire reason it exists.
 UNLIT_MODES = frozenset({MODE_PURE_SHELL, MODE_ART_UNLIT})
 
+#: Every mode this module can build. The CLI's `--mode` choices must
+#: equal this set, and `test_export_modes_agree.py` asserts it by
+#: parsing main.py rather than by anyone remembering.
+#:
+#: There used to be a fourth list: `cmd_export` kept a `mode_map` that
+#: mapped each CLI string to the constant of the same value -- an
+#: identity dict whose only effect was to raise KeyError on a mode it had
+#: not been told about. It did exactly that the first time `art-unlit`
+#: was typed at a real workspace.
+MODES = frozenset({MODE_PORTABLE, MODE_ART_UNLIT, MODE_PURE_SHELL,
+                   MODE_SOURCE})
+
 
 def ships_lux(mode: str) -> bool:
     """Does a package built in this mode carry Lux's applied scene?
@@ -255,6 +267,7 @@ def export_mission(
     mission_id: str,
     handoff_dir: Path | None,
     presentation_dir: Path | None,
+    themed_site_dir: Path | None = None,
     source_dir: Path | None,
     profile: ExportProfile,
     tool_versions: dict[str, str | None],
@@ -311,6 +324,25 @@ def export_mission(
     if not profile.include_validation:
         skip |= {"validation"}
     base_dir = handoff_dir if (handoff_dir and handoff_dir.exists()) else graybox_dir
+    # THE GRAYBOX IS A BASE, NOT AN ALTERNATIVE. The line above is an
+    # either/or, and the comment three lines above it already describes
+    # the intent correctly: the Dispatch handoff is a LAYER, and a layer
+    # goes on a base rather than replacing it. The moment a mission gained
+    # a dispatch_handoff, Lot's site.tscn stopped shipping.
+    #
+    # Measured 2026-08-15, two exports of lot_demo_001: the one from
+    # 2026-08-10 -- before this mission had a handoff -- carries a 25,378
+    # byte site.tscn and a 688 byte entry; today's carries neither, and
+    # its entry instances nothing. Closure passed it, because closure
+    # walks FROM the entry.
+    #
+    # PURE-SHELL ONLY. Art modes take their assembly from
+    # themed_site_assemble in 2.5 below, and laying the graybox under a
+    # themed package would ship greybox geometry it has no use for -- the
+    # same reasoning that keeps art-unlit out of the composed-root branch.
+    if (profile.mode == MODE_PURE_SHELL and graybox_dir
+            and graybox_dir.exists() and base_dir is not graybox_dir):
+        _copy_tree(graybox_dir, export_dir, skip=skip)
     if base_dir and base_dir.exists():
         _copy_tree(base_dir, export_dir, skip=skip)
 
@@ -411,6 +443,36 @@ def export_mission(
                          "site_main.tscn"},
                    skip_rel=set() if wanted else {"site.tscn"},
                    skip_dirs={".godot", "addons"})
+
+    # 2.5 THE ASSEMBLY SCENE.
+    #
+    # `themed_site_assemble` is the stage that makes a PLACE -- Lot re-run
+    # over the composed buildings at the placements the graybox candidate
+    # was judged on -- and its `site.tscn` was exported into nothing. The
+    # lit package got away with that because
+    # `presentation/lux.applied.tscn` is Lux's output OVER the assembly
+    # and stands in for it. Drop Lux and the `lot/<archetype>/site.tscn`
+    # packages are left with nothing that positions them: measured on
+    # lot_demo_001, an art-unlit export of 180 files whose entry
+    # instanced nothing at all.
+    #
+    # NOT the RETRACTED position in the comment above. That argument is
+    # about the COMPOSER's root site.tscn, whose art/dressing,
+    # art/fixtures and art/zoo are empty for a themed mission and which
+    # arrives referencing twenty modules that exist nowhere -- measured,
+    # 21 unresolved of 40. This is a different file from a different
+    # stage, and it names the five lot/<archetype>/site.tscn the package
+    # already carries.
+    #
+    # AFTER the composed copy, deliberately. `_root_site_wanted` may have
+    # let the composer's own root site.tscn through, and for a
+    # single-shell mission that file is the composed BUILDING while this
+    # is the assembled SITE. Lux is run against the assembly, so a
+    # reference to res://site.tscn has to resolve to the assembly.
+    if profile.mode != MODE_PURE_SHELL and themed_site_dir:
+        themed_scene = Path(themed_site_dir) / "site.tscn"
+        if themed_scene.is_file():
+            shutil.copy2(str(themed_scene), str(export_dir / "site.tscn"))
 
     # 3. Source authoring (only in source mode).
     if profile.mode == MODE_SOURCE and source_dir and source_dir.exists():

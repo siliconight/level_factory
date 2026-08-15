@@ -50,6 +50,16 @@ _RUNTIME_DIR = "runtime"
 _TEXT_SUFFIXES = {".tscn", ".tres", ".gd"}
 
 
+class ExportContentError(RuntimeError):
+    """A package has nothing for its entry scene to instance.
+
+    Raised rather than returned because there is no partial success
+    here: an export that writes an entry adding no children produces a
+    package that opens to an empty level and passes every check that
+    starts from the entry.
+    """
+
+
 @dataclass
 class LocalizeReport:
     rewritten_absolute: list[str] = field(default_factory=list)
@@ -60,6 +70,10 @@ class LocalizeReport:
     repaired_bare_refs: list[str] = field(default_factory=list)
     rerooted_refs: list[str] = field(default_factory=list)
     entry_scene: str | None = None
+    #: What the entry actually INSTANCES. Recorded because
+    #: `entry_scene` only ever says `mission.tscn`, which is true of a
+    #: package that opens to nothing.
+    entry_instances: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return {
@@ -72,6 +86,7 @@ class LocalizeReport:
             "repaired_bare_refs": sorted(self.repaired_bare_refs),
             "rerooted_refs": sorted(self.rerooted_refs),
             "entry_scene": self.entry_scene,
+            "entry_instances": list(self.entry_instances),
         }
 
 
@@ -499,6 +514,25 @@ def write_entry_scene(export_dir: Path, report: LocalizeReport) -> str:
         candidates.append("presentation/lux.applied.tscn")
     elif site.exists():
         candidates.append("site.tscn")
+    # AN ENTRY THAT INSTANCES NOTHING IS NOT AN ENTRY.
+    #
+    # Measured 2026-08-15 on lot_demo_001. An art-unlit export held 180
+    # files and 28.6 MB of themed geometry, no scene at the root that
+    # placed any of it, and a mission.tscn whose _ready() only printed.
+    # Everything agreed it was fine: export_closure_scan.json said
+    # `ok: true` with `resource_count: 6`, because closure walks FROM
+    # the entry and an entry that references nothing is trivially
+    # closed. The emptier the package, the more certainly it passed.
+    #
+    # This knows nothing about export modes on purpose. A mode nobody
+    # has written yet cannot ship hollow either.
+    if not candidates:
+        raise ExportContentError(
+            f"{export_dir.name}: nothing for the entry scene to "
+            f"instance -- no presentation/lux.applied.tscn and no "
+            f"site.tscn. A package whose entry adds no children opens "
+            f"to an empty level, and closure passes it because there "
+            f"is nothing left to fail on.")
     lines = ""
     for i, rel in enumerate(candidates):
         lines += (f"\tvar packed_{i} := load('res://{rel}') as PackedScene\n"
@@ -507,4 +541,5 @@ def write_entry_scene(export_dir: Path, report: LocalizeReport) -> str:
     (export_dir / "mission.tscn").write_text(
         _ENTRY_TEMPLATE.format(instances=lines), encoding="utf-8")
     report.entry_scene = "mission.tscn"
+    report.entry_instances = list(candidates)
     return "mission.tscn"

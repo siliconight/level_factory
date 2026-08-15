@@ -1,3 +1,112 @@
+## [0.37.0] - the package that opened to nothing, and passed
+
+The first art-unlit package built from a real mission -- lot_demo_001, 180
+files, 28.6 MB of themed geometry -- opened to an empty scene. Its whole
+entry was `print('scene instantiated ok')`: no `load()`, no `add_child()`.
+
+EVERY INSTRUMENT AGREED IT WAS FINE
+
+    export_closure_scan.json: {"ok": true, "resource_count": 6,
+                               "missing_resource_count": 0}
+
+Six resources in a 180-file package. Closure walks FROM the entry scene, so
+an entry that references nothing is trivially closed -- the emptier the
+package, the more certainly it passes. The portability test would have agreed
+too, because `mission.tscn` prints its marker whether or not it added a
+child.
+
+WHY
+
+There is no `site.tscn` at the export root, in EITHER package.
+`themed_site_assemble` writes one -- 31,872 bytes on lot_demo_001 -- and it
+reached no package. The lit export got away with it because
+`presentation/lux.applied.tscn` is Lux's output OVER that assembly and stands
+in for it. Drop Lux and the five `lot/<archetype>/site.tscn` packages have
+nothing positioning them.
+
+`write_entry_scene`'s `elif site.exists()` could never have caught this: the
+file it looks for was never in the package. 0.36.0's docstring called that
+fallback correct for art-unlit, and it would have been, if the file were
+there.
+
+TWO CHANGES
+
+The assembly scene ships. `themed_site_assemble`'s `site.tscn` is copied to
+the package root for every mode carrying art, AFTER the composed root --
+`_root_site_wanted` may have let the composer's own root site.tscn through,
+and for a single-shell mission that is the composed BUILDING while this is
+the assembled SITE. Lux runs against the assembly, so `res://site.tscn` must
+resolve to the assembly.
+
+This is not the RETRACTED position in export.py's comment. That is about the
+COMPOSER's root site.tscn, whose art/ directories are empty for a themed
+mission and which arrives referencing twenty modules that exist nowhere
+(measured: 21 unresolved of 40). Different file, different stage, and its
+references are the five the package already carries.
+
+An entry that instances nothing is an error. `write_entry_scene` raises
+`ExportContentError` instead of writing an empty body. It knows nothing about
+modes, so a mode nobody has written yet cannot ship hollow either -- the
+repair is specific, this guard is general, and the repair alone would have
+left the next empty package to be found by whoever opened it.
+`export_closure.json` also records `entry_instances`, because `entry_scene`
+says `mission.tscn` for a hollow package too.
+
+WHAT THE OLD TESTS COULD NOT SEE
+
+0.36.0's fourteen tests build a handoff containing `site.tscn`, so the base
+copy always left something at the export root and every package had something
+to instance. The fixture was accidentally healthier than a real mission. The
+new tests build one without it.
+
+AMENDED, SAME VERSION -- THE GRAYBOX IS A BASE, NOT AN ALTERNATIVE
+
+The new guard fired on PURE-SHELL, in two unit tests and the integration
+export test. It was right, and pure-shell was broken:
+
+    base_dir = handoff_dir if (handoff_dir and handoff_dir.exists())
+               else graybox_dir
+
+An either/or, where the comment three lines above already says the
+Dispatch handoff is a LAYER -- and a layer goes on a base rather than
+replacing it. The moment a mission gained a dispatch_handoff, Lot's
+site.tscn stopped shipping with it.
+
+Two exports of lot_demo_001 measure it: the one from 2026-08-10, before
+this mission had a handoff, carries a 25,378 byte site.tscn and a 688
+byte entry; today's carries neither and its entry instances nothing. For
+every mode carrying art this was invisible, because the themed assembly
+replaces the graybox one. Pure-shell has no replacement.
+
+The graybox tree is now copied UNDER the handoff for pure-shell only,
+with the same `skip` applied. Art modes are untouched.
+
+RECORDED, NOT CHANGED: Dispatch writes a 65,493 byte `mission.tscn` --
+the composed mission scene -- and every export discards it and writes a
+~600 byte stub instead. export.py says that is deliberate, an export
+carrying one entry. Whether it is still right is unmeasured.
+
+AMENDED AGAIN -- THE 656 TESTS NOBODY WAS RUNNING
+
+0.34.0, 0.35.0, 0.36.0 and 0.37.0 each reported "still green" against
+`tests/service` and `tests/integration`: 28 tests. `tests/unit` is 656,
+and nothing in this arc ran it. `test_fanout.py` had been failing since
+0.35.0 and said so to nobody. Every selftest from here runs `tests/unit`
+whole -- a subset described as the suite is this release's own subject,
+one level up.
+
+test_fanout.py's `_plan` asked for `layers={LAYER_ART}` and asserted
+`lux_apply` is planned once. 0.35.0 fixed exactly that in
+test_planner_graph.py and missed this file, because the search was "the
+file I know about" rather than `grep -rn lux_apply tests`.
+
+The two closure fixtures build a handoff whose only scene is
+`mission.tscn` -- which `write_entry_scene` overwrites with its stub, so
+they have described a package that opens to nothing since the day they
+were written. They gain a `site.tscn`. Neither assertion is weakened.
+That is lot_demo_001's empty art-unlit package in miniature, and it is
+why the guard lives in `write_entry_scene` rather than in a mode.
+
 ## [0.36.0] - art-unlit: the same build, shipped twice
 
 0.35.0 made the light layer declinable at RUN time. A mission run unlit
@@ -56,6 +165,28 @@ NOT MEASURED
 An actual unlit RUN through the real tools, and an art-unlit package opened
 in Godot. Stage 3. These prove which files a mode copies and what the
 manifest claims, not that the engine likes the result.
+
+AMENDED, SAME VERSION -- A FOURTH LIST NOBODY KNEW WAS A LIST
+
+The first real `export --mode art-unlit` against a workspace failed:
+`internal error: 'art-unlit'`. A KeyError, from a third place the mode
+had to be registered:
+
+    mode_map = {"portable-godot": MODE_PORTABLE, ...}
+
+Every entry mapped a value to itself -- `MODE_PORTABLE` IS the string
+`"portable-godot"` -- so the dict's only real behaviour was raising
+KeyError on a mode it had not been told about. `cmd_portability_test`
+twelve lines below already read `args.mode` straight through, which is
+the proof it was never needed.
+
+The fourteen tests missed it because they exercise `export_mission`,
+which is the right unit for 'which files does this mode copy'. Nothing
+exercised `cmd_export`. So the map is deleted, `export.py` publishes
+`MODES`, and a new test PARSES `main.py` with `ast` and asserts the
+argparse `--mode` choices and that set are equal in both directions.
+Adding a fifth mode and forgetting one place is now a failing test
+rather than a bare KeyError in front of whoever typed it.
 
 ## [0.35.0] - Lux becomes a layer you can decline
 

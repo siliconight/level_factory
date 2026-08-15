@@ -2340,8 +2340,7 @@ def _layers_produced(*, compose_root: Path, lux_dir: Path,
 
 def cmd_export(args) -> int:
     from packages.exporting.export import (
-        ExportProfile, MODE_PORTABLE, MODE_PURE_SHELL, MODE_SOURCE,
-        export_mission, zip_export,
+        MODES, ExportProfile, export_mission, zip_export,
     )
     ws = _ws(args)
     mission_id = args.mission_id
@@ -2357,6 +2356,9 @@ def cmd_export(args) -> int:
     # string pattern as the two directories above. Roadmap item 27.
     compose_root = (jobs_dir / f"{mission_id}.presentation_compose"
                     / "out" / "presentation")
+    # The assembled themed SITE. Not the same thing as the composed
+    # building above it, and until 0.37.0 it reached no package.
+    themed_site_dir = jobs_dir / f"{mission_id}.themed_site_assemble" / "out"
     lot_out = _selected_lot_out(ws, mission_id)
 
     # Resolve which layers were actually produced, and the functional base.
@@ -2373,9 +2375,17 @@ def cmd_export(args) -> int:
     presentation_dir = lux_dir if lux_dir.exists() else None
     source_dir = None  # source-authoring would gather briefs/specs; omitted in MVP folder
 
-    mode_map = {"portable-godot": MODE_PORTABLE, "pure-shell": MODE_PURE_SHELL,
-                "source-authoring": MODE_SOURCE}
-    profile = ExportProfile(mode=mode_map[args.mode],
+    # STRAIGHT THROUGH, as `cmd_portability_test` twelve lines below has
+    # always done. This mapped each CLI string to the constant holding
+    # that same string -- an identity dict that had to learn every new
+    # mode and whose only real behaviour was KeyError on one it had not
+    # been told about. `art-unlit` hit exactly that, on a real workspace,
+    # after fourteen tests that all called export_mission directly.
+    if args.mode not in MODES:
+        print(f"unknown export mode {args.mode!r}; "
+              f"known: {', '.join(sorted(MODES))}", file=sys.stderr)
+        return EXIT_BLOCKED
+    profile = ExportProfile(mode=args.mode,
                             include_walk=bool(getattr(args, "include_walk", False)))
 
     # Post-art regression: a functional drift after the art pass blocks export.
@@ -2481,6 +2491,8 @@ def cmd_export(args) -> int:
     result = export_mission(
         mission_id=mission_id, handoff_dir=handoff_dir,
         presentation_dir=presentation_dir, source_dir=source_dir,
+        themed_site_dir=(themed_site_dir if themed_site_dir.exists()
+                         else None),
         profile=profile, tool_versions=_adapter_versions(), out_root=out_root,
         graybox_dir=graybox_dir, layers=frozenset(layers),
         addon_sources=addon_sources,

@@ -47,6 +47,13 @@ def test_export_pure_shell_drops_presentation(tmp_path):
     handoff = tmp_path / "handoff"
     handoff.mkdir()
     (handoff / "mission.tscn").write_text("[gd_scene]\n")
+    # THE PACKAGE NEEDS SOMETHING TO OPEN. `write_entry_scene` overwrites
+    # mission.tscn with its own stub, so a handoff whose only scene is
+    # mission.tscn exports to a package that instances nothing -- which
+    # this fixture did from the day it was written, and which 0.37.0's
+    # guard now refuses. A real handoff-based package has the site
+    # underneath it; 0.37.0b makes that true for pure-shell.
+    (handoff / "site.tscn").write_text("[gd_scene]\n")
     (handoff / "gameplay_anchors.json").write_text("{}")
     pres = tmp_path / "pres"
     pres.mkdir()
@@ -69,6 +76,10 @@ def test_export_zip_is_deterministic(tmp_path):
     handoff = tmp_path / "handoff"
     handoff.mkdir()
     (handoff / "mission.tscn").write_text("[gd_scene]\n")
+    # Same reason as above: the entry stub replaces mission.tscn, so
+    # without this the package has nothing to instance. What this test
+    # asserts -- that the zip is deterministic -- is unchanged.
+    (handoff / "site.tscn").write_text("[gd_scene]\n")
     result = export_mission(
         mission_id="m1", handoff_dir=handoff, presentation_dir=None,
         source_dir=None, profile=ExportProfile(),
