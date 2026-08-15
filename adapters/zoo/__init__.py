@@ -154,7 +154,14 @@ class ZooAdapter(BaseAdapter):
             if job_spec.get("seed") is not None:
                 zoo_args += ["--seed", str(job_spec["seed"])]
             bid = _bid(job_spec.get("manifest_path")) or "building"
-            expected = (f"{bid}_dressing.built.json",)
+            # The .glb is DECLARED, not merely hoped for.
+            # `presentation_compose` requires a `*_dressing.glb` in this
+            # job's out/, so a bake that writes the index and no geometry
+            # has failed -- and it has to fail as ITSELF. Measured
+            # 2026-08-15: it reported `succeeded`, and compose failed for
+            # it, naming a directory two stages upstream.
+            expected = (f"{bid}_dressing.built.json",
+                        f"{bid}_dressing.glb")
         else:  # kit build
             zoo_args = ["--build-kit", str(job_spec.get("slots_path", "")),
                         "--out", str(work)]

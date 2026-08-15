@@ -67,6 +67,23 @@ def _cli(ws_root: Path, *args: str) -> subprocess.CompletedProcess:
     )
 
 
+def _stage_status(stdout: str, mission_id: str) -> dict:
+    """Map `<stage>[.<suffix>]` -> the status word the run printed for it.
+
+    A run prints one indented line per job, `<mission>.<stage>  <status>`,
+    where status is `succeeded`, `cache` or `failed`. Lines that do not
+    begin with the mission id -- the candidate summary, the structural
+    check total -- are not jobs and are skipped.
+    """
+    out: dict[str, str] = {}
+    for line in stdout.splitlines():
+        parts = line.split()
+        if len(parts) < 2 or not parts[0].startswith(mission_id + "."):
+            continue
+        out[parts[0][len(mission_id) + 1:]] = parts[-1]
+    return out
+
+
 def test_presentation_export_and_portability(workspace):
     ws, src = workspace
     root = ws.root
@@ -83,10 +100,21 @@ def test_presentation_export_and_portability(workspace):
     # Presentation run: all four presentation tools + Lux + Dispatch.
     r = _cli(root, "run", "bank_block_001", "--target", "presentation")
     assert r.returncode in (0, 1), r.stderr + r.stdout
+    # A stage NAME proves nothing. The run prints a status word at the end
+    # of each job line, so `bank_block_001.presentation_compose  failed`
+    # CONTAINS "presentation_compose" and satisfied `stage in r.stdout`.
+    # Measured 2026-08-15: compose failed, six of these eight assertions
+    # passed anyway, and the two that caught it did so only because their
+    # stages never ran at all. Read the STATUS the line carries.
+    status = _stage_status(r.stdout, "bank_block_001")
     for stage in ("pixelcoat_build", "zoo_kit_build", "patina_apply",
                   "patina_dressing", "zoo_dressing_build", "presentation_compose",
                   "lux_apply", "dispatch_handoff"):
-        assert stage in r.stdout, f"missing stage {stage}"
+        got = [s for jid, s in sorted(status.items())
+               if jid == stage or jid.startswith(stage + ".")]
+        assert got, f"missing stage {stage}\n{r.stdout}"
+        assert all(s in ("succeeded", "cache") for s in got), \
+            f"stage {stage} reported {got}\n{r.stdout}"
 
     # The compose stage produced the themed scene DC's composer emits, and Lux
     # lit THAT (not the greybox site) — the --art wiring under test.
@@ -105,8 +133,34 @@ def test_presentation_export_and_portability(workspace):
     r = _cli(root, "export", "bank_block_001", "--mode", "pure-shell", "--format", "zip")
     assert r.returncode == 0, r.stderr + r.stdout
     exports = root / ".level_factory" / "exports"
-    assert (exports / "bank_block_001.portable-godot" / "HANDOFF.md").exists()
-    assert (exports / "bank_block_001.zip").exists()
+    # 0.26.0/0.27.0 renamed both of these on purpose -- see
+    # docs/EXPORT_NAMING.md for why there are three names and not one.
+    # The build directory KEEPS the profile so two modes can coexist in
+    # one workspace; it is spelled out literally here rather than
+    # imported from `export_build_dir_name`, because a test that asks
+    # the code for the name it expects passes whatever the code does.
+    build_dir = exports / "LF_bank_block_001.portable-godot"
+    assert build_dir.is_dir(), (
+        f"no build dir; exports/ holds "
+        f"{sorted(p.name for p in exports.glob('*'))}")
+    # Loose ON PURPOSE, and tight enough to fail: the archive rewrites
+    # its members under an interior `LF_<mission>/` and it has not been
+    # observed whether a FOLDER export nests one too. Search, and print
+    # the real tree when it is not there.
+    handoffs = sorted(p.relative_to(build_dir).as_posix()
+                      for p in build_dir.rglob("HANDOFF.md"))
+    assert handoffs, (
+        f"no HANDOFF.md in {build_dir.name}; it holds "
+        f"{sorted(p.relative_to(build_dir).as_posix() for p in build_dir.rglob('*'))}")
+    # The archive is fully qualified -- seed, UTC instant, factory
+    # version -- so it cannot be spelled literally. Match the shape, and
+    # require exactly one: two would mean an export did not replace its
+    # predecessor, which is the failure the old single name hid.
+    zips = sorted(p.name for p in exports.glob(
+        "LF_bank_block_001_s*_f*_pure-shell.zip"))
+    assert len(zips) == 1, (
+        f"expected exactly one pure-shell archive, got {zips}; "
+        f"exports/ holds {sorted(p.name for p in exports.glob('*'))}")
 
     # Clean-project portability test passes.
     r = _cli(root, "portability-test", "bank_block_001", "--mode", "portable-godot")

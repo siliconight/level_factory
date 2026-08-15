@@ -62,6 +62,14 @@ def main():
         idx.write_text(json.dumps(
             {"mode": "dress", "building_id": bid, "n_fail": 0,
              "dressing": [{"id": "curb_0", "collision": "none"}]}, sort_keys=True))
+        # THE GEOMETRY, which this branch never published. Real Zoo's
+        # --dress returns `res["files"]["glb"]` and prints it;
+        # `presentation_compose` requires a `*_dressing.glb` in this
+        # job's out/. Writing the index alone made `zoo_dressing_build`
+        # report success and compose fail two stages later. The
+        # --fixtures branch above has always written its own .glb --
+        # which is why `lux_fixture_gate` passed in the same run.
+        (out / f"{bid}_dressing.glb").write_bytes(b"glTF-zoo-dressing-stub")
     else:
         bid = _bid(a.build_kit)
         idx = out / f"{bid}_kit.built.json"

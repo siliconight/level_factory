@@ -1,3 +1,85 @@
+## [0.33.0] - a bake that published nothing, and a test that could not see it
+
+0.32.0 repaired collection, so `tests/service` and `tests/integration` ran
+for the first time in weeks and nine tests failed. They are ONE failure with
+eight downstream absences:
+
+    bank_block_001.presentation_compose              failed
+
+`themed_site_assemble`, `lux_apply` and `dispatch_handoff` never ran. That is
+why the facade reported PLANNED nodes, the dashboard stayed `pending`, no
+`mission.tscn` appeared, and `review` said "no presentation previews".
+
+THE CAUSE
+
+`diagnostics bank_block_001.presentation_compose`:
+
+    failure_class: input_validation_error
+    message: dressing_glb for the mission shell: no '*_dressing.glb' in
+             ...jobs/bank_block_001.zoo_dressing_build/out -- the job that
+             bakes it reported success without publishing one
+
+The test-fixture Zoo stub's `--dress` branch wrote its index and no geometry.
+Its own `--fixtures` branch has always written both, which is why
+`lux_fixture_gate succeeded` in the same run this broke. Real Zoo's `--dress`
+publishes geometry. The guard was right; the stub was one line short.
+
+NOT A 0.32.0 REGRESSION. `dressing_glb", "_dressing.glb"` appears twice in
+`adapters/presentation/__init__.py.pre_032` and twice in the current file,
+unchanged. This has been failing since the dressing guard landed around
+2026-08-06 and nothing could see it, because collection was aborting.
+
+TWO BLIND SPOTS, BOTH CLOSED
+
+THE BAKE DID NOT DECLARE ITS GEOMETRY. `ZooAdapter.plan_commands` declared
+only the index for mode `dress`. Its declared outputs appeared, so the job
+reported `succeeded`, and the missing geometry surfaced two stages later as
+somebody else's input error naming a directory upstream. A job that does not
+publish what the next stage requires has failed, and it must fail as itself.
+
+The `fixtures` branch has the same shape and is LEFT ALONE. No run has failed
+on it, and a mission with zero light fixtures may legitimately bake no
+geometry -- declaring it on a guess is how a working mission starts refusing.
+Measured and left open rather than fixed blind.
+
+THE TEST COULD NOT TELL SUCCESS FROM FAILURE. It asserted `stage in r.stdout`
+against a run that prints a status word at the end of each job line, so
+`bank_block_001.presentation_compose  failed` CONTAINS "presentation_compose"
+and that assertion passed on the stage that broke the run. Six of its eight
+checks passed. The only two that caught anything, `lux_apply` and
+`dispatch_handoff`, caught it by never appearing at all. It now reads the
+status word and accepts only `succeeded` or `cache`.
+
+WHAT THIS DOES NOT CLAIM
+
+It fixes the stage that failed. It does not promise the nine go green. The
+run has not reached `themed_site_assemble`, `lux_apply`, `dispatch_handoff`,
+export or the portability test since roughly 2026-08-06, and everything
+behind this wall is unmeasured. The selftest runs the integration test and
+prints what happens rather than asserting a pass it has not earned.
+
+AMENDED, SAME VERSION -- WHAT THE FIX UNCOVERED
+
+The presentation chain runs. Under the strict status check all eight
+stages reported `succeeded` or `cache`, including `lux_apply` and
+`dispatch_handoff`, which had not run since roughly 2026-08-06, and
+both export commands returned 0.
+
+The next wall is our own rename. The test still expected
+`exports/bank_block_001.portable-godot/HANDOFF.md` and
+`exports/bank_block_001.zip`; 0.26.0 and 0.27.0 replaced both with the
+three names in docs/EXPORT_NAMING.md. Written 2026-07-24, it has not
+run since we renamed the thing it checks.
+
+The directory is now spelled out literally rather than imported from
+`export_build_dir_name` -- a test that asks the code for the name it
+expects passes whatever the code does. The archive carries a seed, a
+UTC instant and the factory version, so it is matched by shape and
+exactly one must match. The `HANDOFF.md` assertion searches the package
+instead of asserting a path, and prints the real tree when it fails,
+because whether a folder export nests an interior `LF_<mission>/` has
+not been observed. Loose on purpose, and recorded as such.
+
 ## [0.32.0] - the composer fingerprint, which was never there
 
 `pytest tests` has been aborting during collection on
