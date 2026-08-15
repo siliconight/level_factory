@@ -13,7 +13,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from apps.cli.commands import _layers_produced  # noqa: E402
-from packages.pipeline.planner import LAYER_ART, LAYER_GAMEPLAY  # noqa: E402
+from packages.pipeline.planner import (  # noqa: E402
+    LAYER_ART, LAYER_GAMEPLAY, LAYER_LIGHT,
+)
 
 
 def _dirs(tmp_path, *, compose=False, lux=False, handoff=False, tag="0"):
@@ -43,12 +45,26 @@ def test_the_art_pass_alone_reports_the_art_layer(tmp_path):
 
 def test_lux_alone_still_reports_the_art_layer(tmp_path):
     """The union, not a replacement. An existing workspace must not start
-    describing itself differently after the upgrade."""
-    assert _layers_produced(**_dirs(tmp_path, lux=True)) == {LAYER_ART}
+    describing itself with FEWER layers after the upgrade.
+
+    It reports one MORE since 0.35.0: Lux output is the light layer, and
+    saying so is what lets an art-unlit package be told apart."""
+    assert _layers_produced(
+        **_dirs(tmp_path, lux=True)) == {LAYER_ART, LAYER_LIGHT}
 
 
-def test_both_report_it_once(tmp_path):
-    assert _layers_produced(**_dirs(tmp_path, compose=True, lux=True)) == {LAYER_ART}
+def test_both_report_art_once_and_light_too(tmp_path):
+    assert _layers_produced(
+        **_dirs(tmp_path, compose=True, lux=True)
+    ) == {LAYER_ART, LAYER_LIGHT}
+
+
+def test_an_art_pass_without_lux_is_art_without_light(tmp_path):
+    """THE POINT OF ROADMAP 47. Themed, dressed, unlit -- and the manifest
+    says exactly that rather than calling it a graybox or calling it lit."""
+    got = _layers_produced(**_dirs(tmp_path, compose=True))
+    assert got == {LAYER_ART}
+    assert LAYER_LIGHT not in got
 
 
 def test_a_graybox_mission_reports_no_layers(tmp_path):

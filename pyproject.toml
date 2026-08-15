@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "level-factory"
-version = "0.34.0"
+dynamic = ["version"]
 description = "Production/orchestration layer over the Siliconight level-building toolchain."
 requires-python = ">=3.11"
 authors = [{ name = "Siliconight" }]
@@ -24,6 +24,15 @@ level-factory-desktop = "apps.desktop.main:main"
 
 [tool.setuptools.packages.find]
 include = ["packages*", "adapters*", "apps*"]
+
+# ONE VERSION, AND IT LIVES IN ./VERSION. This file said 0.22.0 while
+# VERSION said 0.33.0 -- eleven releases -- because two files carried the
+# same fact and only stayed equal while somebody remembered. 0.34.0
+# corrected the number and added a check; 0.35.0 drifted again by one
+# release anyway, in the very next patch. So the copy is gone rather
+# than corrected: setuptools reads the same file the running code does.
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

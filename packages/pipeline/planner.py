@@ -29,22 +29,75 @@ TARGET_SHELL_HANDOFF = "dispatch-handoff"
 TARGET_PRESENTATION = "presentation"
 
 # Composable output layers. Graybox (DC greybox+collision, assembled by Lot) is
-# the always-on base; Art and Gameplay are independent optional layers.
-LAYER_ART = "art"          # Zoo swaps + props/dressing, Pixelcoat, Patina, Lux
+# the always-on base; Art, Light and Gameplay are the optional layers on top.
+LAYER_ART = "art"          # Zoo swaps + props/dressing, Pixelcoat, Patina
+LAYER_LIGHT = "light"      # Lux's APPLY pass -- the render solution, only that
 LAYER_GAMEPLAY = "gameplay"  # Dispatch objective/nav/spawn suggestions (advisory)
-ALL_LAYERS = frozenset({LAYER_ART, LAYER_GAMEPLAY})
+ALL_LAYERS = frozenset({LAYER_ART, LAYER_LIGHT, LAYER_GAMEPLAY})
+
+#: ONLY THE APPLY PASS IS IN LAYER_LIGHT. `zoo_fixtures_build` bakes the
+#: physical light hardware from the locked shell's manifest and
+#: `lux_fixture_gate` machine-checks it -- spawn count, lamp-to-hardware
+#: co-location, powered kill/restore, findings BLOCKING. A floating light
+#: or a dark fixture is broken GEOMETRY whoever lights it, so both stay in
+#: LAYER_ART. An unlit art package therefore still ships validated
+#: fixtures and their `LuxEmit` markers, which is a contract another
+#: lighting system can read.
+#:
+#: LIGHT IS NOT INDEPENDENT, and the other two layers are. `lux_apply`
+#: runs over `themed_site_assemble`'s output, so light-without-art asks to
+#: light a place that was never themed. The DAG's answer would be to plan
+#: nothing at all -- silently, because a plan with no jobs is a legal
+#: plan. `normalize_layers` refuses instead.
+_LAYER_REQUIRES = {LAYER_LIGHT: LAYER_ART}
 
 # Backward-compat: the legacy --target values map onto layer sets.
 _TARGET_LAYERS = {
     TARGET_FUNCTIONAL_LOCK: frozenset(),                 # graybox only
     TARGET_SHELL_HANDOFF: frozenset({LAYER_GAMEPLAY}),   # graybox + gameplay
-    TARGET_PRESENTATION: frozenset({LAYER_ART, LAYER_GAMEPLAY}),  # full stack
+    # UNCHANGED IN MEANING. `--target presentation` has always produced a
+    # LIT level; splitting the light layer out must not quietly stop it.
+    TARGET_PRESENTATION: frozenset({LAYER_ART, LAYER_LIGHT,
+                                    LAYER_GAMEPLAY}),  # full stack
 }
 
 
 def layers_for_target(target: str) -> frozenset:
     """Map a legacy --target string to its composable layer set."""
     return _TARGET_LAYERS.get(target, frozenset({LAYER_GAMEPLAY}))
+
+
+def normalize_layers(layers) -> frozenset:
+    """Validate a layer set, or REFUSE it. Never silently repair it.
+
+    Two ways to be wrong, and both used to produce a plan rather than an
+    error:
+
+    A typo'd layer name was simply not in any `in layers` test, so
+    `--art` misspelt planned the graybox base and reported success.
+
+    `light` without `art` reaches the `lux_apply` block only from inside
+    `if LAYER_ART in layers:`, so it plans nothing -- and a plan with no
+    optional jobs is a legal plan that runs, succeeds, and produces the
+    graybox somebody did not ask for.
+
+    Adding the missing layer would be worse than refusing. A caller who
+    asked for light and gets a full art pass has been billed for four
+    tools it did not request.
+    """
+    lset = frozenset(layers or ())
+    unknown = sorted(lset - ALL_LAYERS)
+    if unknown:
+        raise ValueError(
+            f"unknown layer(s): {', '.join(unknown)}; "
+            f"known layers are {', '.join(sorted(ALL_LAYERS))}")
+    for layer, needs in sorted(_LAYER_REQUIRES.items()):
+        if layer in lset and needs not in lset:
+            raise ValueError(
+                f"the {layer!r} layer requires the {needs!r} layer: "
+                f"lux_apply runs over themed_site_assemble's output, so "
+                f"there is nothing to light without it")
+    return lset
 
 
 def label_for_layers(layers) -> str:
@@ -55,6 +108,8 @@ def label_for_layers(layers) -> str:
     parts = ["graybox"]
     if LAYER_ART in lset:
         parts.append("art")
+    if LAYER_LIGHT in lset:
+        parts.append("light")
     if LAYER_GAMEPLAY in lset:
         parts.append("gameplay")
     return "+".join(parts)
@@ -138,12 +193,19 @@ def plan_mission(
     used to read "with Laser Tag nav QA", which is how a firefight ended up
     being the only evidence for every navigation claim in the roadmap.)
     ``layers`` selects the optional layers on top:
-      * LAYER_ART      -> Pixelcoat + Zoo (kit swaps + props/dressing) + Patina + Lux
+      * LAYER_ART      -> Pixelcoat + Zoo (kit swaps + props/dressing + light
+                          fixtures and their gate) + Patina + the themed site
+      * LAYER_LIGHT    -> Lux's apply pass over the themed site. Requires ART.
       * LAYER_GAMEPLAY -> Dispatch objective/nav/spawn suggestions (advisory)
-    Layers are independent and apply only once a candidate is selected + locked.
+    ART and GAMEPLAY are independent; LIGHT requires ART, because there is
+    nothing to light before `themed_site_assemble` has made a place. All of
+    them apply only once a candidate is selected + locked.
     ``layers`` wins if given; otherwise it's derived from the legacy ``target``.
     """
-    layers = frozenset(layers) if layers is not None else layers_for_target(target)
+    # Through the validator on EVERY path, not just the explicit one. A
+    # bad layer set that reaches the DAG produces a plan, and a plan runs.
+    layers = normalize_layers(
+        layers if layers is not None else layers_for_target(target))
     plan = Plan(brief.mission_id, target, layers)
     seeds = derive_seeds(seed_base, brief.candidate_count)
 
@@ -407,15 +469,23 @@ def plan_mission(
         ))
         # Lux apply (final PS2 look) over the themed SITE — not the greybox
         # site, and not the single composed building it used to light.
-        lux_jid = job_id(brief.mission_id, _STAGE_LUX)
-        plan.graph.add(Job(
-            job_id=lux_jid, mission_id=brief.mission_id,
-            stage_id=_STAGE_LUX, adapter_id="lux",
-            candidate_id=selected_candidate, resource_class="godot_headless",
-            depends_on=[themed_jid],
-            expected_outputs=["lux.applied.tscn", "lux.quality.json",
-                              "lux.validation.json"],
-        ))
+        #
+        # BEHIND LAYER_LIGHT since 0.35.0, and it is the ONLY stage that
+        # moved. The fixture bake and its gate below stay in LAYER_ART:
+        # they are about where the hardware physically is, which is a
+        # question about the level rather than about the render.
+        lux_jid = ""
+        if LAYER_LIGHT in layers:
+            lux_jid = job_id(brief.mission_id, _STAGE_LUX)
+            plan.graph.add(Job(
+                job_id=lux_jid, mission_id=brief.mission_id,
+                stage_id=_STAGE_LUX, adapter_id="lux",
+                candidate_id=selected_candidate,
+                resource_class="godot_headless",
+                depends_on=[themed_jid],
+                expected_outputs=["lux.applied.tscn", "lux.quality.json",
+                                  "lux.validation.json"],
+            ))
         # Light-fixture pass (Zoo v0.30 emitter-marker contract): bake the
         # physical hardware from the locked shell's lights manifest, then
         # machine-gate it — spawn count, lamp<->hardware co-location, powered
@@ -454,8 +524,17 @@ def plan_mission(
                 depends_on=[zoo_fixtures_jid],
                 expected_outputs=["fixture_gate.report.json"],
             ))
-        # Dispatch depends on the Lux-applied presentation, not just the Lot site.
-        dispatch_dep = lux_jid
+        # Dispatch depends on the LIT presentation when there is one, and on
+        # the THEMED SITE when the light layer is off. Never back to the
+        # graybox default: `themed_site_assemble` is the last stage that
+        # makes a place, and an unlit art package is still that place.
+        # Falling through would hand Dispatch a site with no art pass on it
+        # and report success, which is the whole reason this is a
+        # conditional rather than a deletion.
+        #
+        # `themed_jid` is bound unconditionally at this indentation inside
+        # this branch -- verified, not assumed -- so the else cannot raise.
+        dispatch_dep = lux_jid if LAYER_LIGHT in layers else themed_jid
 
     if LAYER_GAMEPLAY in layers:
         dispatch_jid = job_id(brief.mission_id, _STAGE_DISPATCH)

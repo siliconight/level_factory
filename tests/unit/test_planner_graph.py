@@ -63,8 +63,8 @@ def test_graph_detects_cycle():
 # --- Composable output layers (graybox base + optional art/gameplay) ---
 
 from packages.pipeline.planner import (  # noqa: E402
-    LAYER_ART, LAYER_GAMEPLAY, layers_for_target, label_for_layers,
-    TARGET_PRESENTATION,
+    LAYER_ART, LAYER_GAMEPLAY, LAYER_LIGHT, layers_for_target,
+    label_for_layers, TARGET_PRESENTATION,
 )
 
 _SEL = "m1.candidate.seed_1997"
@@ -109,10 +109,25 @@ def test_walktest_declares_the_report_as_its_output():
 
 
 def test_art_layer_has_full_art_pass_but_no_dispatch():
-    st = _stages(frozenset({LAYER_ART}))
+    # ART + LIGHT since 0.35.0: `lux_apply` moved behind its own layer, so
+    # this asks for both to keep asserting the same stage list.
+    st = _stages(frozenset({LAYER_ART, LAYER_LIGHT}))
     assert {"pixelcoat_build", "zoo_kit_build", "patina_apply", "patina_dressing",
             "zoo_dressing_build", "presentation_compose", "lux_apply"} <= st
     assert "dispatch_handoff" not in st  # art alone never runs the gameplay layer
+
+
+def test_the_art_layer_alone_stops_at_the_themed_site():
+    """The other half of the split, asserted here too.
+
+    Everything above stays; only the render leaves. See
+    tests/unit/test_light_layer.py for the rest."""
+    st = _stages(frozenset({LAYER_ART}))
+    assert {"pixelcoat_build", "zoo_kit_build", "patina_apply",
+            "patina_dressing", "zoo_dressing_build", "presentation_compose",
+            "themed_site_assemble", "zoo_fixtures_build",
+            "lux_fixture_gate"} <= st
+    assert "lux_apply" not in st
 
 
 def test_art_layer_composes_before_lux():
@@ -130,7 +145,8 @@ def test_art_layer_composes_before_lux():
     buildings, the themed export spanned ~27 m with one. themed_site_assemble
     sits between them and re-runs Lot over the composed building at the same
     placements, so Lux lights a site rather than a building."""
-    plan = plan_mission(_brief(), seed_base=1997, layers=frozenset({LAYER_ART}),
+    plan = plan_mission(_brief(), seed_base=1997,
+                        layers=frozenset({LAYER_ART, LAYER_LIGHT}),
                         selected_candidate=_SEL)
     jobs = {j.stage_id: j for j in plan.graph.jobs()}
     assert "presentation_compose" in jobs
@@ -160,8 +176,13 @@ def test_gameplay_layer_alone_puts_dispatch_on_graybox():
 
 
 def test_both_layers_dispatch_builds_on_art_scene():
+    # The LIT stack, spelled out. What happens when the light layer is off
+    # is the whole point of 0.35.0 and is asserted in test_light_layer.py:
+    # dispatch falls back to themed_site_assemble, never to the graybox.
     plan = plan_mission(_brief(), seed_base=1997,
-                        layers=frozenset({LAYER_ART, LAYER_GAMEPLAY}), selected_candidate=_SEL)
+                        layers=frozenset({LAYER_ART, LAYER_LIGHT,
+                                          LAYER_GAMEPLAY}),
+                        selected_candidate=_SEL)
     disp = next(j for j in plan.graph.jobs() if j.stage_id == "dispatch_handoff")
     assert disp.depends_on[0].endswith("lux_apply")
 
@@ -176,7 +197,10 @@ def test_layers_require_a_locked_candidate():
 def test_legacy_target_maps_to_layers():
     assert layers_for_target(TARGET_FUNCTIONAL_LOCK) == frozenset()
     assert layers_for_target(TARGET_SHELL_HANDOFF) == frozenset({LAYER_GAMEPLAY})
-    assert layers_for_target(TARGET_PRESENTATION) == frozenset({LAYER_ART, LAYER_GAMEPLAY})
+    # presentation has always meant a LIT level; 0.35.0 names the light
+    # layer explicitly rather than changing what the target produces.
+    assert layers_for_target(TARGET_PRESENTATION) == frozenset(
+        {LAYER_ART, LAYER_LIGHT, LAYER_GAMEPLAY})
 
 
 def test_output_labels():

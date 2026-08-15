@@ -1,3 +1,89 @@
+## [0.35.0] - Lux becomes a layer you can decline
+
+`LAYER_ART` meant "Zoo + Pixelcoat + Patina + Lux", one indivisible thing, so
+a team bringing its own renderer had no way to ask for the art pass without
+the render. `LAYER_LIGHT` splits Lux's apply pass out. Roadmap item 47,
+stage 1.
+
+ONLY THE APPLY PASS MOVED
+
+`lux_apply` is the render solution and it is the only stage behind the new
+layer. `zoo_fixtures_build` bakes the physical light hardware from the locked
+shell's manifest and `lux_fixture_gate` machine-checks it -- spawn count,
+lamp-to-hardware co-location, powered kill/restore, findings BLOCKING. A
+floating light or a dark fixture is broken GEOMETRY whoever lights it, so
+both stay in `LAYER_ART`.
+
+That is the useful part: an unlit art package still ships validated fixtures
+and their `LuxEmit` markers, which another lighting system can read as a
+contract rather than a guess.
+
+`--art` STILL MEANS WHAT IT MEANT
+
+`--art` produces a lit level and `--target presentation` plans the full
+stack, both unchanged. If `--art` had quietly stopped producing lighting,
+every existing script saying `--art` would ship something different without
+anyone typing anything. `--unlit` subtracts the light layer; nothing
+subtracts it by default.
+
+THE ONE LINE THAT CARRIES THE RISK
+
+    dispatch_dep = lux_jid if LAYER_LIGHT in layers else themed_jid
+
+Falling through to the graybox default would build the Dispatch handoff on a
+site with no art pass on it and report success. `themed_site_assemble` is the
+last stage that makes a place, and an unlit art package is still that place.
+`themed_jid` is bound unconditionally at the same indentation in the same
+branch, so the else cannot raise -- checked rather than assumed. Six tests in
+`tests/unit/test_light_layer.py` cover this line, including one that asserts
+no job in either plan depends on a job that was never planned.
+
+LIGHT REQUIRES ART, AND IS REFUSED WITHOUT IT
+
+`lux_apply` runs over `themed_site_assemble`'s output, so light-without-art
+asks to light a place that was never themed. The DAG's answer would be a plan
+with no optional jobs -- which is legal, runs, and succeeds, producing a
+graybox nobody asked for. `normalize_layers` raises instead, and
+`plan_mission` routes every path through it, including the legacy `--target`
+mapping. Adding the missing layer silently would be worse: a caller who asked
+for light would be billed for four tools it never requested. An unknown layer
+name is refused the same way, which it never was -- `--art` misspelt used to
+plan the graybox and report success.
+
+THE EXPORT SIDE
+
+`_layers_produced` reads the light layer from `lux_apply`'s output, which is
+what that directory always meant; 0.34.0 had just finished stopping it from
+standing in for the art layer as well. A workspace with Lux output now
+reports `{art, light}` rather than `{art}` -- one more layer than before,
+never fewer, and the distinction is what `LF_MANIFEST.json` needs to describe
+an art-unlit package honestly.
+
+NOT IN THIS RELEASE
+
+There is no `art-unlit` export MODE. A mission RUN without the light layer
+already exports correctly: no `lux_apply` output means no `presentation/`
+directory, `_root_site_wanted(None)` keeps the themed `site.tscn`, and
+`write_entry_scene`'s `elif` makes that the entry. What is missing is
+export-time subtraction -- taking a mission that DID run Lux and shipping an
+unlit package from it, so two archives from one build can be compared. Stage
+2.
+
+AMENDED, SAME VERSION -- ONE VERSION, READ FROM ONE FILE
+
+This release bumped `VERSION` and not `pyproject.toml`, so the drift
+0.34.0 had just finished correcting -- eleven releases of it -- restarted
+at one release, in the patch immediately after the one that fixed it. The
+check 0.34.0 added caught it.
+
+The correction is not another bump. `pyproject.toml` no longer states a
+version at all: it declares `dynamic = ["version"]` and points
+`[tool.setuptools.dynamic]` at `VERSION`, which is the file the running
+code already read. There is no second copy to disagree. A check that two
+files match has to be remembered by every future release patch, and the
+one that forgets is the one that drifts; deleting the copy cannot be
+forgotten.
+
 ## [0.34.0] - the art layer was reported from Lux's output
 
 `cmd_export` does not take the layer set from the run. It infers it from what

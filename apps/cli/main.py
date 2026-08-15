@@ -57,7 +57,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     br = bsub.add_parser("run", help="run a whole batch as one parallel DAG")
     br.add_argument("batch_id")
-    br.add_argument("--art", action="store_true", help="add the Art layer (Zoo/Pixelcoat/Patina/Lux)")
+    br.add_argument("--art", action="store_true",
+                    help="add the Art layer AND the Light layer "
+                         "(Zoo/Pixelcoat/Patina + Lux)")
+    br.add_argument("--unlit", action="store_true",
+                    help="with --art: drop the Light layer (Lux). Fixtures "
+                         "and their gate still ship.")
     br.add_argument("--gameplay", action="store_true", help="add the Gameplay-suggestion layer (Dispatch)")
     br.add_argument("--target", default=None,
                     choices=["functional-lock", "dispatch-handoff", "presentation"],
@@ -71,7 +76,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("plan", help="plan a mission pipeline")
     sp.add_argument("mission_id")
-    sp.add_argument("--art", action="store_true", help="add the Art layer")
+    sp.add_argument("--art", action="store_true",
+                    help="add the Art layer AND the Light layer")
+    sp.add_argument("--unlit", action="store_true",
+                    help="with --art: drop the Light layer (Lux)")
     sp.add_argument("--gameplay", action="store_true", help="add the Gameplay-suggestion layer")
     sp.add_argument("--target", default=None,
                     choices=["functional-lock", "dispatch-handoff", "presentation"],
@@ -82,7 +90,12 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("run", help="run a mission pipeline (graybox base + optional layers)")
     sp.add_argument("mission_id")
     sp.add_argument("--art", action="store_true",
-                    help="add the Art layer (Zoo swaps + props/dressing, Pixelcoat, Patina, Lux)")
+                    help="add the Art layer (Zoo swaps + props/dressing + light "
+                         "fixtures, Pixelcoat, Patina) AND the Light layer (Lux)")
+    sp.add_argument("--unlit", action="store_true",
+                    help="with --art: drop the Light layer. The level is themed "
+                         "and dressed, its light fixtures are baked and gated, and "
+                         "no Lux render is applied -- for a team bringing its own.")
     sp.add_argument("--gameplay", action="store_true",
                     help="add the Gameplay-suggestion layer (Dispatch objective/nav/spawn hints)")
     sp.add_argument("--target", default=None,

@@ -164,14 +164,25 @@ def _resolve_selected_candidate(ws: Workspace, mission_id: str) -> str | None:
 
 def _resolve_layers(args):
     """Resolve the composable layer set from CLI args. Explicit --art/--gameplay
-    win; otherwise fall back to the legacy --target mapping; otherwise graybox."""
-    from packages.pipeline.planner import LAYER_ART, LAYER_GAMEPLAY, layers_for_target
+    win; otherwise fall back to the legacy --target mapping; otherwise graybox.
+
+    `--art` MEANS WHAT IT ALWAYS MEANT: art AND light. 0.35.0 split Lux's
+    apply pass into its own layer, and if `--art` had quietly stopped
+    producing lighting, every existing script saying `--art` would ship
+    something different without anyone typing anything. `--unlit`
+    subtracts the light layer; nothing subtracts it by default."""
+    from packages.pipeline.planner import (
+        LAYER_ART, LAYER_GAMEPLAY, LAYER_LIGHT, layers_for_target,
+    )
     art = bool(getattr(args, "art", False))
     gameplay = bool(getattr(args, "gameplay", False))
+    unlit = bool(getattr(args, "unlit", False))
     if art or gameplay:
         layers = set()
         if art:
             layers.add(LAYER_ART)
+            if not unlit:
+                layers.add(LAYER_LIGHT)
         if gameplay:
             layers.add(LAYER_GAMEPLAY)
         return frozenset(layers)
@@ -2310,10 +2321,18 @@ def _layers_produced(*, compose_root: Path, lux_dir: Path,
     here would put a second derivation of that name in a second place --
     the failure `walk_content_dir` describes in its own docstring.
     """
-    from packages.pipeline.planner import LAYER_ART, LAYER_GAMEPLAY
+    from packages.pipeline.planner import (
+        LAYER_ART, LAYER_GAMEPLAY, LAYER_LIGHT,
+    )
     layers = set()
     if compose_root.exists() or lux_dir.exists():
         layers.add(LAYER_ART)
+    # `lux_apply`'s output is what this directory always meant. Since
+    # 0.35.0 it answers its own question instead of standing in for the
+    # art layer, which is what an art-unlit package needs LF_MANIFEST.json
+    # to be able to say.
+    if lux_dir.exists():
+        layers.add(LAYER_LIGHT)
     if handoff_dir.exists():
         layers.add(LAYER_GAMEPLAY)
     return layers
