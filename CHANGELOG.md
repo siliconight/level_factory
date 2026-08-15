@@ -1,3 +1,59 @@
+## [0.34.0] - the art layer was reported from Lux's output
+
+`cmd_export` does not take the layer set from the run. It infers it from what
+is on disk, and it asked the wrong directory:
+
+    if lux_dir.exists():
+        layers.add(LAYER_ART)
+
+`lux_dir` is `<mission>.lux_apply/out`. "Did the art layer run?" was answered
+by "did Lux produce output?" Everything Pixelcoat, Zoo and Patina built, and
+the themed site assembled from it, was invisible to that test.
+
+WRONG TODAY, with no new feature involved. A mission whose art pass succeeded
+and whose `lux_apply` failed exports an `LF_MANIFEST.json` declaring no art
+layer, on a package full of art. Nothing reads that field, so nothing has
+ever objected.
+
+It becomes structural under roadmap 47, where `lux_apply` moves behind its
+own layer and art-without-light is the normal case rather than a failure --
+every such package would ship a manifest denying its own contents. This
+lands first, alone, against a suite measured green, rather than inside the
+change that makes it urgent.
+
+THE FIX IS A UNION
+
+    art = compose_root.exists() or lux_dir.exists()
+
+`presentation_compose/out/presentation` is what the art layer produces, so it
+is what stands for it. The `or` is deliberate: this must never report FEWER
+layers than the lines it replaces, or a workspace that exports correctly
+today would describe itself differently after an upgrade. Lux runs on the
+composed site and cannot exist without one. Strictly wider than the old test,
+strictly narrower than lying, and `test_it_is_never_narrower_than_the_code_it_replaced`
+asserts exactly that over all eight combinations.
+
+It is a named function with a test now. The reason this survived weeks is
+that the decision was four inline lines in the middle of a 90-line command.
+The directories are still spelled in `cmd_export` -- building
+`<mission>.<stage>/out` inside the helper would put a second derivation of
+that name in a second place, which is the failure `walk_content_dir`
+describes in its own docstring.
+
+ALSO
+
+`pyproject.toml` said `0.22.0` against a `VERSION` of `0.33.0` -- eleven
+releases of drift. Nothing reads pyproject for the running version, so
+nothing broke, but an installed copy reported a version six days stale. The
+selftest now asserts the two agree.
+
+RECORDED FOR THE NEXT PERSON: `pyproject.toml` carries `addopts = "-q"`, so
+every `pytest ... -q` actually runs at `-qq`, and at two the run summary line
+is suppressed entirely. That is why a green suite writes 80 bytes of dots
+with no `28 passed` line in it, and why two attempts to detect "did the test
+run" by reading pytest's prose were both wrong. The return code was always
+the answer.
+
 ## [0.33.0] - a bake that published nothing, and a test that could not see it
 
 0.32.0 repaired collection, so `tests/service` and `tests/integration` ran

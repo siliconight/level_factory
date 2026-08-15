@@ -2284,6 +2284,41 @@ def cmd_walk(args) -> int:
     return bot_rc
 
 
+def _layers_produced(*, compose_root: Path, lux_dir: Path,
+                     handoff_dir: Path) -> set:
+    """Which composable layers a finished mission actually PRODUCED.
+
+    THE ART LAYER IS NOT LUX. This was four inline lines in `cmd_export`
+    and it read `lux_dir.exists()` to decide whether the art layer ran,
+    so a mission whose Pixelcoat/Zoo/Patina pass succeeded and whose
+    `lux_apply` failed exported an LF_MANIFEST.json declaring no art
+    layer -- on a package full of art. Nothing reads that field, so
+    nothing ever objected.
+
+    `presentation_compose/out/presentation` is what the art layer
+    produces and is therefore what stands for it.
+
+    THE `or lux_dir.exists()` IS NOT REDUNDANT. This must never report
+    fewer layers than the four lines it replaces, or a workspace that
+    exports correctly today would describe itself differently after an
+    upgrade. Lux runs on the composed site and cannot exist without
+    one, so its output still implies an art pass. Strictly wider than
+    the old test; strictly narrower than lying.
+
+    It takes directories rather than a mission id BECAUSE the bug was
+    never how a job path is spelled. Building `<mission>.<stage>/out`
+    here would put a second derivation of that name in a second place --
+    the failure `walk_content_dir` describes in its own docstring.
+    """
+    from packages.pipeline.planner import LAYER_ART, LAYER_GAMEPLAY
+    layers = set()
+    if compose_root.exists() or lux_dir.exists():
+        layers.add(LAYER_ART)
+    if handoff_dir.exists():
+        layers.add(LAYER_GAMEPLAY)
+    return layers
+
+
 def cmd_export(args) -> int:
     from packages.exporting.export import (
         ExportProfile, MODE_PORTABLE, MODE_PURE_SHELL, MODE_SOURCE,
@@ -2306,11 +2341,10 @@ def cmd_export(args) -> int:
     lot_out = _selected_lot_out(ws, mission_id)
 
     # Resolve which layers were actually produced, and the functional base.
-    layers = set()
-    if handoff_dir.exists():
-        layers.add(LAYER_GAMEPLAY)
-    if lux_dir.exists():
-        layers.add(LAYER_ART)
+    # The mapping from artifacts to layers is a decision with a name and a
+    # test now; see `_layers_produced` for why the art layer is not Lux.
+    layers = _layers_produced(compose_root=compose_root, lux_dir=lux_dir,
+                              handoff_dir=handoff_dir)
     graybox_dir = lot_out  # the assembled Lot site is the graybox base
     if not handoff_dir.exists() and (graybox_dir is None or not graybox_dir.exists()):
         print(f"nothing to export for {mission_id}; run it first "
