@@ -230,13 +230,15 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
     specs: dict[str, dict] = {}
     jobs_dir = ws.jobs_dir
 
-    # DOES THIS RUN HAVE AN ART LAYER? Read off the planned graph rather than
-    # threaded down as a flag: `themed_site_assemble` is planned or it is not,
-    # and a parameter somebody has to remember to pass is the shape of defect
-    # this file keeps finding. It decides which pool the GREYBOX pass draws
-    # from -- see the narrowing in `_write_site_spec`, and addendum item J.
-    _art_run = any(j.stage_id == "themed_site_assemble"
-                   for j in plan.graph.jobs())
+    # WHICH POOL THE GREYBOX PASS DRAWS FROM used to be decided here, by
+    # reading `themed_site_assemble` off THIS INVOCATION'S planned graph.
+    # Roadmap 48 measured what that cost: `batch create` plans no art layer
+    # and drew from 123 shells, `run --art` plans one and drew from 98, and
+    # the same job at the same seed produced two different buildings -- the
+    # one every grader and the functional lock measured, and the one the
+    # package would have shipped. The decision moved into `_write_site_spec`,
+    # where it is keyed on the BRIEF (`lot_library`) and is therefore the same
+    # answer in every invocation of the mission's life. Addendum item J.
 
     # ONE derivation per candidate. `_lot_for_compose` lists a directory and
     # prints what it excluded; with the placement stages fanned out there are
@@ -320,8 +322,7 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                 deli_job = job.depends_on[0]
             deli_out = jobs_dir / deli_job
             site_spec = _write_site_spec(
-                ws, model, deli_out, seed=seed, themed_scene=themed_scene,
-                art_run=_art_run)
+                ws, model, deli_out, seed=seed, themed_scene=themed_scene)
             specs[job.job_id] = {
                 "site_spec_path": str(site_spec),
                 # Written beside the spec by _write_site_spec. The adapter
@@ -826,8 +827,7 @@ def _write_dispatch_spec(ws: Workspace, model: MissionBrief,
 
 
 def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
-                     *, seed: int, themed_scene: str | None = None,
-                     art_run: bool = False) -> Path:
+                     *, seed: int, themed_scene: str | None = None) -> Path:
     """Write ONE candidate's Lot site spec (named 'site.json' so Lot's stem-based
     outputs are canonical: site.tscn / site_walk.tscn / site.site.gameplay.json).
 
@@ -939,38 +939,49 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
                   f"   (in Deli Counter)")
             print(f"[site]   rebuild:    python build.py --all")
 
-        if themed_map or art_run:
-            # The themed pool is narrower, and it must be the SAME narrowing
-            # `_lot_for_compose` applied: compose published one scene per
-            # archetype and `themed_map` is keyed on those ids. A wider pool
-            # here selects buildings that have no composed scene, `_source`
-            # finds no match, and the row stands as greybox with every stage
-            # reporting success -- the defect this file keeps finding, one
-            # layer down.
-            #
-            # NOW APPLIED TO THE GREYBOX BRANCH TOO, when the run has an art
-            # layer. The comment that used to sit here said the opposite:
-            # "NOT applied to the greybox branch. That places levels already
-            # built and graded, and re-selecting them would be different levels
-            # wearing the same grades." That protected the STABILITY of a
-            # grade, and `probe_pool_divergence.py` measured what it was
-            # stabilising -- across lot_demo_001's three candidates, 14 of 15
-            # building slots already carried an archetype other than the one
-            # Laser Tag graded, and 13 graded archetypes never shipped at all.
-            # One slot in the mission agreed. The thing that comment feared had
-            # already happened; keeping the wider draw preserved the
-            # consistency of a number about a level nobody receives.
-            #
-            # So: grade the pool that ships. With an art layer the themed pool
-            # is the deliverable, so the greybox pass draws from it as well.
-            # Without one the greybox IS the deliverable and this does not
-            # fire -- `art_run` is false and nothing changes.
-            before = len(complete)
-            complete = building_library.require_themed_shells(complete, count)
-            which = "themed lot" if themed_map else "graded lot (art run)"
-            print(f"[site] {which}: {len(complete)} of {before} shell(s) "
-                  f"can carry a theme -- the graded draw and the shipped draw "
-                  f"come from the same pool")
+        # THE NARROWING, AND IT IS NOT CONDITIONAL ANY MORE. Roadmap 48.
+        #
+        # The themed pool is narrower, and it must be the SAME narrowing
+        # `_lot_for_compose` applied: compose published one scene per
+        # archetype and `themed_map` is keyed on those ids. A wider pool here
+        # selects buildings that have no composed scene, `_source` finds no
+        # match, and the row stands as greybox with every stage reporting
+        # success -- the defect this file keeps finding, one layer down.
+        #
+        # IT USED TO BE GATED ON A PER-INVOCATION FLAG read off the planned
+        # graph. That gate was itself a fix: `probe_pool_divergence.py` had
+        # measured that across lot_demo_001's three candidates, 14 of 15
+        # building slots already carried an archetype other than the one Laser
+        # Tag graded and 13 graded archetypes never shipped at all, so the
+        # greybox branch started narrowing too -- "grade the pool that ships".
+        #
+        # It made the greybox pass and the themed pass agree WITHIN one
+        # invocation, and could not make them agree ACROSS invocations:
+        # `batch create` plans no `themed_site_assemble`, so it drew from 123
+        # shells while `run --art` drew from 98, and `batch create` is where
+        # the graders, the structural checks and the functional lock all run.
+        # Roadmap 48 caught it on unlit_probe_001 -- cr_garage graded,
+        # landmark_hall_a03 shipped, one job id, one seed -- and it was the
+        # functional lock that refused the export, because nothing else in the
+        # pipeline can see both sites.
+        #
+        # SO IT IS KEYED ON THE BRIEF. Reaching this line already means
+        # `lot_library` is set, which is also what gates the art layer, so the
+        # pool a mission draws from is now the same in every invocation of its
+        # life -- before approval, after approval, graded, shipped.
+        #
+        # THE COST, STATED: a brief that sets `lot_library` and is never run
+        # with `--art` now draws from the narrower pool as well. It buys back
+        # nothing and loses 25 of 123 shells of variety. That is the price of
+        # the draw not moving, and it is the cheaper side of the trade -- a
+        # graybox deliverable with less variety is a worse level; a graded
+        # level that is not the shipped level is not a level at all.
+        before = len(complete)
+        complete = building_library.require_themed_shells(complete, count)
+        which = "themed lot" if themed_map else "graded lot"
+        print(f"[site] {which}: {len(complete)} of {before} shell(s) "
+              f"can carry a theme -- keyed on the brief, so this is the same "
+              f"pool in every invocation")
         lot = building_library.pick_lot(complete, seed, count)
         if len(lot) < count:
             # Loud, not silent. A short lot means the library is smaller than

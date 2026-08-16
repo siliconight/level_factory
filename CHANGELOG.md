@@ -1,3 +1,60 @@
+## [0.38.0] - the pool a mission draws from is a property of the mission
+
+`unlit_probe_001`, one fresh workspace, one candidate, seed 5017, run once
+from empty. `lot_assemble.candidate.seed_5017` succeeded twice and produced
+two different sites.
+
+    batch create                    123 shells -> cr_garage
+    run --art --unlit --gameplay     98 shells -> landmark_hall_a03
+
+    graybox   17 openings, 178 colliders, 12 markers
+    art       13 openings, 176 colliders,  7 markers
+    shell.glb sha256:a929d7d2... in BOTH -- same lot, different building
+
+Everything that graded the mission ran under `batch create` and measured
+`cr_garage`: walktest nav QA, Laser Tag, the structural checks, and the
+functional lock. The package would have shipped `landmark_hall_a03`.
+
+THE MECHANISM WAS ONE BOOLEAN
+
+    commands/__init__.py:238   _art_run = any(j.stage_id == "themed_site_assemble"
+                                              for j in plan.graph.jobs())
+    commands/__init__.py:942   if themed_map or art_run:   # narrow 123 -> 98
+
+`_art_run` described THE INVOCATION, not the mission. `batch create` plans no
+art layer; `run --art` plans one.
+
+AND THE GATE IT SAT IN WAS ITSELF A FIX
+
+The greybox branch started narrowing because `probe_pool_divergence.py` had
+measured that on lot_demo_001, 14 of 15 building slots already carried an
+archetype other than the one Laser Tag graded and 13 graded archetypes never
+shipped at all. "Grade the pool that ships" was the right goal. It made the
+two passes agree within one invocation and could not make them agree across
+invocations -- so the divergence moved from inside a run to between the run
+that grades and the run that ships, where only the functional lock stands.
+
+THE FIX
+
+The narrowing is keyed on the BRIEF. Reaching that line already means
+`lot_library` is set, which is also what gates the art layer, so the pool is
+now the same in every invocation of a mission's life. `art_run` is gone from
+the signature, the call site and the module.
+
+THE COST, STATED: a brief that sets `lot_library` and never runs `--art` now
+draws from the narrower pool too -- 98 of 123 shells. Missions without
+`lot_library` are untouched byte-for-byte.
+
+WHAT THIS DOES NOT DO. Missions already built with `lot_library` will
+re-select buildings on their next run, and their existing grades stop
+describing them. That is the point -- those grades already described a
+different level -- but it is not free, and `--force` is what re-runs it.
+Whether the draw may move behind `candidate_selected` AT ALL is roadmap item
+48 question 1 and is still open.
+
+Evidence, in the repo because `_runs/` is gitignored:
+`docs/findings/ITEM48_THE_DRAW_MOVED.md`.
+
 ## [0.37.0] - the package that opened to nothing, and passed
 
 The first art-unlit package built from a real mission -- lot_demo_001, 180
