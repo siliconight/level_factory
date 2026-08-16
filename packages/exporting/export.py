@@ -200,6 +200,51 @@ _ROOT_SITE_REF = re.compile(r'^\[ext_resource[^\]]*path="res://site\.tscn"',
                             re.M)
 
 
+#: One `lot/<id>/site.tscn` reference in an assembly scene. The id is whatever
+#: `_write_site_spec` put there -- a literal "shell" on the single-shell branch,
+#: an archetype id on the varied one -- so this reads it rather than assuming.
+_LOT_SITE_REF = re.compile(r'path="(lot/([^"/]+)/site\.tscn)"')
+
+
+def _assembly_building_dir(themed_site_dir, composed_root) -> str:
+    """``"lot/<id>"`` when the composed root belongs under it, else ``""``.
+
+    ROADMAP 49. Returns non-empty only when ALL of these hold, and each one
+    is a fact read off disk rather than a guess about the mission:
+
+      * there is an assembly scene (`themed_site_assemble`'s `site.tscn`)
+      * it names exactly ONE `lot/<id>/site.tscn` -- more than one is a varied
+        lot, which the composed root already carries and which this must not
+        touch
+      * the composed root has no `lot/` of its own -- if it does, it is that
+        varied lot and its buildings are already in the right place
+
+    Returns a POSIX-style relative string because it is joined onto a Path by
+    the caller and compared in tests; `Path` would make the test assertion
+    platform-dependent for no benefit.
+
+    Never raises. An unreadable assembly scene answers "" -- the previous
+    behaviour -- because a copy destination is not the place to discover a
+    corrupt scene, and the closure scan reports it a few lines later with the
+    detail this function does not have.
+    """
+    if not themed_site_dir:
+        return ""
+    scene = Path(themed_site_dir) / "site.tscn"
+    if not scene.is_file():
+        return ""
+    if composed_root and (Path(composed_root) / "lot").is_dir():
+        return ""
+    try:
+        text = scene.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    hits = {m.group(1) for m in _LOT_SITE_REF.finditer(text)}
+    if len(hits) != 1:
+        return ""
+    return str(next(iter(hits))).rsplit("/", 1)[0]
+
+
 def _root_site_wanted(presentation_dir: Path | None) -> bool:
     """Does the presentation scene reference the composer's root ``site.tscn``?
 
@@ -436,12 +481,40 @@ def export_mission(
         # per building under `lot/<id>/`; a name skip took all six, and the
         # presentation scene came back with five unresolved buildings.
         wanted = _root_site_wanted(presentation_dir)
-        _copy_tree(composed_root, export_dir,
+        # WHERE THE COMPOSED ROOT LANDS. Roadmap 49.
+        #
+        # It used to land at the package root, always. That is right for a
+        # VARIED lot, whose composed root already holds `lot/<archetype>/`
+        # per building and whose references therefore resolve. It is wrong
+        # for a SINGLE-SHELL mission: there the composed root IS the one
+        # building, flat -- `site.tscn`, `site_base.glb`, `art/` -- and step
+        # 2.5 below then overwrites the root `site.tscn` with the ASSEMBLY
+        # scene, whose only `ext_resource` is `lot/<id>/site.tscn`. Nothing
+        # ever created that directory in the package, so every single-shell
+        # themed export since 0.37.0 has shipped a level that cannot open,
+        # in BOTH modes. Measured on unlit_probe_001: 56 files, entry
+        # reaches 2.
+        #
+        # ASK THE ARTEFACT, do not infer the mission shape. The assembly
+        # scene names the path it needs and `site_packages.py` has already
+        # staged exactly that directory beside it; `_assembly_building_dir`
+        # reads the name out of the scene rather than guessing from a flag.
+        # `_root_site_wanted` is NOT that test and was briefly mistaken for
+        # it: it returns True whenever there is no Lux scene to ask, which
+        # on a mission that never ran Lux is every time.
+        building_rel = _assembly_building_dir(themed_site_dir, composed_root)
+        dest = (export_dir / building_rel) if building_rel else export_dir
+        # AND THE COMPOSER'S OWN site.tscn IS WANTED when it is going under
+        # `lot/<id>/`, because there it IS the building the assembly names.
+        # Skipping it would recreate the same dangling reference one
+        # directory down.
+        _copy_tree(composed_root, dest,
                    skip={"project.godot", "HANDOFF.md",
                          "portable_resource_manifest.json",
                          "compose.summary.json",
                          "site_main.tscn"},
-                   skip_rel=set() if wanted else {"site.tscn"},
+                   skip_rel=(set() if (wanted or building_rel)
+                             else {"site.tscn"}),
                    skip_dirs={".godot", "addons"})
 
     # 2.5 THE ASSEMBLY SCENE.

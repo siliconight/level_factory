@@ -1,3 +1,49 @@
+## [0.39.0] - the composed root lands where the assembly says it does
+
+Every single-shell themed export since 0.37.0 has shipped a level that cannot
+open, in BOTH `portable-godot` and `art-unlit`. Measured on unlit_probe_001,
+2026-08-16: 56 files, 7,158,515 bytes, and the entry scene reaches TWO of
+them.
+
+    site.tscn: relative ext_resource resolves to nothing: lot/shell/site.tscn
+    resource_count: 2
+
+WHY
+
+`export_mission` step 2 copies the composed root to the package ROOT. Step
+2.5 -- added in 0.37.0 -- then copies `themed_site_assemble/out/site.tscn`
+over the root `site.tscn`, and copies nothing else out of that job. On a
+VARIED lot that is fine: the composed root already holds `lot/<archetype>/`
+per building, so the assembly's references resolve. On a SINGLE-SHELL mission
+the composed root IS the one building laid flat, and the assembly names
+`lot/<id>/site.tscn` -- a directory `site_packages.py` staged in the job's
+out dir and the export never carried.
+
+0.37.0 was right about the problem it fixed -- on lot_demo_001 the assembly
+scene reached no package at all and an unlit export instanced nothing -- and
+it was measured on that five-building mission, which is the shape where this
+does not bite.
+
+THE FIX
+
+`_assembly_building_dir` reads the assembly scene and returns `lot/<id>` when
+it names exactly one such package AND the composed root has no `lot/` of its
+own. The composed root is then copied there instead of to the package root,
+so the building lives under `lot/<id>/` on both mission shapes and the
+assembly's reference resolves. The composer's own `site.tscn` stops being
+skipped in that case, because under `lot/<id>/` it IS the building.
+
+ASKED, NOT INFERRED. The first attempt at this used
+`_root_site_wanted(presentation_dir)` as the single-shell test. It is not
+one: it returns True whenever there is no Lux scene to ask, which on a
+mission that never ran Lux is every time. The scene that names the path is
+the artefact that knows, which is the rule this file already states about the
+presentation scene two comments earlier.
+
+Roadmap item 49, third reading. The two earlier readings -- the lot drawing
+this pipeline's own output, and the export flattening `lot/shell/` -- are
+recorded there as wrong, with what refuted each.
+
 ## [0.38.0] - the pool a mission draws from is a property of the mission
 
 `unlit_probe_001`, one fresh workspace, one candidate, seed 5017, run once
