@@ -1,3 +1,38 @@
+## [0.40.0] - one resource manifest per package, and it is the current one
+
+A package shipped two. `resource_manifest.json` is
+`dispatch.resource_manifest.v0.2`, written by the handoff stage about the
+handoff; `export_mission` copies that directory in, overwrites `mission.tscn`
+with its own portable entry, adds the composed building and its art, and
+writes `portable_resource_manifest.json`. By the time the package is
+finished, Dispatch's file describes something that no longer exists.
+
+Measured on unlit_probe_001, 2026-08-16, art-unlit:
+
+    resource_manifest.json           17 entries; mission.tscn at 16,246 bytes
+    mission.tscn on disk                                             688 bytes
+    portable_resource_manifest.json  58 resources, sha256 + size each,
+                                     including lot/shell/site.tscn and all
+                                     31 art/zoo GLBs
+
+The mtimes said which way round it happened without needing anybody's memory:
+the manifest was written at ...388494 and `mission.tscn` at ...389514, one
+second later. A recipient verifying the package against its own manifest
+fails on the first file -- and the stale one has the better name, so it is
+the one they open.
+
+THE FIX
+
+`resource_manifest.json` joins the `skip` set the handoff copy already uses.
+Dropped rather than regenerated, following the precedent twelve lines below
+it: the composed-root copy already skips `portable_resource_manifest.json`
+because the composer writes one and LF writes its own, and two answers to one
+question is the defect. If a recipient contract ever requires that exact
+name, the fix is to regenerate it there rather than un-skip it -- the problem
+was never the file, it was the file being stale.
+
+Roadmap item 50.
+
 ## [0.39.0] - the composed root lands where the assembly says it does
 
 Every single-shell themed export since 0.37.0 has shipped a level that cannot

@@ -368,6 +368,37 @@ def export_mission(
         skip |= _PRESENTATION_FILES
     if not profile.include_validation:
         skip |= {"validation"}
+    # DISPATCH'S MANIFEST IS NOT THIS PACKAGE'S MANIFEST. Roadmap 50.
+    #
+    # `resource_manifest.json` is `dispatch.resource_manifest.v0.2`, written
+    # by the handoff stage to describe the handoff. The export then copies
+    # that directory in, overwrites `mission.tscn` with its own portable
+    # entry, adds the composed building and its art, and writes
+    # `portable_resource_manifest.json` -- so by the time the package is
+    # finished, Dispatch's file describes something that no longer exists.
+    #
+    # Measured on unlit_probe_001, 2026-08-16, art-unlit:
+    #
+    #     resource_manifest.json           17 entries, mission.tscn 16,246 B
+    #     mission.tscn on disk                                          688 B
+    #     portable_resource_manifest.json  58 resources, sha256 + size each,
+    #                                      including lot/shell/site.tscn and
+    #                                      all 31 art/zoo GLBs
+    #
+    # Two manifests, and the stale one has the better name. A recipient
+    # checking what they received opens `resource_manifest.json` first.
+    #
+    # DROPPED RATHER THAN REGENERATED, and the precedent is twelve lines
+    # below: the composed-root copy already skips
+    # `portable_resource_manifest.json` for exactly this reason -- the
+    # composer writes one, LF writes its own, and shipping both would be two
+    # answers to one question. This is that rule applied to the other
+    # manifest and the other producer.
+    #
+    # IF A RECIPIENT CONTRACT EVER REQUIRES THE NAME `resource_manifest.json`,
+    # the fix is to REGENERATE it here rather than to un-skip it. The problem
+    # was never the file; it was the file being stale.
+    skip |= {"resource_manifest.json"}
     base_dir = handoff_dir if (handoff_dir and handoff_dir.exists()) else graybox_dir
     # THE GRAYBOX IS A BASE, NOT AN ALTERNATIVE. The line above is an
     # either/or, and the comment three lines above it already describes
