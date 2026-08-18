@@ -1,3 +1,41 @@
+## [0.43.1] - the suite was red, and a version pin is why
+
+`test_both_adapters_use_the_one_rule` carried, under the comment "and the bump
+that makes the fix take effect":
+
+    assert LuxAdapter.adapter_version == "0.4.0"
+
+0.42.0 moved `LuxAdapter.adapter_version` to 0.5.0 for exactly the reason that
+assertion exists -- it folded the staged Godot driver into the fingerprint, so
+entries cached before the driver was visible had to retire. The assertion read
+the invalidation as a regression:
+
+    AssertionError: assert '0.5.0' == '0.4.0'
+
+A check written to protect a cache invalidation fired ON a cache invalidation.
+
+The intent was right; the expression was equality on a value that only goes up,
+which is true only until the next legitimate bump. Both assertions now compare
+version TUPLES with `>=`. A revert to 0.3.x -- the case the test was written
+for -- still fails. A bump does not.
+
+Only two such pins existed; both were in this file. `test_tool_revision_dirty`
+pins `tool_version == "0.88.0"` but that is a repository revision compared
+clean-against-dirty, which is the subject of the test rather than a version
+floor, and it is left alone.
+
+TWO PROCESS FAILURES, RECORDED BECAUSE NO CODE FIXES THEM
+
+0.42.0's `--selftest` runs the full suite and would have caught this. Its
+output was never read; the release was called green from the commit line alone
+-- the same shape as reading a git tag and concluding a commit had happened,
+which had already been corrected once the same day.
+
+0.43.0 was then committed with the suite red, because the commit ran in the
+same pasted block as the selftest that failed. A selftest whose result nobody
+waits for is a check that cannot fail, which is the defect class this release
+series has spent itself on.
+
 ## [0.43.0] - a per-object light cap, and a test that the two writers agree
 
 A package with 136 fixture lights blinks when you walk it. The compatibility

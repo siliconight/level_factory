@@ -20,6 +20,22 @@ from pathlib import Path
 from packages.core.hashing import scene_payload_hashes
 
 
+def _ver(s: str) -> tuple[int, ...]:
+    """A version as a comparable tuple.
+
+    The two adapter-version assertions below were written as EQUALITY --
+    `== "0.4.0"` -- to pin that a bump had happened and had not been
+    reverted. Equality on a number that only goes up is true until the
+    next legitimate bump, and on 2026-08-18 level_factory 0.42.0 moved
+    LuxAdapter to 0.5.0 for precisely the reason the assertion exists (it
+    folded the staged Godot driver into the fingerprint, so stale entries
+    had to retire). The suite went red on a correct change: a check
+    written to protect a cache invalidation fired ON a cache
+    invalidation.
+    """
+    return tuple(int(p) for p in s.split("."))
+
+
 def _scene(root: Path, payload=b"OLD"):
     (root / "art").mkdir(parents=True, exist_ok=True)
     scene = root / "site.tscn"
@@ -91,10 +107,14 @@ def test_both_adapters_use_the_one_rule():
     import adapters.lux as lux_mod
     assert lot_mod.scene_payload_hashes is scene_payload_hashes
     assert lux_mod.scene_payload_hashes is scene_payload_hashes
-    # and the bump that makes the fix take effect
-    assert LuxAdapter.adapter_version == "0.4.0"
+    # and the bump that makes the fix take effect. `>=`, not `==`: this
+    # pins that the bump HAPPENED, which a later bump also satisfies. A
+    # revert to 0.3.x still fails, which is the case it was written for.
+    assert _ver(LuxAdapter.adapter_version) >= (0, 4, 0), \
+        LuxAdapter.adapter_version
     # Lot 0.3.0 -> 0.4.0: the site's OUTPUT LAYOUT changed (buildings staged
     # under lot/<id>/, every ext_resource relative instead of res://C:/...), so
     # entries cached under the old rules had to retire rather than be served
     # alongside the new ones. See docs/WALKABLE_SITE.md.
-    assert LotAdapter.adapter_version == "0.4.0"
+    assert _ver(LotAdapter.adapter_version) >= (0, 4, 0), \
+        LotAdapter.adapter_version
