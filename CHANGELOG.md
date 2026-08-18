@@ -1,3 +1,53 @@
+## [0.43.0] - a per-object light cap, and a test that the two writers agree
+
+A package with 136 fixture lights blinks when you walk it. The compatibility
+renderer selects at most N lights per MESH and re-selects as geometry moves
+through range; a mesh over the cap drops lights.
+
+Measured on lot_demo_001, 2026-08-18, counting lights whose range reaches each
+mesh's bounding box:
+
+    building              meshes   >8   >16  >32  worst  worst mesh
+    mansion_a02              163   26    11    0     26  roof_footprint
+    pvp_station_ref          240   49    15    1     36  roof_footprint
+    large_warehouse_a01      117    3     1    0     17  roof_footprint
+    arena_a03                227   10     3    0     26  roof_footprint
+    strip_club_a03           173   23     9    0     25  roof_footprint
+    across all five          920  111    39    1
+
+Every offender is a building-wide roof or floor/ceiling plate 34-52 m across,
+competing for the same slots as a 2 m wall segment. When one loses, a whole
+room goes dark at once -- which is what a human reported before any of this was
+measured: "lights still blink a bit, or just turn off in certain rooms".
+
+Confirmed in the walk preview, in this order: heavy blinking at the engine
+default of 8; mostly gone at 32, with certain rooms still dropping -- which is
+the single mesh at 36; none at all under forward_plus. The response tracks the
+NUMBER, not just the renderer, and that is what pins the mechanism. A renderer
+difference alone would not have improved at 32.
+
+`max_lights_per_object=64` clears the measured worst case with headroom and
+keeps `gl_compatibility`, which is the property the portable profile exists
+for. IT IS A MITIGATION AND THE CHANGELOG SHOULD SAY SO: the fix is that one
+mesh should not span a building, and that is roadmap 54.
+
+THE SECOND HALF, WHICH IS THE MORE IMPORTANT ONE
+
+`walk_preview._PROJECT` already carried this, in a comment:
+
+    ; Verbatim from export.py::_write_project_godot, and it must stay verbatim
+    ; Two projects disagreeing about what a complete project.godot contains is
+    ; how a human signs off lighting that was missing a rig.
+
+An invariant asserted in prose with nothing enforcing it -- in a file whose own
+history records it being broken: on 2026-08-12 the preview lacked the debug
+block and `lux_area_light_rig.gd:61` failed to parse in a walk of the same
+package whose portability test had scored `parser_error_count 0`.
+
+So the cap lands in BOTH writers, and `tests/unit/test_project_godot_agreement.py`
+asserts that every setting the exporter writes under `[rendering]` and
+`[debug]` also appears in the preview. The comment stops being a promise.
+
 ## [0.42.0] - the Lux stage never hashed the program it runs
 
 0.41.0 rewrote `assets/godot/run_lux_apply.gd`. The next run would have
