@@ -1,23 +1,28 @@
-"""The two project.godot writers must not drift, and the light cap must be earned.
+"""Both light caps are derived from the package, and neither is a round number.
 
-`walk_preview._PROJECT` says it itself -- "Verbatim from
-export.py::_write_project_godot, and it must stay verbatim" -- and then gives
-the cost: "Two projects disagreeing about what a complete project.godot
-contains is how a human signs off lighting that was missing a rig." On
-2026-08-12 that is what happened. 0.43.2 removed the possibility by giving both
-writers one shared `rendering_block`; these tests hold the rest of the promise.
+`walk_preview._PROJECT` says the two project.godot writers "must stay verbatim"
+and gives the cost of drift: "Two projects disagreeing about what a complete
+project.godot contains is how a human signs off lighting that was missing a
+rig." 0.43.2 removed the possibility by giving both one shared `rendering_block`;
+these tests hold the rest.
+
+The caps have been wrong in both directions inside one day -- 0.43.0 wrote the
+per-object cap for the wrong reason, 0.43.2 removed it for a reason that only
+covered half the symptoms -- so each property below is pinned rather than left
+to a comment.
 
 Run:  python -m pytest tests/unit/test_project_godot_agreement.py
 """
 import pytest
 
-from packages.core.godot_project import (ENGINE_DEFAULT_RENDERABLE_LIGHTS,
+from packages.core.godot_project import (ENGINE_DEFAULT_LIGHTS_PER_OBJECT,
+                                         ENGINE_DEFAULT_RENDERABLE_LIGHTS,
+                                         PER_OBJECT_CEILING,
                                          count_package_lights, rendering_block)
 from packages.exporting.export import _write_project_godot
 from packages.preview.walk_preview import _PROJECT
 
-_SCENE = ('[gd_scene format=3]\n'
-          '[node name="R" type="Node3D"]\n')
+_SCENE = '[gd_scene format=3]\n[node name="R" type="Node3D"]\n'
 _LIGHT = '[node name="L{i}" type="OmniLight3D" parent="."]\n'
 
 
@@ -55,7 +60,7 @@ def _preview(tmp_path, lights):
                            rendering=rendering_block(count_package_lights(tmp_path)))
 
 
-# --- the count is real, not assumed --------------------------------------
+# --- the count is real -----------------------------------------------------
 
 def test_the_counter_sees_lights_in_the_package(tmp_path):
     _package(tmp_path, 7)
@@ -67,41 +72,56 @@ def test_the_counter_is_zero_on_an_unlit_package(tmp_path):
     assert count_package_lights(tmp_path) == 0
 
 
-# --- the cap is derived, and only when it is needed -----------------------
+# --- nothing is written until it is earned --------------------------------
 
 def test_an_unlit_package_carries_no_cap_at_all(tmp_path):
-    """An export with no lights must not pay for a rendering override."""
     t = _exported(tmp_path, 0)
     assert "max_renderable_lights" not in t
+    assert "max_lights_per_object" not in t
 
 
-def test_a_package_at_the_engine_default_carries_no_cap(tmp_path):
-    t = _exported(tmp_path, ENGINE_DEFAULT_RENDERABLE_LIGHTS)
+def test_a_small_package_carries_neither_cap(tmp_path):
+    """8 lights cannot exceed either engine default, so it pays nothing."""
+    t = _exported(tmp_path, ENGINE_DEFAULT_LIGHTS_PER_OBJECT)
     assert "max_renderable_lights" not in t
+    assert "max_lights_per_object" not in t
 
 
-def test_a_package_over_the_default_caps_at_its_own_light_count(tmp_path):
-    """Exact, not rounded: the package cannot render more lights than it has,
-    so its own count is sufficient by construction and costs nothing extra."""
+# --- the global cap is the package's own count ----------------------------
+
+def test_the_global_cap_is_the_exact_light_count(tmp_path):
     n = ENGINE_DEFAULT_RENDERABLE_LIGHTS + 9
     v = _settings(_exported(tmp_path, n), "rendering")["limits/opengl/max_renderable_lights"]
     assert int(v) == n
 
 
-# --- the expensive cap stays gone ----------------------------------------
+# --- the per-object cap is bounded BOTH ways ------------------------------
 
-@pytest.mark.parametrize("lights", [0, 40, 200])
-def test_the_per_object_cap_is_never_written(tmp_path, lights):
-    """Measured 2026-08-18: per-object 64 with the global cap at its default
-    still blinked, and the default per-object with the global cap raised was
-    clean AND had less first-load stutter. That value sizes the shader light
-    loop for every object; writing it costs frame time for no measured gain."""
-    assert "max_lights_per_object" not in _exported(tmp_path, lights)
+def test_the_per_object_cap_is_bounded_by_the_measured_ceiling(tmp_path):
+    """A 136-light package gets the ceiling, not 136: the value sizes the
+    shader light loop for every object, so it must not track the count up."""
+    v = _settings(_exported(tmp_path, 136), "rendering")["limits/opengl/max_lights_per_object"]
+    assert int(v) == PER_OBJECT_CEILING
 
 
-# --- and the two writers still agree -------------------------------------
+def test_the_per_object_cap_is_bounded_by_the_package_too(tmp_path):
+    """A 20-light package cannot put more than 20 on one mesh, so it gets 20
+    rather than paying for the ceiling."""
+    n = 20
+    assert n < PER_OBJECT_CEILING
+    v = _settings(_exported(tmp_path, n), "rendering")["limits/opengl/max_lights_per_object"]
+    assert int(v) == n
 
-@pytest.mark.parametrize("lights", [0, 40])
+
+def test_the_ceiling_covers_the_worst_measured_mesh():
+    """36 lights on pvp_station_ref's roof, measured 2026-08-18. If this
+    ceiling ever drops below that, the seam this cap exists for comes back."""
+    assert PER_OBJECT_CEILING >= 36
+
+
+# --- and the two writers still agree --------------------------------------
+
+@pytest.mark.parametrize("lights", [0, 40, 136])
 @pytest.mark.parametrize("section", ["rendering", "debug"])
 def test_every_exported_setting_appears_in_the_preview(section, lights, tmp_path):
     e = _settings(_exported(tmp_path, lights), section)
@@ -121,7 +141,7 @@ def test_no_setting_is_written_twice(which, tmp_path):
     """`_settings` returns a dict, so a duplicated line is invisible to every
     other test here. 0.43.0's first draft emitted its cap twice and the suite
     stayed green. Read the LINES."""
-    text = _exported(tmp_path, 40) if which == "exported" else _preview(tmp_path, 40)
+    text = _exported(tmp_path, 136) if which == "exported" else _preview(tmp_path, 136)
     keys = [l.split("=", 1)[0].strip() for l in text.splitlines()
             if "=" in l and not l.strip().startswith((";", "["))]
     dupes = sorted({k for k in keys if keys.count(k) > 1})
@@ -129,7 +149,7 @@ def test_no_setting_is_written_twice(which, tmp_path):
 
 
 def test_the_package_stays_plugin_free_and_autoload_free(tmp_path):
-    t = _exported(tmp_path, 40)
+    t = _exported(tmp_path, 136)
     assert "[autoload]" not in t
     assert "[editor_plugins]" not in t
     assert "enabled=" not in t

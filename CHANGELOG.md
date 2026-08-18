@@ -1,3 +1,44 @@
+## [0.43.3] - the per-object cap is needed after all, and 40 is why
+
+0.43.2 removed `limits/opengl/max_lights_per_object` on the grounds that it
+"was never the binding constraint". True of the symptom that had been tested --
+blinking -- and false of the one that had not. Standing still in an interior,
+adjacent floor slabs each select their own lights and meet at a HARD BRIGHTNESS
+STEP. Same limit, no camera motion, and it would have shipped.
+
+Measured in the walk preview, one room, three runs:
+
+    per-object  8 (engine default)   a hard cut across the floor
+    per-object 64                    seam gone, no blinking
+    per-object 40                    seam gone, no blinking
+
+40 rather than 64 because that value sizes the shader light loop for EVERY
+object, so the smallest sufficient number is the correct one -- and 40 is the
+smallest the data supports. The worst mesh measured across lot_demo_001's five
+buildings sees 36 lights (`pvp_station_ref`'s roof).
+
+BOTH CAPS ARE NOW DERIVED FROM THE PACKAGE
+
+    max_renderable_lights  = light count
+    max_lights_per_object  = min(light count, 40)
+
+The second bound matters: a 20-light package cannot put more than 20 lights on
+one mesh, so it gets 20 rather than paying for the ceiling. Below the engine
+defaults -- 32 and 8 -- neither line is written and an unlit package carries no
+rendering override at all.
+
+THE SEAM IS EVIDENCE FOR ROADMAP 54, NOT AGAINST IT
+
+It exists because one floor mesh spans a whole room. Room-sized meshes would
+each sit inside the engine default and need no cap. This release ships a
+mitigation with a stated cost; the geometry is still the fix.
+
+THE PROCESS NOTE. Three releases in a row set this cap on an unisolated
+mechanism -- 0.43.0 wrote it for blinking (wrong), 0.43.2 removed it having
+tested only blinking (wrong the other way), 0.43.3 tested both symptoms
+separately. The tests now pin each property rather than leaving it to a
+comment, because a comment is what was wrong twice.
+
 ## [0.43.2] - one derived light cap, and the expensive one removed
 
 0.43.0 wrote `limits/opengl/max_lights_per_object=64` and named it as the
