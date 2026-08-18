@@ -124,6 +124,40 @@ Not "it opens". These, in order:
 - **A varied lot is currently UNLIT** regardless: `lux_apply` lights
   `presentation/site.tscn`, the mission shell, which a varied lot does not
   place. See `RENDER_PASS_SPLIT.md` and `VARIED_THEMED_LOT.md`.
+  **SUPERSEDED 2026-08-17, and left standing rather than deleted.** That was
+  true before `themed_site_assemble` existed. `commands/__init__.py:637-653`
+  now picks the assembled SITE whenever that job is planned, and only falls
+  back to the composer's root when it is not:
+
+  ```python
+  themed_job = _dep(job, "themed_site_assemble")
+  if themed_job:
+      composed_scene = _latest_output(jobs_dir / themed_job, "site.tscn")
+  elif compose_job:
+      composed_scene = _latest_output(jobs_dir / compose_job,
+                                      "presentation/site.tscn")
+  ```
+
+  The branch carries the comment naming this exact defect as already fixed:
+  *"Lighting the composed building instead put one LuxRoot over one building
+  and called it a level (roadmap 29/34)."* The adapter hardcodes nothing --
+  `adapters/lux/__init__.py:53` reads `job_spec["composed_scene"]` -- so the
+  scene targeting was never Lux's to get wrong.
+
+  WHAT IS STILL UNMEASURED, and it is now one step rather than a question:
+  the assembly INSTANCES the composed buildings, and whether a LuxRoot over
+  the assembly survives to a frame inside them is a render-time question.
+  Measured 2026-08-17 on `lot_demo_001`, five buildings, exported both modes:
+  `presentation/lux.applied.tscn` ships at 141,265 B and
+  `presentation/lux.quality.json` reads `{"applied": true, "fixture_lights":
+  136, "fixture_msg": "Spawned 136 fixture light(s) from 136 marker(s)",
+  "preset": "Blue Hour"}`. So `lux_apply` reaches the assembly's markers on a
+  varied lot -- which is what the bullet above denied. What it does NOT
+  establish is rendering: Lux's own note is *"previews need a render
+  context"*, and a spawn count is not a render count. That is precisely the
+  pair four bullets up -- 152 reported against `OmniLight3D 0` running.
+  Answering it needs the package opened in a clean Godot project with a
+  render context; no export answers it.
 - **Do not let a missing archetype scene fall back silently.** The varied lot
   already did this once: five composes wrote correct scenes, an `.is_file()`
   probe ran before they existed, and the site placed the mission shell five
