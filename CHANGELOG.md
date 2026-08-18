@@ -1,3 +1,59 @@
+## [0.41.0] - the applied preset is read off Lux, not echoed from the request
+
+`lux.quality.json["preset"]` was the `--preset` argument written straight back
+out:
+
+    var quality := {"preset": preset_name, ...}
+
+Roadmap item 53 ranked FIRST a comparison of that field against Level
+Factory's `_preset_for(model)`, and its status line said the file "already
+echoes the applied preset back". It echoed the REQUEST. The two strings are
+the same string; the check could not fail. That is a check that cannot fail,
+proposed inside an item about checks that cannot fail, and it was caught by
+reading `run_lux_apply.gd` rather than by running it.
+
+WHAT LUX ACTUALLY OFFERS
+
+`LuxRoot.get_current_preset()` returns `_current`, assigned in exactly one
+place -- `_apply_immediate`, from the library resource. Reading it back after
+the blend also covers the failure the driver's existing library-dictionary
+check cannot see:
+
+    func apply_preset(preset, blend_time = 0.0) -> void:
+        if not _initialized:
+            active_preset = preset      # and applies NOTHING
+            return
+
+The name is in the library, so `preset_known` is true, so no issue is raised,
+and the level ships with no look. The dictionary says the preset exists; only
+LuxRoot says it arrived.
+
+THE CHANGES
+
+    lux.quality.json   "preset"          the REQUEST, unchanged meaning
+                       "preset_applied"  NEW -- LuxRoot.get_current_preset()
+
+    lux.validation.json  LUX_PRESET_NOT_APPLIED (moderate) when the name
+                         resolved and the look still did not land
+
+No Python changed. The driver already writes findings to
+`lux.validation.json` and the Lux adapter's `normalize_validation` already
+passes arbitrary codes through, so the new finding reaches the findings
+channel without touching the adapter.
+
+Third edit, same file, same shape of defect: `ResourceSaver.save(...)`'s
+return was discarded and `applied_ok` tracked only `pack()`, so a save that
+failed reported `applied: true` for a scene never written.
+
+`tests/unit/test_lux_preset_readback.py` is a SOURCE-SHAPE test and says so
+in its own docstring: applying a preset needs a Godot process and unit CI has
+no headless-Godot harness. It cannot prove the driver works. It pins the one
+regression that would restore the tautology without changing an output key --
+re-pointing `preset_applied` at `preset_name`.
+
+Roadmap item 53, first ranked fix. The item's premise is corrected in place
+rather than quietly dropped.
+
 ## [0.40.0] - one resource manifest per package, and it is the current one
 
 A package shipped two. `resource_manifest.json` is

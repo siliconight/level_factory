@@ -84,6 +84,30 @@ func _initialize() -> void:
 		lux.blend_to_preset(StringName(preset_name), 0.0)
 	await process_frame
 
+	# WHAT LUX HAS, NOT WHAT IT WAS ASKED FOR.
+	#
+	# `_current` is assigned in exactly one place -- `_apply_immediate`,
+	# from the library resource -- so this string cannot be the argument
+	# arriving back round. The quality record's `preset` field always was
+	# that argument, which made comparing it against Level Factory's
+	# `_preset_for` a comparison of a string with itself.
+	#
+	# It also covers what the dictionary check above cannot. `apply_preset`
+	# RETURNS EARLY when `_initialized` is false, assigning active_preset
+	# and applying nothing. The name is in the library, so the request looks
+	# honoured, no issue is raised, and the level ships with no look. The
+	# dictionary says the preset exists; only LuxRoot says it arrived.
+	#
+	# `get`/`has_method` rather than a typed call: `lux` is a Node here and
+	# LuxRoot's script is loaded BY PATH, so the class type does not exist
+	# to the compiler. This is the same idiom the lines above already use
+	# for `_preset_library` and `active_preset`.
+	var reported := ""
+	if lux.has_method("get_current_preset"):
+		var cur: Object = lux.get_current_preset()
+		if cur != null:
+			reported = String(cur.get("preset_name"))
+
 	# Spawn the fixture lights Zoo already marked.
 	#
 	# Zoo exports one `LuxEmit_<type>` empty per lamp at the emitter point and
@@ -123,9 +147,18 @@ func _initialize() -> void:
 	if applied.pack(scene) != OK:
 		applied_ok = false
 	DirAccess.make_dir_recursive_absolute(out_dir)
-	ResourceSaver.save(applied, out_dir + "/lux.applied.tscn")
+	# The return was discarded. `applied_ok` tracked only pack(), so a save
+	# that failed -- read-only dir, bad path, no space -- reported
+	# `applied: true` for a scene that was never written.
+	if ResourceSaver.save(applied, out_dir + "/lux.applied.tscn") != OK:
+		applied_ok = false
 
-	var quality := {"preset": preset_name, "applied": applied_ok,
+	# `preset` stays the REQUEST, unchanged, because that is what it has
+	# always meant and nothing should have to guess which release it is
+	# reading. `preset_applied` is the new one and is the one worth
+	# comparing against anything.
+	var quality := {"preset": preset_name, "preset_applied": reported,
+		"applied": applied_ok,
 		"driver": "run_lux_apply", "note": "previews need a render context",
 		"fixture_lights": fixture_count, "fixture_msg": fixture_msg}
 	_write_json(out_dir + "/lux.quality.json", quality)
@@ -134,6 +167,13 @@ func _initialize() -> void:
 		issues.append({"code": "LUX_PRESET_UNKNOWN", "severity": "moderate",
 			"category": "presentation",
 			"message": "preset '%s' is not in the registered library; look not applied" % preset_name})
+	elif not preset_name.is_empty() and reported != String(preset_name):
+		# The name resolved and the look still did not land. Moderate, not
+		# blocker: a level with the wrong look is shippable and a level that
+		# nobody was told about is not.
+		issues.append({"code": "LUX_PRESET_NOT_APPLIED", "severity": "moderate",
+			"category": "presentation",
+			"message": "requested preset '%s' but LuxRoot reports '%s'" % [preset_name, reported]})
 	# A night level with zero fixture lights is the defect this stage exists to
 	# prevent, and it is invisible in a screenshot because emissive materials
 	# still glow. Report the number rather than leaving it to somebody walking
@@ -144,7 +184,7 @@ func _initialize() -> void:
 			"message": "no fixture lights spawned (%s); fixtures will glow but emit nothing" % fixture_msg})
 	_write_json(out_dir + "/lux.validation.json", {"issues": issues})
 
-	print("[lux] applied preset '%s' -> %s" % [preset_name, out_dir])
+	print("[lux] requested '%s' applied '%s' -> %s" % [preset_name, reported, out_dir])
 	quit(0 if applied_ok else 1)
 
 func _write_json(path: String, data: Dictionary) -> void:
