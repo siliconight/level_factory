@@ -33,6 +33,9 @@ import re
 import shutil
 from pathlib import Path
 
+from packages.core.godot_project import (count_package_lights,
+                                          rendering_block)
+
 # Marker groups worth spawning the player at, best first. These are the groups
 # portable_building bakes onto the marker nodes (``groups=["<type>", ...]``).
 # Extraction/objective/loot are ground-level gameplay points -- fine spawns
@@ -65,25 +68,7 @@ config/features=PackedStringArray("4.7")
 config/name="{name} (walk preview)"
 run/main_scene="res://walk.tscn"
 
-[rendering]
-renderer/rendering_method="gl_compatibility"
-; PER-OBJECT LIGHT CAP. The compatibility renderer selects at most N
-; lights per MESH and re-selects as geometry moves through range, so a
-; mesh over the cap drops lights and appears to blink. Measured on
-; lot_demo_001, 2026-08-18, 136 fixture lights over five buildings: 111
-; of 920 meshes exceed the engine default of 8, 39 exceed 16, and exactly
-; one -- pvp_station_ref's roof -- exceeds 32, at 36. Every offender is a
-; building-wide roof or floor/ceiling plate 34-52 m across, competing for
-; the same slots as a 2 m wall segment; when one loses, a whole room goes
-; dark at once. Confirmed in the walk preview: heavy blinking at the
-; default, mostly gone at 32 with certain rooms still dropping, none under
-; forward_plus -- the response tracks the NUMBER, which is what pins it.
-; 64 clears the measured worst case and keeps gl_compatibility, which is
-; the property this profile exists for. IT IS A MITIGATION. The fix is
-; that one mesh should not span a building -- roadmap 54.
-limits/opengl/max_lights_per_object=64
-
-[debug]
+{rendering}[debug]
 ; Verbatim from export.py::_write_project_godot, and it must stay verbatim:
 ; localized tool scripts are strict-clean under their home projects' warning
 ; config, while engine DEFAULTS escalate inference-on-Variant to a load-killing
@@ -392,7 +377,9 @@ def build_walk_preview(content_dir, player_src, dest, *, name="level"):
 
     # 5. the preview project (main scene = walk.tscn).
     (dest / "project.godot").write_text(
-        _PROJECT.format(name=name, level=level), encoding="utf-8")
+        _PROJECT.format(name=name, level=level,
+                        rendering=rendering_block(
+                            count_package_lights(dest))), encoding="utf-8")
 
     # 6. WHAT THIS WAS BUILT FROM. `walk` rmtree's and rebuilds, so a preview
     # is current at the moment it is made -- and nothing recorded that, so

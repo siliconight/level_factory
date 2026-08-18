@@ -1,3 +1,46 @@
+## [0.43.2] - one derived light cap, and the expensive one removed
+
+0.43.0 wrote `limits/opengl/max_lights_per_object=64` and named it as the
+mechanism. It was not. Measured on hardware, in this order:
+
+    per-object 64, global 32 (default)   still blinks, areas stay dark
+    per-object  8 (default), global 256  clean, and first-load stutter SMALLER
+
+GL Compatibility carries two separate light limits, and the binding one is
+`rendering/limits/opengl/max_renderable_lights` -- a GLOBAL budget, engine
+default 32, against a package shipping 136 lights. Most of them were never
+drawn at all, which is why whole areas stayed dark permanently rather than
+flickering. Asked directly, the engine confirmed both names and both values:
+
+    max_renderable_lights   exists=true  value=32
+    max_lights_per_object   exists=true  value=64
+
+So 0.43.0's line took effect and did nothing useful. Corrected in place rather
+than quietly rewritten.
+
+REMOVING THE PER-OBJECT CAP IS A PERFORMANCE CHANGE. In GL Compatibility that
+value sizes the light loop in the shader for EVERY object, multiplying variants
+and per-fragment work. Dropping it measurably improved first-load stutter,
+reported from the walk. This layer has to stay cheap while the game grows into
+it, and it was carrying a cost for a mechanism that had never been isolated.
+
+THE REMAINING CAP IS DERIVED
+
+`count_package_lights` globs the scenes the exporter just wrote -- the same
+"glob it, do not reason about it" approach `closure.py` takes -- and the cap is
+set to that count. A package cannot render more lights than it contains, so its
+own total is a true upper bound: sufficient by construction, with no headroom
+to pay for. At or below the engine default of 32, no cap line is written at
+all and an unlit export pays nothing.
+
+ONE RULE, TWO IMPORTERS
+
+`packages/core/godot_project.py` holds `rendering_block`, and `export.py` and
+`walk_preview.py` both call it. Two hand-kept copies is exactly how the
+preview's own comment says lighting gets signed off missing a rig, and 0.43.0
+had left them as two copies that a test compared. Now there is one, and the
+test checks the properties instead of the coincidence.
+
 ## [0.43.1] - the suite was red, and a version pin is why
 
 `test_both_adapters_use_the_one_rule` carried, under the comment "and the bump
