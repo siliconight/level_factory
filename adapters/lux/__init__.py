@@ -32,7 +32,16 @@ class LuxAdapter(BaseAdapter):
     # so a rebuilt dressing pass left the scene byte-identical, the fingerprint
     # matched, and the SHIPPED LIT SCENE kept the previous art -- for the whole
     # of 2026-08-04, behind six fixes that all re-ran above it.
-    adapter_version = "0.4.0"
+    # 0.5.0 folds the STAGED DRIVER into the fingerprint. Until it did,
+    # this stage hashed its inputs and not the program that reads them:
+    # `probe` reports LUX's repository commit, both drivers live in
+    # level_factory/assets/godot/, and so an edit to either one moved no
+    # component of the cache key. 0.41.0 rewrote run_lux_apply.gd and the
+    # very next run would have cache-hit the artifact the OLD driver
+    # produced -- and reported success. Bumping this constant is also
+    # what invalidates every existing Lux entry once, so 0.41.0 gets an
+    # execution to be measured on.
+    adapter_version = "0.5.0"
     capabilities = frozenset(
         {"apply_preset", "apply_roles", "level_override", "validate_scene",
          "preview_states", "quality_tiers", "fixture_gate"}
@@ -69,6 +78,17 @@ class LuxAdapter(BaseAdapter):
             "overrides": job_spec.get("overrides", {}),
             "preview_states": sorted(job_spec.get("preview_states", [])),
         }
+        # THE DRIVER IS AN INPUT, and it is hashed HERE -- above the
+        # fixture-gate branch -- so that one statement covers both modes.
+        # `lux_apply` stages run_lux_apply.gd and `lux_fixture_gate`
+        # stages run_fixture_gate.gd, both under the same `driver_src`
+        # key, and neither was visible to the cache. This is the same
+        # shape as the fault adapter_version 0.4.0 was cut for, one level
+        # further out: that one hashed the scene and not the art the
+        # scene names.
+        driver = job_spec.get("driver_src")
+        if driver and Path(str(driver)).exists():
+            fp["driver_src_hash"] = hash_file(Path(str(driver)))
         if job_spec.get("mode") == "fixture_gate":
             fdir = job_spec.get("fixtures_dir")
             if fdir and Path(str(fdir)).exists():

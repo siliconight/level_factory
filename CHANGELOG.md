@@ -1,3 +1,53 @@
+## [0.42.0] - the Lux stage never hashed the program it runs
+
+0.41.0 rewrote `assets/godot/run_lux_apply.gd`. The next run would have
+CACHE-HIT, never executed it, kept the old `lux.quality.json`, and reported
+success. The evidence run for 0.41.0 would have produced no evidence.
+
+WHY, from `scheduler.py:414-437` rather than from assumption. The cache key is
+`BuildFingerprint.digest()` over twelve components, and this change moves none
+of them:
+
+    adapter_id / adapter_version / schema_versions   unchanged
+    tool_version / repository_commit                 LUX's repository --
+                                                     `probe` reads
+                                                     installation["repository"]
+    normalized_arguments                             --scene/--preset/--out
+    input_hashes                                     the scene, the lights
+                                                     json, the scene's art
+                                                     payload. Not the driver.
+    everything else                                  unchanged
+
+`tool_version` even carries a `+dirty.<hash>` suffix for uncommitted tool
+edits, added because "an on-disk fix that has not been committed keeps
+cache-hitting the pre-fix artifact". It tracks the Lux repository. This driver
+is not in it.
+
+This is the fault `adapter_version = "0.4.0"` was cut for, one level further
+out. That one hashed the scene's bytes and not the art the scene names. This
+one hashes the inputs and not the program that reads them.
+
+WHY ONLY THIS ADAPTER
+
+Lux is the only tool whose driver Level Factory ships. Laser Tag runs
+`res://addons/laser_tag_tool/runners/run_map_eval.gd` out of its own
+repository, so `repository_commit` covers it. `lot` and `walktest` fold `.gd`
+files into their own input scans. Only the Lux adapter copies a GDScript out
+of `level_factory/assets/godot/` while reporting a different repository's
+commit -- and it does so in BOTH modes, under the same `driver_src` key.
+
+THE FIX
+
+`driver_src` is hashed in `fingerprint_inputs` ABOVE the fixture-gate branch,
+so one statement covers `lux_apply` and `lux_fixture_gate`. `adapter_version`
+goes to 0.5.0, which invalidates every existing Lux cache entry exactly once
+-- which is what gives 0.41.0 an execution to be measured on.
+
+`tests/unit/test_lux_driver_in_fingerprint.py` is a BEHAVIOURAL test, not a
+source-shape one: it calls `fingerprint_inputs`, edits the driver on disk, and
+asserts the fingerprint moved -- in both modes, and asserts the rest of the
+fingerprint did not move with it.
+
 ## [0.41.0] - the applied preset is read off Lux, not echoed from the request
 
 `lux.quality.json["preset"]` was the `--preset` argument written straight back
