@@ -1,3 +1,189 @@
+## [0.46.0] - the MultiMesh buffer was transposed
+
+`tools/dressing_ab.ps1` loaded both dressing scenes in a real Godot window and
+compared transform against transform on the coldrun_pawn_job plan. **4372 of
+4374 instances disagreed.** The 2 that agreed were at zero yaw.
+
+### Fixed
+- **`multimesh_floats()` packed the basis transposed.** It read
+  `godot_transform`'s three tuples as basis COLUMNS and interleaved them into
+  rows. They are ROWS -- `lot.py:_godot_transform` says so in its own comment,
+  and Godot reads the `.tscn` `Transform3D(...)` literal and the MultiMesh
+  buffer with the SAME row-major ordering. The two forms differ only in where
+  the origin sits: appended at the end in the literal, every fourth float in
+  the buffer.
+
+  For a pure yaw a transpose is the inverse rotation, so nothing crashed and
+  nothing looked broken -- every dressed object simply faced the mirrored way,
+  in a scatter layer where no one direction is expected. Instance 0 read back
+  from the engine as `X: (1.31838, 0, 0.007699)` where the node scene had
+  `X: (1.31838, 0, -0.007699)`: the transpose exactly, origins identical.
+
+  **Any `_dressing.tscn` written by 0.45.0 is wrong and must be regenerated.**
+  `mode="nodes"` was correct throughout -- it emits Lot's ordering, which has
+  shipped on hardware.
+
+### Changed
+- **`bx, by, bz` -> `r0, r1, r2` throughout the module.** The name was the
+  defect. A reader who takes a row for a basis vector transposes the matrix,
+  and for a pure yaw a transpose IS the negation the docstrings kept warning
+  about -- so the rule and the mistake are spelled the same way and cancel out
+  in your head. The docstrings now carry the checkable form instead, which is a
+  column: site +X under yaw r lands on Godot (cos r, 0, -sin r), and basis
+  column 0 is (row0[0], row1[0], row2[0]). Callers pass positionally, so
+  nothing outside the module moves.
+
+### Tests
+- `test_site_plus_x_lands_where_the_axis_map_says` (yaw 0.7),
+  `test_the_buffer_is_not_the_transpose_of_itself` (yaw 0.6, on the two
+  off-diagonals, which swap under a transpose), and
+  `test_the_buffer_and_the_literal_describe_the_same_transform` (yaw 0.9,
+  position by position).
+- `test_both_modes_place_things_in_the_same_spot` now asserts the twelve floats
+  as one ORDERED substring. Asserting each value appears somewhere in the text
+  is order-blind, and order was the whole defect.
+
+### Notes
+- **Why the old tests were all green against the bug.** Three of the four
+  buffer tests used a yaw of zero, where the identity basis is symmetric and a
+  transpose changes nothing. The fourth used a real yaw and compared
+  `sorted(floats)` to `sorted(from_literal)` -- its docstring believed the two
+  orderings genuinely differed, so only the multiset of values could be
+  compared. A transpose is a permutation; no multiset comparison can detect
+  one. The original 23-test file passes, all green, against the transposed
+  module AND the fixed one. It was not a weak suite. It was a suite that could
+  not express the property under test.
+- **The first A/B run was invalid and said the same thing.** It ran
+  `--headless`, where MultiMesh transforms read back as exact identity because
+  `RendererDummy` stores none -- so it also reported every instance
+  disagreeing, for a reason that had nothing to do with the layout. The
+  harness now runs windowed and carries an `AB INVALID` branch (exit 3) that
+  separates "the experiment did not run" from "the thing under test failed".
+  A verdict and a broken instrument are not the same finding.
+- **What this does not settle.** How a `.glb` becomes an addressable Mesh is
+  still supplied by the caller; this module still refuses to invent a path.
+  One run, one plan, one machine (Godot 4.7.stable, Vulkan, RTX 2060).
+
+## [0.45.0] - the dressing manifest becomes a scene
+
+The last stage of the Layer 3 chain. Lot said where dressing may go, Patina
+decided what goes where, and this turns that decision into something the
+engine loads.
+
+### Added
+- **`packages/exporting/dressing_scene.py`** -- a `surface-dressing/1`
+  manifest as a Godot scene of `MultiMeshInstance3D` nodes, one per asset.
+
+  Run on the real coldrun_pawn_job plan: **3,948 instances of 4 meshes -> 4
+  draw calls**, a 326 KB scene. The same manifest as one node per placement is
+  3,948 draw calls and 888 KB, which is the load hitch this layer was told not
+  to cause.
+
+  It writes `<site>_dressing.tscn` as a SEPARATE scene the site instances. The
+  site scene is the functional shell and the shell is locked; a dressing pass
+  that edits it has broken the one promise the layer makes, whatever the
+  geometry does.
+
+  Both gates are re-checked here, at the last stage, deliberately -- a
+  manifest is data and data travels, so the gate that matters is the one
+  standing where the geometry is about to become real. A collider in the
+  manifest, a Y-up manifest, or a placement over `unassisted_step_max` in
+  traversed space all refuse to write rather than writing something wrong.
+
+- **`tests/test_dressing_scene.py`** -- 23 tests.
+
+### Notes
+- **The coordinate conversion is transcribed from `lot.py:_godot_transform`,
+  not re-derived.** Site XY -> Godot XZ, site Z -> Godot Y, origin
+  (x, y, z) -> (x, z, -y), and yaw about site Z becomes yaw about Godot Y
+  NEGATED -- the handedness flip that comes with the axis swap. That negation
+  is the whole game and it is not obvious; re-deriving it would have given
+  this repo two answers to a question it already answered once. The tests pin
+  it at yaw 0 and yaw 90, where the answer is known by inspection.
+- **Two things this module cannot verify without Godot, and says so.** The
+  MultiMesh buffer layout is isolated in one function with one test, so if the
+  engine disagrees that function changes and nothing else does; and
+  `mode="nodes"` emits the same transforms as ordinary `MeshInstance3D` nodes
+  using the `Transform3D` string Lot already ships on hardware, as an A/B
+  reference for the editor. How a mesh resource is addressed (`.tres`, `.res`,
+  or a `glb::SubResource` path) depends on import settings, so the caller
+  supplies the path per asset and an asset without one is an ERROR -- a
+  dressing layer missing a species is not a smaller layer.
+- Negative zero is normalised out of the emitted text. `-sin(0)` is -0.0 and
+  `%g` renders it `-0`; Godot reads it fine, but a sign on a zero is not
+  information and it makes two scenes that place things identically differ as
+  text, which is how a rebuild is checked.
+
+## [0.44.0] - the Layer 3 chain becomes three jobs
+
+`docs/SURFACE_DRESSING.md` section 2 has three tools in sequence, and none of
+them were pipeline steps. Now each is a job that produces what the next
+consumes:
+
+    zoo    --measure_shapes        -> <name>.metrics.json
+    lot    (site_surfaces CLI)     -> surfaces.json
+    patina --mode surface_dressing -> <site>.surface_dressing.json
+
+### Changed
+- **`ZooAdapter` 0.3.0 -> 0.4.0**, capability `measure_shapes`. A build job
+  can now measure the GLBs it just built, with `tools/shape_metrics.py`, as a
+  second plain-Python command. Measuring your own output belongs with the
+  build: it lands in the same artifact set and is fingerprinted for free.
+
+  `shape_metrics.py` is a FACTORY-level tool and reaching it is a path walk up
+  from the adapter's own location, which is a silent failure waiting to
+  happen. `validate_configuration` checks the tool is actually there, so a
+  layout change is a configuration error someone reads rather than a
+  measurement that quietly stopped happening. The tool's own SOURCE is in the
+  fingerprint too -- a change to how a footprint is computed changes the
+  catalogue the dressing planner is built from with every other input
+  byte-identical, which is the executes-a-sub-tool problem
+  `test_presentation_fingerprint` documents, one stage over.
+
+- **`PatinaAdapter` 0.3.0 -> 0.4.0**, capability `surface_dressing`. A new
+  mode plans `-m patina.surface_dressing` instead of `-m patina.cli`. It takes
+  no `input_glb` -- Layer 3 dresses an assembled SITE, not a shell -- and
+  requires `source`, the scene the plan was made against, because a plan
+  applied to a different assembly is a different plan. `--audit` is always
+  passed, so an illegal plan fails the JOB rather than travelling downstream
+  to be discovered by a level that does not walk right.
+
+  Both version bumps are load-bearing for the same reason 0.3.0's note gives:
+  the commands an adapter plans are not otherwise in the fingerprint, so
+  without them every existing entry cache-hits and the new artifacts are never
+  produced.
+
+- **`tools/shape_metrics.py` 0.3.0 -> 0.3.1** gains `--out`. A
+  `PlannedCommand` is argv without a shell, so `> file` is not available to
+  it: a tool that only writes to stdout cannot be a pipeline step.
+
+### Added
+- **`tests/test_dressing_jobs.py`** -- 18 tests, on the wiring rather than the
+  planning. What goes wrong at this layer is different in kind from what goes
+  wrong in a planner: a command that is never planned, an input that is not in
+  the fingerprint, a version that was not bumped when the commands changed.
+  Each is silent, and each produces a cache hit that ships the wrong thing.
+
+### Notes on versioning
+This entry is 0.44.0; VERSION reads 0.43.3 until the release patch bumps it,
+which `verify-manifest` reports as UNRELEASED and is the ordinary state
+between writing an entry and making the claim.
+
+`lot`, `zoo` and `patina` will report DRIFT against their manifest pins after
+this batch (0.46.0 vs 0.44.0, 0.38.0 vs 0.36.0, 0.21.0 vs 0.19.0). Moving
+those pins is re-certification, which asserts the real-tool smoke passed, and
+is deliberately not done here.
+
+CORRECTION. An earlier draft of this entry claimed VERSION had regressed to
+0.22.0 and that pyproject.toml hard-coded a matching stale number. Both were
+false. They were read from files served stale by the file bridge, and
+`verify-manifest` -- run against the real tree -- reported the truth: VERSION
+is 0.43.3, and pyproject has carried `dynamic = ["version"]` with
+`version = {file = "VERSION"}` for some time, so it cannot disagree with
+VERSION by construction. The instrument was right and the report about it was
+wrong; the paragraph is replaced rather than deleted so the correction is on
+the record next to the claim.
+
 ## [0.43.3] - the per-object cap is needed after all, and 40 is why
 
 0.43.2 removed `limits/opengl/max_lights_per_object` on the grounds that it

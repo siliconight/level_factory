@@ -32,10 +32,15 @@ class PatinaAdapter(BaseAdapter):
     # block below). The bump is load-bearing: the flags an adapter passes are
     # not otherwise in the fingerprint, so without it every dressing stage
     # cache-hits and the pipeline ships the covers it was told to stop making.
-    adapter_version = "0.3.0"
+    # 0.4.0 adds the Layer 3 `surface_dressing` mode, which plans a DIFFERENT
+    # command entirely (`-m patina.surface_dressing`, not `-m patina.cli`).
+    # Same reasoning as 0.3.0: the command an adapter plans is not otherwise in
+    # the fingerprint.
+    adapter_version = "0.4.0"
     capabilities = frozenset(
         {"base_cohesion", "dressing_manifest", "trim_atlas", "photo_projection",
-         "templates", "overrides", "deterministic_build"}
+         "templates", "overrides", "deterministic_build",
+         "surface_dressing"}
     )
     output_contract_version = "patina.pass.0.18"
 
@@ -49,6 +54,24 @@ class PatinaAdapter(BaseAdapter):
 
     def validate_configuration(self, job_spec, context) -> Sequence[str]:
         problems: list[str] = []
+        if job_spec.get("mode") == "surface_dressing":
+            # Layer 3 dresses an assembled SITE, not a shell, so it wants no
+            # input_glb at all -- it wants Lot's surfaces and Zoo's
+            # measurements, both of which are upstream job artifacts.
+            for key in ("surfaces_path", "metrics_path", "asset_sets_path"):
+                v = job_spec.get(key)
+                if not v:
+                    problems.append(f"surface dressing requires {key}")
+                elif not Path(str(v)).exists():
+                    problems.append(f"{key} missing: {v}")
+            if not job_spec.get("site_id"):
+                problems.append("surface dressing requires a site_id")
+            if not job_spec.get("source"):
+                problems.append(
+                    "surface dressing requires `source` -- the assembled site "
+                    "scene it is planned against. A plan made for one assembly "
+                    "and applied to another is a different plan.")
+            return problems
         glb = job_spec.get("input_glb")
         if not glb:
             problems.append("patina job requires an input_glb (a DC/Zoo shell .glb)")
@@ -60,6 +83,24 @@ class PatinaAdapter(BaseAdapter):
         return problems
 
     def fingerprint_inputs(self, job_spec, context) -> Mapping[str, object]:
+        if job_spec.get("mode") == "surface_dressing":
+            fp: dict[str, object] = {
+                "mode": "surface_dressing",
+                "site_id": job_spec.get("site_id"),
+                "source": job_spec.get("source"),
+                "locked_shell": job_spec.get("locked_shell"),
+                "seed": job_spec.get("seed"),
+                "quality_tier": job_spec.get("quality_tier", "standard"),
+                # The budgets decide how much gets placed, so two plans that
+                # differ only by budget are two different plans.
+                "instance_budget": job_spec.get("instance_budget", "auto"),
+                "tri_budget": job_spec.get("tri_budget", "auto"),
+            }
+            for key in ("surfaces_path", "metrics_path", "asset_sets_path"):
+                v = job_spec.get(key)
+                if v and Path(str(v)).exists():
+                    fp[key + "_hash"] = hash_file(Path(str(v)))
+            return fp
         fp: dict[str, object] = {
             "art_mode": job_spec.get("art_mode", "vertex-color"),
             "theme": job_spec.get("theme"),
@@ -80,6 +121,8 @@ class PatinaAdapter(BaseAdapter):
     def plan_commands(self, job_spec, context) -> Sequence[PlannedCommand]:
         repo = Path(str(context["repository"]))
         py = context.get("python_executable") or "python"
+        if job_spec.get("mode") == "surface_dressing":
+            return self._surface_dressing_commands(job_spec, context, repo, py)
         glb = str(job_spec.get("input_glb", ""))
         out_glb = self._out_glb(job_spec, context)
         stem = self._stem(job_spec)
@@ -154,6 +197,49 @@ class PatinaAdapter(BaseAdapter):
             working_directory=repo,
             expected_outputs=tuple(expected),
             resource_class="python_cpu", timeout_seconds=600,
+        )]
+
+    def _surface_dressing_commands(self, job_spec, context, repo, py):
+        """Plan Layer 3 for an assembled site (docs/SURFACE_DRESSING.md).
+
+        Consumes Lot's `site_surfaces` output and Zoo's `shape_metrics`
+        sidecar -- both upstream job artifacts -- and writes
+        `<site_id>.surface_dressing.json`. `--audit` re-checks the finished
+        manifest against the honesty and coverage gates and exits non-zero, so
+        an illegal plan fails the JOB rather than travelling downstream to be
+        discovered by a level that does not walk right.
+        """
+        work = Path(str(context["work_dir"]))
+        site_id = str(job_spec.get("site_id", "site"))
+        out = work / f"{site_id}.surface_dressing.json"
+        args = [
+            "-m", "patina.surface_dressing",
+            "--surfaces", str(job_spec.get("surfaces_path", "")),
+            "--metrics", str(job_spec.get("metrics_path", "")),
+            "--asset-sets", str(job_spec.get("asset_sets_path", "")),
+            "--site-id", site_id,
+            "--source", str(job_spec.get("source", "")),
+            "--out", str(out),
+            "--audit",
+        ]
+        if job_spec.get("locked_shell"):
+            args += ["--locked-shell", str(job_spec["locked_shell"])]
+        if job_spec.get("seed") is not None:
+            args += ["--seed", str(job_spec["seed"])]
+        if job_spec.get("quality_tier"):
+            args += ["--quality-tier", str(job_spec["quality_tier"])]
+        # Passed as STRINGS on purpose: "auto" and "none" are meaningful
+        # values, and int()-ing them here would turn a legitimate setting into
+        # a crash at job time instead of a choice at configuration time.
+        for key, flag in (("instance_budget", "--instance-budget"),
+                          ("tri_budget", "--tri-budget")):
+            if job_spec.get(key) is not None:
+                args += [flag, str(job_spec[key])]
+        return [PlannedCommand(
+            executable=Path(str(py)), arguments=tuple(args),
+            working_directory=repo,
+            expected_outputs=(out.name,),
+            resource_class="python_cpu", timeout_seconds=900,
         )]
 
     def collect_outputs(self, job_spec, context) -> Iterable[Path]:

@@ -22,14 +22,32 @@ from packages.adapters.sdk import BaseAdapter, PlannedCommand
 from packages.core.hashing import hash_file
 from packages.validation.kit_dims import kit_dimension_findings
 
+# `tools/shape_metrics.py` is a FACTORY-level tool, not a Zoo one: it measures
+# any GLB. Zoo's job runs it because Zoo is what built the GLBs -- measuring
+# your own output belongs with the build, lands in the same artifact set, and
+# is fingerprinted for free.
+#
+# Reaching it is a path walk, and a path walk is a silent failure waiting to
+# happen. `validate_configuration` therefore CHECKS the tool is there, so a
+# layout change is a configuration error someone reads rather than a
+# measurement that quietly stopped happening.
+#   adapters/zoo/__init__.py -> zoo -> adapters -> level_factory -> <factory>
+_FACTORY_ROOT = Path(__file__).resolve().parents[3]
+SHAPE_METRICS = _FACTORY_ROOT / "tools" / "shape_metrics.py"
+
 
 class ZooAdapter(BaseAdapter):
     adapter_id = "zoo"
-    adapter_version = "0.3.0"
+    # 0.4.0: `measure_shapes` adds a SECOND command to a build job. The
+    # commands an adapter plans are not otherwise in the fingerprint, so
+    # without the bump every existing zoo entry cache-hits and the metrics
+    # sidecar the dressing planner needs is never produced -- the failure this
+    # adapter's own 0.3.0 note describes, one stage later.
+    adapter_version = "0.4.0"
     capabilities = frozenset(
         {"structural_kit", "dressing_build", "roof_props", "facade_kit",
          "skin_apply", "plan_dry_run", "deterministic_build",
-         "light_fixtures"}
+         "light_fixtures", "measure_shapes"}
     )
     output_contract_version = "zoo.asset.0.30"
 
@@ -56,6 +74,13 @@ class ZooAdapter(BaseAdapter):
                 problems.append(f"dressing manifest missing: {man}")
         else:
             problems.append(f"unknown zoo mode: {mode}")
+        if job_spec.get("measure_shapes") and not SHAPE_METRICS.is_file():
+            problems.append(
+                f"measure_shapes needs {SHAPE_METRICS}, which is not there. "
+                "The path is walked up from this adapter's own location; if "
+                "the repo layout moved, this is the message that says so "
+                "rather than a metrics sidecar that silently stopped being "
+                "written.")
         return problems
 
     def fingerprint_inputs(self, job_spec, context) -> Mapping[str, object]:
@@ -64,7 +89,13 @@ class ZooAdapter(BaseAdapter):
             "plan_only": bool(job_spec.get("plan_only")),
             "seed": job_spec.get("seed"),
             "theme": job_spec.get("theme"),
+            "measure_shapes": bool(job_spec.get("measure_shapes")),
         }
+        # The measuring tool's own source is an input: a change to how a
+        # footprint or a height is computed changes the catalogue the dressing
+        # planner is built from, with every other input byte-identical.
+        if job_spec.get("measure_shapes") and SHAPE_METRICS.is_file():
+            fp["shape_metrics_hash"] = hash_file(SHAPE_METRICS)
         for key in ("slots_path", "manifest_path", "lights_path"):
             p = job_spec.get(key)
             if p and Path(str(p)).exists():
@@ -181,11 +212,36 @@ class ZooAdapter(BaseAdapter):
         # Blender passes everything after `--` through as user args; zoo_cli.py
         # reads them and adds its own repo root to sys.path.
         args = ["--background", "--python", cli, "--", *zoo_args]
-        return [PlannedCommand(
+        commands = [PlannedCommand(
             executable=Path(blender), arguments=tuple(args),
             working_directory=repo,
             expected_outputs=expected,
             resource_class="blender", timeout_seconds=1200,
+        )]
+        commands += self._measure_commands(job_spec, context)
+        return commands
+
+    def _measure_commands(self, job_spec, context) -> list:
+        """Measure the GLBs this job just built.
+
+        Plain Python, not Blender: `shape_metrics` reads the exported file, so
+        it needs no bpy and costs seconds. The output is a normal job artifact,
+        which is the point -- the dressing planner consumes measurements, and a
+        measurement that lives outside the artifact set is a number nobody can
+        trace to a build.
+        """
+        if not job_spec.get("measure_shapes"):
+            return []
+        work = Path(str(context["work_dir"]))
+        py = context.get("python_executable") or "python"
+        name = str(job_spec.get("metrics_name") or "shapes.metrics.json")
+        return [PlannedCommand(
+            executable=Path(str(py)),
+            arguments=(str(SHAPE_METRICS), "--dir", str(work), "--json",
+                       "--out", str(work / name)),
+            working_directory=work,
+            expected_outputs=(name,),
+            resource_class="python_cpu", timeout_seconds=300,
         )]
 
     def collect_outputs(self, job_spec, context) -> Iterable[Path]:

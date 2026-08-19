@@ -2,14 +2,28 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://siliconight/level-factory/schemas/surface_dressing.v1.json",
   "title": "surface-dressing/1",
-  "description": "Layer 3 surface dressing for an ASSEMBLED SITE, post functional-shell-lock. Distinct from patina-dressing/1, which is per-building Layer 2 cover bolted to one shell. See docs/SURFACE_DRESSING.md; the honesty rule in section 3 is the reason height_m and in_traversed_space are required rather than optional.",
+  "description": "Layer 3 surface dressing for an ASSEMBLED SITE, post functional-shell-lock. Distinct from patina-dressing/1, which is per-building Layer 2 cover bolted to one shell. See docs/SURFACE_DRESSING.md; the honesty rule in section 3 is the reason height_m and in_traversed_space are required rather than optional. Amended 2026-08-18 with the readability axis: zone exposure classes, a surface_visibility budget, and a transparency class per order. Amended in place rather than versioned to /2 because no producer or consumer of surface-dressing/1 exists yet -- there is nothing to migrate.",
   "type": "object",
-  "required": ["schema", "site_id", "source", "space", "seed", "capsule",
-               "bands", "zones", "orders"],
+  "required": [
+    "schema",
+    "site_id",
+    "source",
+    "space",
+    "seed",
+    "capsule",
+    "bands",
+    "zones",
+    "orders"
+  ],
   "additionalProperties": false,
   "properties": {
-    "schema": { "const": "surface-dressing/1" },
-    "site_id": { "type": "string", "minLength": 1 },
+    "schema": {
+      "const": "surface-dressing/1"
+    },
+    "site_id": {
+      "type": "string",
+      "minLength": 1
+    },
     "source": {
       "type": "string",
       "description": "The assembled site scene this was planned against. A manifest planned against one assembly and applied to another is not reproducible."
@@ -22,134 +36,351 @@
       "const": "spec/Blender Z-up raw coords",
       "description": "Verbatim from patina-dressing/1. Height is pos[2], NOT pos[1]. A GLB on disk is Y-up and a manifest is Z-up; reading the wrong axis is wrong in a way that looks right."
     },
-    "seed": { "type": "integer" },
-    "quality_tier": { "enum": ["low", "standard", "high"], "default": "standard" },
-
+    "seed": {
+      "type": "integer"
+    },
+    "quality_tier": {
+      "enum": [
+        "low",
+        "standard",
+        "high"
+      ],
+      "default": "standard"
+    },
     "capsule": {
       "type": "object",
       "description": "The body the honesty rule is derived FOR, carried in the artifact so it can be checked without the doc.",
-      "required": ["radius_m", "floor_max_angle_deg", "unassisted_step_max_m", "source"],
+      "required": [
+        "radius_m",
+        "floor_max_angle_deg",
+        "unassisted_step_max_m",
+        "source"
+      ],
       "additionalProperties": false,
       "properties": {
-        "radius_m": { "type": "number", "exclusiveMinimum": 0 },
-        "floor_max_angle_deg": { "type": "number", "exclusiveMinimum": 0, "maximum": 90 },
+        "radius_m": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "floor_max_angle_deg": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 90
+        },
         "unassisted_step_max_m": {
-          "type": "number", "exclusiveMinimum": 0,
+          "type": "number",
+          "exclusiveMinimum": 0,
           "description": "radius_m * (1 - cos(floor_max_angle_deg)). 0.117 for a 0.4 m capsule at 45 deg. Above this the engine calls the contact a WALL and the capsule stops dead."
         },
-        "source": { "type": "string", "description": "e.g. lot/site_steps.py" }
+        "source": {
+          "type": "string",
+          "description": "e.g. lot/site_steps.py"
+        }
       }
     },
-
     "bands": {
       "type": "object",
       "description": "Height bands from the Surface Dressing guide. max_m is the band ceiling; the honesty rule is enforced against unassisted_step_max_m, not against the band name.",
-      "required": ["micro", "low", "medium", "tall"],
+      "required": [
+        "micro",
+        "low",
+        "medium",
+        "tall"
+      ],
       "additionalProperties": false,
       "patternProperties": {
         "^(micro|low|medium|tall)$": {
           "type": "object",
-          "required": ["max_m"],
+          "required": [
+            "max_m"
+          ],
           "additionalProperties": false,
-          "properties": { "max_m": { "type": "number", "exclusiveMinimum": 0 } }
+          "properties": {
+            "max_m": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
         }
       }
     },
-
     "zones": {
       "type": "array",
       "description": "Where dressing MAY go. Semantic regions from Deli Counter / Lot -- not invented here.",
       "items": {
         "type": "object",
-        "required": ["surface_zone_id", "declared_by", "kind"],
+        "required": [
+          "surface_zone_id",
+          "declared_by",
+          "kind",
+          "exposure_class"
+        ],
         "additionalProperties": false,
         "properties": {
-          "surface_zone_id": { "type": "string", "minLength": 1 },
-          "declared_by": { "enum": ["deli_counter", "lot"] },
-          "kind": { "enum": ["floor", "ground", "roof", "ledge", "seam", "wall_base", "negative_space"] },
+          "surface_zone_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "declared_by": {
+            "enum": [
+              "deli_counter",
+              "lot"
+            ]
+          },
+          "kind": {
+            "enum": [
+              "floor",
+              "ground",
+              "roof",
+              "ledge",
+              "seam",
+              "wall_base",
+              "negative_space"
+            ]
+          },
           "traversed": {
             "type": "boolean",
             "description": "Whether a body can stand here. Drives the honesty rule; taken from Lot's walkable surfaces, not asserted by the dressing planner."
           },
           "aabb": {
-            "type": "array", "minItems": 6, "maxItems": 6,
-            "items": { "type": "number" },
+            "type": "array",
+            "minItems": 6,
+            "maxItems": 6,
+            "items": {
+              "type": "number"
+            },
             "description": "[xmin,ymin,zmin,xmax,ymax,zmax] in the declared space."
           },
-          "tags": { "type": "array", "items": { "type": "string" } }
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "exposure_class": {
+            "enum": [
+              "gameplay_path",
+              "play_space",
+              "environmental_edge",
+              "decorative"
+            ],
+            "description": "How much of the gameplay-defining surface must stay legible here. Hard surface is the visual truth; dressing interrupts it and must not replace it."
+          },
+          "surface_visibility": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "description": "Target fraction of this zone's gameplay surface still legible from normal viewing angles. gameplay_path 0.80-1.00, play_space 0.60-0.80, environmental_edge 0.30-0.60, decorative unrestricted. An artistic constraint first; a measured one once there is something to measure."
+          },
+          "density": {
+            "enum": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "very_high"
+            ],
+            "description": "Placement density for this zone. The intended reading is sidewalk centre low, sidewalk edge medium, wall seam high, abandoned corner very_high -- density is how coverage is controlled, which is the first lever, before any alpha."
+          }
         }
       }
     },
-
     "exclusions": {
       "type": "array",
       "description": "Where dressing may NOT go. Every entry must name what declared it; an exclusion nobody declared cannot be honoured or regression-tested.",
       "items": {
         "type": "object",
-        "required": ["tag", "declared_by"],
+        "required": [
+          "tag",
+          "declared_by"
+        ],
         "additionalProperties": false,
         "properties": {
-          "tag": { "enum": ["path", "spawn", "objective", "interactable", "door", "cover_edge", "readability"] },
-          "declared_by": { "enum": ["deli_counter", "lot", "laser_tag", "zoo"] },
-          "aabb": { "type": "array", "minItems": 6, "maxItems": 6, "items": { "type": "number" } },
-          "radius_m": { "type": "number", "exclusiveMinimum": 0 },
-          "pos": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number" } }
+          "tag": {
+            "enum": [
+              "path",
+              "spawn",
+              "objective",
+              "interactable",
+              "door",
+              "cover_edge",
+              "readability"
+            ]
+          },
+          "declared_by": {
+            "enum": [
+              "deli_counter",
+              "lot",
+              "laser_tag",
+              "zoo"
+            ]
+          },
+          "aabb": {
+            "type": "array",
+            "minItems": 6,
+            "maxItems": 6,
+            "items": {
+              "type": "number"
+            }
+          },
+          "radius_m": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "pos": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+              "type": "number"
+            }
+          }
         }
       }
     },
-
     "counts": {
       "type": "object",
       "description": "Placements per asset_set. Mirrors patina-dressing/1's counts block.",
-      "additionalProperties": { "type": "integer", "minimum": 0 }
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
     },
     "keep_out": {
       "type": "object",
       "description": "What the planner refused to place and why. Mirrors patina-dressing/1's keep_out. A planner that silently drops placements is indistinguishable from one that never generated them.",
       "additionalProperties": true
     },
-
     "orders": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["surface_zone_id", "asset_set", "asset_id", "placement_mode",
-                     "pos", "yaw", "scale", "height_m", "height_band",
-                     "collision_policy", "in_traversed_space", "seed_offset"],
+        "required": [
+          "surface_zone_id",
+          "asset_set",
+          "asset_id",
+          "placement_mode",
+          "pos",
+          "yaw",
+          "scale",
+          "height_m",
+          "height_band",
+          "collision_policy",
+          "in_traversed_space",
+          "seed_offset",
+          "transparency"
+        ],
         "additionalProperties": false,
         "properties": {
-          "surface_zone_id": { "type": "string" },
-          "asset_set": { "type": "string", "description": "Approved Zoo family." },
-          "asset_id": { "type": "string" },
-          "placement_mode": { "enum": ["scatter", "seam", "cluster", "anchor", "spline", "authored"] },
+          "surface_zone_id": {
+            "type": "string"
+          },
+          "asset_set": {
+            "type": "string",
+            "description": "Approved Zoo family."
+          },
+          "asset_id": {
+            "type": "string"
+          },
+          "placement_mode": {
+            "enum": [
+              "scatter",
+              "seam",
+              "cluster",
+              "anchor",
+              "spline",
+              "authored"
+            ]
+          },
           "anchor_cause": {
             "type": "string",
             "description": "Why detail is HERE -- crack, damage, moisture, traffic edge, wall base, shade. The guide's rule 3; unexplained scatter reads as procedural noise."
           },
-          "pos": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number" } },
-          "normal": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number" } },
-          "yaw": { "type": "number" },
-          "scale": { "type": "number", "exclusiveMinimum": 0 },
+          "pos": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+              "type": "number"
+            }
+          },
+          "normal": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+              "type": "number"
+            }
+          },
+          "yaw": {
+            "type": "number"
+          },
+          "scale": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
           "height_m": {
-            "type": "number", "exclusiveMinimum": 0,
+            "type": "number",
+            "exclusiveMinimum": 0,
             "description": "MEASURED height of the placed instance after scale, in the declared space. Required, because the gate reads this rather than re-deriving it from an asset bound and a scale factor."
           },
-          "height_band": { "enum": ["micro", "low", "medium", "tall"] },
+          "height_band": {
+            "enum": [
+              "micro",
+              "low",
+              "medium",
+              "tall"
+            ]
+          },
           "collision_policy": {
-            "enum": ["none"],
+            "enum": [
+              "none"
+            ],
             "description": "Surface Dressing is collisionless. Anything needing collision is Layer 2 and does not belong in this manifest. Zoo already raises ZOO_DRESSING_HAS_COLLISION as a blocker."
           },
-          "shadow_policy": { "enum": ["off", "contact", "full"], "default": "off" },
+          "shadow_policy": {
+            "enum": [
+              "off",
+              "contact",
+              "full"
+            ],
+            "default": "off"
+          },
           "in_traversed_space": {
             "type": "boolean",
             "description": "Computed by the planner from Lot's walkable surfaces. With height_m this makes the honesty rule a single expression instead of a re-derivation at gate time."
           },
           "cleared_exclusions": {
-            "type": "array", "items": { "type": "string" },
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
             "description": "Exclusion tags this placement was tested against and cleared. An empty array means untested, not clean."
           },
-          "seed_offset": { "type": "integer" },
-          "quality_tier": { "enum": ["low", "standard", "high"] }
+          "seed_offset": {
+            "type": "integer"
+          },
+          "quality_tier": {
+            "enum": [
+              "low",
+              "standard",
+              "high"
+            ]
+          },
+          "transparency": {
+            "enum": [
+              "opaque",
+              "alpha_cutout",
+              "translucent"
+            ],
+            "description": "opaque: rocks, rubble, boards, trash, roots, debris. alpha_cutout: grass, weeds, leaves, ferns, foliage cards -- crisp solid/empty pixels, which keeps depth cues that blending loses. translucent: RARE -- smoke, cobwebs, thin dust. Blended transparency across thousands of scattered instances is where overdraw, sort order and weak depth cues come from, so it is the last resort and not the readability system."
+          },
+          "coverage_contribution": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "description": "Fraction of its footprint this placement occludes, so a planner can sum against the zone's surface_visibility budget instead of guessing."
+          }
         }
       }
     }
