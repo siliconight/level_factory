@@ -1,3 +1,74 @@
+## [0.47.0] - flipping collision on a .glb is a rename
+
+### Added
+- **`packages/exporting/glb_collision_flag.py`** -- set or clear the collision
+  a `.glb` generates in Godot, one policy per file.
+
+  Godot's glTF importer has no collision field to toggle: it reads the NODE
+  NAME and generates a physics body when that name ends in one of the `-col`
+  family. So this is a rename inside the JSON chunk. No vertex is touched, no
+  accessor moves, and trailing chunks are copied through byte for byte --
+  checked on the real Zoo dressing exports, where `pebble_9bac1d.glb` and
+  `weed_tuft_4cc3aa.glb` round-trip `colonly` -> `none` with their node names
+  restored and their BIN chunks byte-identical.
+
+  `--collision none|col|colonly|convcol|convcolonly|rigid|vehicle|wheel`. That
+  list is DERIVED from `validation.glb_collision.COLLISION_SUFFIXES` rather
+  than typed out again, so a suffix added there appears here.
+
+  **It refuses to clear collision on a file whose sibling `.import` sets
+  `generate/physics=true`.** That setting bodies every mesh whatever the nodes
+  are called, so clearing the names would produce a file that reads as
+  collisionless and imports with collision on everything -- the same shape of
+  wrong as measuring a MultiMesh buffer through the dummy renderer. Adding
+  collision under that setting is still allowed; only the false-negative
+  direction is dangerous.
+
+  Every write is re-read through `collision_solids`, which walks the container
+  and the node tree independently. A writer that grades its own homework is
+  what 0.46.0 was about.
+
+### Changed
+- **`validation.glb_collision.strip_duplicate` is now public.** Blender appends
+  `.001` AFTER the marker Godot matches, so a writer has to insert the suffix
+  BEFORE that tail -- `floor-colonly.001`, never `floor.001-colonly`, which
+  Godot would not match. Reader and writer have to agree where the tail is, and
+  one of them owning the regex is how they agree. `name_generates_collision` is
+  rewritten on top of it; equivalence was checked over 525 generated names, and
+  that module's own 21 tests are untouched and still pass.
+
+### Tests
+- `tests/unit/test_glb_collision_flag.py` -- 28 tests. Every test that claims a
+  file collides asks the READER, never the writer.
+- **Mutation-tested, and the run earned its keep.** Eleven mutants: suffix
+  written after the `.001` tail, zero-padded JSON chunk, stale container
+  length, dropped BIN chunk, removed `generate/physics` refusal, suffix on
+  meshless nodes, read-back pointed at the input instead of the output, mutated
+  input document, and three uncounted report fields. Ten die.
+- The eleventh survives and that is the correct answer: stripping the shortest
+  suffix first changes nothing, because the leading hyphen makes every marker
+  distinct -- `floor-convcolonly` does not end with `-colonly`.
+  `test_no_suffix_is_a_suffix_of_another` pins the invariant that makes the
+  sort inert, so if Godot ever adds a marker that IS a tail of another, the
+  sort stops being decoration and that test says so.
+- **Two tests were found passing for the wrong reason by that run.** One
+  asserted `-convcolonly` ends with `-colonly`, which is false, and passed
+  whatever the sort did. The other checked JSON chunk padding with a single
+  fixture that happened to need no padding -- true three times in four. Both
+  are rewritten, and both say in their docstrings what they used to get wrong.
+
+### Notes
+- **Whole-file policy, not per-node.** An asset has one answer to "does this
+  collide" everywhere this pipeline asks: dressing is collisionless by
+  definition and `dressing_scene.check_manifest` enforces it, while a shell
+  exists to be stood on. Naming individual nodes would allow a file to be half
+  of each, a state no consumer here can represent.
+- `--in-place` has to be asked for. Given neither `--out` nor `--in-place` it
+  refuses rather than guessing which was meant.
+- Only nodes carrying a mesh GAIN a suffix -- a marker on an empty generates
+  nothing in Godot and leaves a name that lies about the file. Clearing reaches
+  every node, because `none` means none.
+
 ## [0.46.0] - the MultiMesh buffer was transposed
 
 `tools/dressing_ab.ps1` loaded both dressing scenes in a real Godot window and

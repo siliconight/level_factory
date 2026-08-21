@@ -77,9 +77,33 @@ class GlbReading:
     detail: str = ""
 
 
+def strip_duplicate(name: str) -> tuple[str, str]:
+    """Split Blender's `.001` duplicate tail off a node name: (stem, tail).
+
+    ``stem + tail`` is the input with surrounding space removed. Godot ignores
+    the tail when matching collision suffixes, so a writer inserts the suffix
+    BEFORE it: `floor.001` becomes `floor-colonly.001`.
+
+    NOT BECAUSE THE OTHER ORDER FAILS TO MATCH -- it matches. `floor.001-col`
+    has no trailing `.NNN` left to ignore, so the suffix is simply at the end
+    and Godot bodies it exactly the same. An earlier draft of this docstring
+    claimed otherwise and a falsification test caught it by refusing to fail.
+    The reason is that `.NNN` is Blender's duplicate marker and is terminal by
+    definition; a name with anything after it is one no exporter would write,
+    and any other tool in the chain that treats the marker as terminal will
+    disagree with this one about what the node is called.
+
+    Public so that the reader and any writer share one answer about where the
+    tail is, rather than each carrying a regex.
+    """
+    text = str(name).strip()
+    found = _DUP.search(text)
+    return (text[:found.start()], text[found.start():]) if found else (text, "")
+
+
 def name_generates_collision(name: str) -> bool:
     """Godot matches the suffix case-insensitively and tolerates `-col.001`."""
-    return _DUP.sub("", str(name).strip().lower()).endswith(COLLISION_SUFFIXES)
+    return strip_duplicate(name)[0].lower().endswith(COLLISION_SUFFIXES)
 
 
 def import_requests_physics(path: Path) -> bool:
