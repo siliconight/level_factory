@@ -1,3 +1,35 @@
+## [0.48.0] - the lock learns what a state machine is
+
+Roadmap item 46, steps 2 and 3 (the level_factory half). The pipe Lot 0.48.0
+and Dispatch 0.4.0 connected runs through this repo twice: staging shapes the
+inputs, and the functional lock decides what must not change.
+
+### Added
+- `staging/dispatch_inputs.py` passes `interactives` through VERBATIM into
+  both Dispatch input trees (lot side: the site-level concatenation; deli
+  side: the building's own declaration, which wins only when Lot is absent).
+  No anchor mapping, no id rewriting -- the ids are the network handle.
+- `approvals/lock.py`: third protected signature, `interactive_registry_hash`
+  over the `interactives` declaration whole (states, default, transitions,
+  state_geometry, collision_per_state, transform). Keyed on `id` -- the
+  OPPOSITE call from anchors, deliberately: interactive ids are globally
+  unique by construction. `interactives` joins BACKFILLED_FROM_DELI so a
+  pre-carry site file falls back to the building's declaration instead of
+  hashing an empty list that reads as coverage.
+
+### Changed
+- Lock schema `v0.2 -> v0.3`. Same rule as the last bump: a v0.2 lock
+  reports as needing recompute, never as drift, and does not block export.
+- docs/FUNCTIONAL_LOCK.md (factory root) answers the question item 46 parked
+  there -- "two collision states, one hash": the locked shell is the DEFAULT
+  state (the level at rest, the only state offline artifacts realize and
+  gates measure); the per-state truth is protected as DATA by the new
+  signature. Worst-case and per-state-set hashing rejected for the same
+  reason the 25 unplaced collision nodes stay out of `surfaces`: the lock
+  must not protect what the package does not contain.
+- `tests/unit/test_lock_regression.py`: semantics-drift-without-geometry,
+  dropped-fixture drift, deli backfill, v0.2 recompute-not-drift.
+
 ## [0.47.0] - flipping collision on a .glb is a rename
 
 ### Added

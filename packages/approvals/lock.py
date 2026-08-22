@@ -25,13 +25,20 @@ PROTECTED_KEYS: dict[str, tuple[str, ...]] = {
                               "fire_escapes", "openings",
                               "vertical_links", "surfaces", "ground"),
     "anchor_registry_hash": ("markers", "anchors"),
+    # The replicable state machines (INTERACTIVES.md). The collision
+    # fingerprint stays single-state -- it hashes the level AT REST, the
+    # default state everything offline builds and measures -- and the
+    # per-state truth (states, transitions, collision_per_state) is
+    # protected here as DATA. See docs/FUNCTIONAL_LOCK.md, "Interactive
+    # fixtures: two collision states, one hash".
+    "interactive_registry_hash": ("interactives",),
 }
 
 #: The schema a lock written by THIS code carries. Bumped whenever a
 #: signature changes definition, because two locks with different
 #: definitions are not comparable and diffing them produces drift
 #: reports that mean nothing. See docs/FUNCTIONAL_LOCK.md.
-SCHEMA = "level_factory.functional_lock.v0.2"
+SCHEMA = "level_factory.functional_lock.v0.3"
 
 #: Which keys `_merged_gameplay` backfills from the Deli side. These can carry
 #: content while the SITE contributes nothing, which is precisely how a lock
@@ -42,7 +49,12 @@ BACKFILLED_FROM_DELI = frozenset(
      # `_merged_gameplay` has always backfilled this, and
      # `_anchor_registry` still falls back to it. 0.29.0 removed it from
      # this set while leaving both behaviours in place.
-     "anchors"})
+     "anchors",
+     # Lot concatenates every building's interactives into the site
+     # (ids are globally unique, so it is a concatenation, not a merge);
+     # a site file written before Lot carried them omits the key, and
+     # the building's own declaration is then the truth.
+     "interactives"})
 
 #: Keys where BOTH tools publish real content and neither restates the
 #: other, so the lock protects the UNION.
@@ -293,6 +305,43 @@ def _collision_signature(gameplay: dict) -> dict:
     }
 
 
+def _interactive_registry(gameplay: dict) -> list[dict]:
+    """Stable, order-independent view of the interactive state machines.
+
+    KEYED ON `id`, and that is the OPPOSITE call from `_anchor_identity` --
+    deliberately. Anchor ids are building-scoped ("FRONT" everywhere), so
+    identity there is the namespaced name. Interactive ids are globally
+    unique BY CONSTRUCTION ("<building>:if:<hash>", position-derived --
+    INTERACTIVES.md, "Stable ids") and are the network handle every client,
+    snapshot and saved game references. Rewriting them here would hash a
+    name the shipped package never uses.
+
+    THE WHOLE MACHINE IS FUNCTIONAL. states, default, transitions,
+    state_geometry, collision_per_state, transform -- no field here is one
+    a presentation stage may write. A dressing pass that changes which
+    fixtures exist, what states they have, or whether a breached wall stops
+    colliding moves this hash without moving a single vertex.
+    """
+    norm = []
+    for i in gameplay.get("interactives") or []:
+        if not isinstance(i, dict):
+            continue
+        norm.append({
+            "id": i.get("id"),
+            "kind": i.get("kind"),
+            "slot_ref": i.get("slot_ref"),
+            "building": i.get("building"),
+            "states": i.get("states"),
+            "default": i.get("default"),
+            "transitions": i.get("transitions"),
+            "state_geometry": i.get("state_geometry"),
+            "collision_per_state": i.get("collision_per_state"),
+            "reversible": i.get("reversible"),
+            "transform": i.get("transform"),
+        })
+    return sorted(norm, key=lambda x: str(x["id"]))
+
+
 @dataclass
 class FunctionalLock:
     mission_id: str
@@ -303,6 +352,7 @@ class FunctionalLock:
     lot_spec_hash: str = ""
     collision_fingerprint: str = ""
     anchor_registry_hash: str = ""
+    interactive_registry_hash: str = ""
     clearance_metrics: dict = field(default_factory=dict)
     locked_at: str = field(default_factory=_now)
     #: What this lock protects. Empty on locks written before 0.28.0 --
@@ -321,6 +371,7 @@ class FunctionalLock:
             "lot_spec_hash": self.lot_spec_hash,
             "collision_fingerprint": self.collision_fingerprint,
             "anchor_registry_hash": self.anchor_registry_hash,
+            "interactive_registry_hash": self.interactive_registry_hash,
             "clearance_metrics": self.clearance_metrics,
             "locked_at": self.locked_at,
             "coverage": self.coverage,
@@ -366,7 +417,8 @@ def _merged_gameplay(site_gameplay_path: Path, deli_gameplay_path: Path | None) 
     if deli_gameplay_path and deli_gameplay_path.exists():
         deli_gp = _load(deli_gameplay_path)
         merged = dict(gameplay)
-        for k in ("stair_systems", "ladders", "platforms", "fire_escapes"):
+        for k in ("stair_systems", "ladders", "platforms", "fire_escapes",
+                  "interactives"):
             merged.setdefault(k, deli_gp.get(k, []))
         if not merged.get("anchors"):
             merged["anchors"] = deli_gp.get("anchors", [])
@@ -402,6 +454,7 @@ def compute_lock(
         deli_spec_hash=deli_spec_hash, lot_spec_hash=lot_spec_hash,
         collision_fingerprint=hash_json(_collision_signature(gameplay)),
         anchor_registry_hash=hash_json(_anchor_registry(gameplay)),
+        interactive_registry_hash=hash_json(_interactive_registry(gameplay)),
         clearance_metrics=gameplay.get("clearance_metrics", {}),
         coverage=coverage,
     )
@@ -486,6 +539,8 @@ def verify_no_drift(
         drift.append("collision_fingerprint changed after art pass")
     if hash_json(_anchor_registry(gameplay)) != lock.anchor_registry_hash:
         drift.append("gameplay-anchor registry changed after art pass")
+    if hash_json(_interactive_registry(gameplay)) != lock.interactive_registry_hash:
+        drift.append("interactive registry changed after art pass")
     # MEASURED HERE, NOT READ OFF THE LOCK. The first version of this
     # took `lock.coverage`, which only exists on locks written by 0.28.0
     # or later -- so on every lock that exists today it was empty, and

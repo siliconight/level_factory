@@ -189,6 +189,9 @@ def stage_dispatch_inputs(dest_dir: Path, *, deli_gameplay: Path, shell_glb: Pat
         "schema": "dc.gameplay.v1", "license": {**lic, "source": "deli_counter"},
         "up_axis": dc_up, "anchors": dc_anchors,
         "props": list(dc_gp.get("props", []) or []),
+        # Verbatim pass-through (see the lot side below); on a mission with
+        # a Lot site the site-level concatenation wins in Dispatch.
+        "interactives": list(dc_gp.get("interactives", []) or []),
     }, indent=2), encoding="utf-8")
     (deli_dir / "shell.nav_hints.json").write_text(
         json.dumps(derive_nav(dc_anchors or [{"id": "deli_counter:origin",
@@ -208,6 +211,12 @@ def stage_dispatch_inputs(dest_dir: Path, *, deli_gameplay: Path, shell_glb: Pat
         "schema": "lot.gameplay.v1", "license": {**lic, "source": "lot"},
         "up_axis": lot_up, "anchors": lot_anchors,
         "props": list(lot_gp.get("props", []) or []),
+        # The replicable state machines Lot concatenated from every
+        # building's gameplay.json (INTERACTIVES.md). Passed through
+        # VERBATIM — no anchor mapping, no id rewriting: the ids are the
+        # network handle, and Dispatch ships the declaration whole
+        # (interactives.json beside gameplay_anchors.json).
+        "interactives": list(lot_gp.get("interactives", []) or []),
     }, indent=2), encoding="utf-8")
     (lot_dir / "lot.layout.json").write_text(json.dumps({
         "schema": "lot.layout.v1", "license": {**lic, "source": "lot"},
