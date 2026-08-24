@@ -44,12 +44,23 @@ func _ready() -> void:
 	layer.layer = 128
 	add_child(layer)
 
-	# A panel behind the text: this reads over both a white sky and a dark
-	# interior, and the first version was unreadable in exactly the shot it was
-	# built for.
+	# A panel behind the text -- with an EXPLICIT light plate, not the theme
+	# default. The first version was unreadable in exactly the shot it was
+	# built for; the second relied on PanelContainer's default stylebox, which
+	# is dark translucent grey, so near-black text sat on a near-black plate
+	# and the walk screenshots of 2026-08-23 could not be read either. The
+	# plate now paints its own ground: bright and mostly opaque, so the dark
+	# text reads over a lit ceiling and a black basement alike.
 	var panel := PanelContainer.new()
 	panel.position = Vector2(12, 12)
-	panel.modulate = Color(1, 1, 1, 0.88)
+	var plate := StyleBoxFlat.new()
+	plate.bg_color = Color(0.93, 0.94, 0.96, 0.92)
+	plate.set_corner_radius_all(4)
+	plate.content_margin_left = 10.0
+	plate.content_margin_right = 10.0
+	plate.content_margin_top = 6.0
+	plate.content_margin_bottom = 6.0
+	panel.add_theme_stylebox_override("panel", plate)
 	layer.add_child(panel)
 
 	_label = Label.new()

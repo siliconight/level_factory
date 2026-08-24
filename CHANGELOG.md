@@ -1,3 +1,40 @@
+## [0.49.0] - the per-object cap is deleted, and the meshes it excused are gone
+
+Roadmap 54 closes. The cap was always a mitigation with a running cost -- it
+sizes the shader light loop for EVERY object -- excusing meshes that spanned
+rooms: when `tools/mesh_light_census.py` first read the running walk preview
+(the filename estimates could open the item but not close it), 804 of 3,016
+visible meshes were over the engine's per-mesh default of 8, worst at 72.
+The fix was never a setting. The geometry was fixed at the source (zoo
+0.49.0 tiles plate visuals, deli_counter 0.96.0 tiles slab visuals, lot
+0.49.0 tiles outdoor mesh children -- collision untouched in all three), the
+light population paid its half (lux 0.17.0-0.24.0: rig-sweep dedup,
+drop-derived ranges, census-priced trims), and census #8 on the recomposed
+package read 5,055 meshes with NONE over 8, worst exactly 8. The human A/B
+walk at per-object 8 vs 40 saw no difference: no brightness steps, no thin
+lines, floors lit.
+
+### Removed
+- `packages/core/godot_project.py`: `PER_OBJECT_CEILING`, `per_object_cap()`,
+  and the per-object block in `rendering_block` -- no package writes
+  `max_lights_per_object` at any size. The docstring keeps the full history
+  (0.43.0 wrote the cap for the wrong reason, 0.43.2 removed it for a reason
+  that covered half the symptoms, 0.43.3 priced it honestly as a mitigation,
+  roadmap 54 deleted what it mitigated) and the standing instruction: if a
+  brightness step returns between adjacent slabs, run the census and fix the
+  tile size or the offending mesh -- do not resurrect the cap.
+
+### Changed
+- `tests/unit/test_project_godot_agreement.py`: the cap's ABSENCE is pinned
+  as hard as its value used to be (`test_no_package_writes_a_per_object_cap`,
+  136-light package included). The two project.godot writers still agree,
+  and the global cap still derives from the package -- its
+  declaration-vs-running-tree undercount stays roadmap item 56.
+- `assets/godot/debug_overlay.gd`: the position window sits on an explicit
+  light plate (StyleBoxFlat, 0.93/0.94/0.96 at 0.92 alpha, corner radius 4,
+  real content margins) instead of the theme default that was unreadable
+  against a dark interior (raised on the 2026-08-23 walk).
+
 ## [0.48.0] - the lock learns what a state machine is
 
 Roadmap item 46, steps 2 and 3 (the level_factory half). The pipe Lot 0.48.0

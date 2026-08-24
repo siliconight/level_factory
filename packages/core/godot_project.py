@@ -16,38 +16,37 @@ wrong about them once already:
         A GLOBAL budget. Above it, lights are simply not drawn -- so on a
         136-light package most were not, and whole areas stayed dark
         PERMANENTLY while which ones won changed as the camera moved.
+        This one is still written, and see the caveat below.
 
     rendering/limits/opengl/max_lights_per_object   default 8
         A PER-MESH budget. Above it, a mesh drops lights. On building-sized
-        floor and ceiling slabs this shows up standing still, as a hard
+        floor and ceiling slabs this showed up standing still, as a hard
         brightness STEP where two slabs meet -- not as blinking.
+        THIS ONE IS NO LONGER WRITTEN. Read on.
 
-level_factory 0.43.0 set the per-object cap and named it as the cause of the
-blinking; it was not. 0.43.2 then removed it, having tested only for blinking,
-and that reintroduced the seam. Measured in the walk preview, one interior,
-three runs: default 8 -> hard cut across the floor; 64 -> gone; 40 -> gone.
+THE PER-OBJECT CAP IS GONE, AND WHY (roadmap 54, closed). The cap only ever
+existed because a single mesh spanned a whole room -- a 34-52 m floor, roof
+or path was ONE light budget for everything near it (measured on
+lot_demo_001's walk preview by tools/mesh_light_census.py: 804 of 3,016
+meshes over the engine default of 8, worst at 72). 0.43.0 wrote the cap and
+misattributed the blinking to it; 0.43.2 removed it and brought back the
+seam; 0.43.3 shipped it as a stated MITIGATION, priced honestly: it sizes
+the shader light loop for EVERY object. The fix was never a setting: zoo
+0.49.0, deli_counter 0.96.0 and lot 0.49.0 tile every plate visual to
+light-budget-sized meshes (collision untouched), and the per-mesh census on
+the recomposed package is the evidence this deletion stands on. If a future
+package shows a brightness step between adjacent slabs, the answer is the
+census and the tile size, not this cap's return.
 
-BOTH VALUES ARE DERIVED FROM THE PACKAGE. Neither is a round number picked to
-make a symptom go away:
+THE GLOBAL CAP IS DERIVED FROM THE PACKAGE, with a known caveat. It is the
+package's own light count, counted by globbing the scenes (`closure.py`'s
+approach) -- but that counts DECLARATIONS in scene text, and roadmap item 56
+measured the running tree at 272 visible lights against a written cap of
+136: an instanced rig counts once and a runtime-spawned fixture light counts
+zero. The number this writes is a floor, not the truth; item 56 owns the fix.
 
-  * The global cap is the package's own light count, counted by globbing the
-    scenes (`closure.py`'s approach). A package cannot render more lights than
-    it contains, so its total is a true upper bound -- sufficient by
-    construction, with no headroom to pay for.
-
-  * The per-object cap is `min(light count, PER_OBJECT_CEILING)`. Also bounded
-    by the package: a 20-light package cannot put more than 20 on one mesh and
-    gets 20. The ceiling is the measured worst case across lot_demo_001's five
-    buildings -- one mesh at 36 lights -- plus a small margin.
-
-Below the engine defaults neither line is written, and an unlit package carries
-no rendering override at all.
-
-THE PER-OBJECT CAP COSTS SOMETHING. It sizes the light loop in the shader for
-every object, so the smallest sufficient value is the correct one, and this is
-a MITIGATION. The seam only exists because a single floor mesh spans a whole
-room; room-sized meshes would sit inside the engine default and need no cap.
-That is roadmap 54, and it is the actual fix.
+Below the engine default the global line is not written, and an unlit package
+carries no rendering override at all.
 """
 from __future__ import annotations
 
@@ -58,14 +57,11 @@ from pathlib import Path
 _LIGHT_TYPES = ("OmniLight3D", "SpotLight3D", "DirectionalLight3D")
 
 #: The engine's own defaults. At or below these, a package needs no override.
+#: The per-object default is kept as a named fact even though no per-object
+#: cap is written any more: it is the budget the tiled plates were sized FOR,
+#: and the number the per-mesh census gates against.
 ENGINE_DEFAULT_RENDERABLE_LIGHTS = 32
 ENGINE_DEFAULT_LIGHTS_PER_OBJECT = 8
-
-#: Measured ceiling for the per-mesh cap. The worst mesh across lot_demo_001's
-#: five buildings sees 36 lights (pvp_station_ref's roof); 40 leaves margin and
-#: was confirmed seam-free in the walk preview. RAISE THIS FIRST if a denser
-#: mission shows a brightness step between adjacent slabs.
-PER_OBJECT_CEILING = 40
 
 _LIGHT_RE = re.compile(r'type="(?:' + "|".join(_LIGHT_TYPES) + r')"')
 
@@ -84,11 +80,6 @@ def count_package_lights(root: Path) -> int:
             continue
         total += len(_LIGHT_RE.findall(text))
     return total
-
-
-def per_object_cap(light_count: int) -> int:
-    """The per-mesh cap this package needs, bounded by what it contains."""
-    return min(light_count, PER_OBJECT_CEILING)
 
 
 def rendering_block(light_count: int) -> str:
@@ -111,20 +102,11 @@ def rendering_block(light_count: int) -> str:
             f"limits/opengl/max_renderable_lights={light_count}",
         ]
 
-    cap = per_object_cap(light_count)
-    if cap > ENGINE_DEFAULT_LIGHTS_PER_OBJECT:
-        out += [
-            "; PER-MESH BUDGET -- engine default 8. A mesh over it drops",
-            "; lights, and on building-sized floor and ceiling slabs that shows",
-            "; STANDING STILL, as a hard brightness step where two slabs meet.",
-            "; 0.43.2 removed this cap having tested only for blinking, and the",
-            "; seam came back. Measured in the walk preview, one interior:",
-            "; default 8 -> hard cut; 64 -> gone; 40 -> gone. The worst mesh",
-            "; across five buildings sees 36 lights, so 40 is the smallest",
-            "; value the data supports -- and this one COSTS: it sizes the",
-            "; shader light loop for every object. It is a mitigation; the fix",
-            "; is that one mesh should not span a room. Roadmap 54.",
-            f"limits/opengl/max_lights_per_object={cap}",
-        ]
+    # No per-object cap, ON PURPOSE (roadmap 54, closed). Every plate visual
+    # is tiled to light-budget-sized meshes upstream (zoo 0.49.0 /
+    # deli_counter 0.96.0 / lot 0.49.0), so no mesh needs more than the
+    # engine's own 8 -- proven by tools/mesh_light_census.py on the
+    # recomposed package, which is the gate to run before blaming this
+    # absence for a lighting defect.
 
     return "\n".join(out) + "\n\n"

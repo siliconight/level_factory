@@ -1,4 +1,4 @@
-"""Both light caps are derived from the package, and neither is a round number.
+"""The one remaining light cap is derived from the package; the other is GONE.
 
 `walk_preview._PROJECT` says the two project.godot writers "must stay verbatim"
 and gives the cost of drift: "Two projects disagreeing about what a complete
@@ -6,10 +6,13 @@ project.godot contains is how a human signs off lighting that was missing a
 rig." 0.43.2 removed the possibility by giving both one shared `rendering_block`;
 these tests hold the rest.
 
-The caps have been wrong in both directions inside one day -- 0.43.0 wrote the
-per-object cap for the wrong reason, 0.43.2 removed it for a reason that only
-covered half the symptoms -- so each property below is pinned rather than left
-to a comment.
+The per-object cap's whole history fits one day and one deletion: 0.43.0 wrote
+it for the wrong reason, 0.43.2 removed it for a reason that only covered half
+the symptoms, 0.43.3 shipped it as a priced mitigation -- and roadmap 54
+deleted it for good by removing what it mitigated: every plate visual is now
+tiled to light-budget-sized meshes (zoo 0.49.0 / deli_counter 0.96.0 /
+lot 0.49.0), proven by the per-mesh census on the recomposed package. Its
+ABSENCE is pinned below just as hard as its value used to be.
 
 Run:  python -m pytest tests/unit/test_project_godot_agreement.py
 """
@@ -17,7 +20,6 @@ import pytest
 
 from packages.core.godot_project import (ENGINE_DEFAULT_LIGHTS_PER_OBJECT,
                                          ENGINE_DEFAULT_RENDERABLE_LIGHTS,
-                                         PER_OBJECT_CEILING,
                                          count_package_lights, rendering_block)
 from packages.exporting.export import _write_project_godot
 from packages.preview.walk_preview import _PROJECT
@@ -95,28 +97,17 @@ def test_the_global_cap_is_the_exact_light_count(tmp_path):
     assert int(v) == n
 
 
-# --- the per-object cap is bounded BOTH ways ------------------------------
+# --- the per-object cap stays deleted --------------------------------------
 
-def test_the_per_object_cap_is_bounded_by_the_measured_ceiling(tmp_path):
-    """A 136-light package gets the ceiling, not 136: the value sizes the
-    shader light loop for every object, so it must not track the count up."""
-    v = _settings(_exported(tmp_path, 136), "rendering")["limits/opengl/max_lights_per_object"]
-    assert int(v) == PER_OBJECT_CEILING
-
-
-def test_the_per_object_cap_is_bounded_by_the_package_too(tmp_path):
-    """A 20-light package cannot put more than 20 on one mesh, so it gets 20
-    rather than paying for the ceiling."""
-    n = 20
-    assert n < PER_OBJECT_CEILING
-    v = _settings(_exported(tmp_path, n), "rendering")["limits/opengl/max_lights_per_object"]
-    assert int(v) == n
-
-
-def test_the_ceiling_covers_the_worst_measured_mesh():
-    """36 lights on pvp_station_ref's roof, measured 2026-08-18. If this
-    ceiling ever drops below that, the seam this cap exists for comes back."""
-    assert PER_OBJECT_CEILING >= 36
+def test_no_package_writes_a_per_object_cap(tmp_path):
+    """Roadmap 54: the cap paid, every frame, for meshes that spanned rooms.
+    The meshes are tiled now (zoo 0.49.0 / deli_counter 0.96.0 / lot 0.49.0),
+    the census read the recomposed package, and the cap is deleted -- for a
+    136-light package as much as for a small one. If a brightness step comes
+    back between adjacent slabs, run tools/mesh_light_census.py and fix the
+    tile size or the offending mesh; do not resurrect this line."""
+    for lights in (20, 136):
+        assert "max_lights_per_object" not in _exported(tmp_path, lights)
 
 
 # --- and the two writers still agree --------------------------------------
