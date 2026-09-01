@@ -162,6 +162,18 @@ def _driver_path() -> Path:
             / "assets" / "scripts" / "run_presentation_compose.py")
 
 
+#: Godot-side files the driver COPIES INTO the composed package. They are as
+#: much a part of what this job produces as the driver that installs them, so
+#: they are fingerprinted the same way -- editing `zoo_worldskin.gd` changes
+#: every building's materials and must not report `cache`.
+_INSTALLED_ASSETS = ("zoo_worldskin.gd",)
+
+
+def _installed_asset_paths() -> "list[Path]":
+    root = Path(__file__).resolve().parents[2] / "assets" / "godot"
+    return [root / n for n in _INSTALLED_ASSETS]
+
+
 class PresentationAdapter(BaseAdapter):
     adapter_id = "presentation"
     # 0.1.2: compose gates (z-fight/ladder/lineage) + dressing/fixtures
@@ -171,7 +183,11 @@ class PresentationAdapter(BaseAdapter):
     # adapter's version. The rules for computing this stage's fingerprint
     # changed, so entries computed under the old rules are not comparable and
     # must be retired rather than served alongside the new ones.
-    adapter_version = "0.3.0"
+    # 0.4.0 -- roadmap 93: `driver_src_hash` and `installed_asset_hash[...]`
+    # joined the fingerprint. Hashing a new input does not invalidate anything
+    # on its own; an entry written before the key existed still matches on
+    # every key it DID record. This bump is what forces the one re-run.
+    adapter_version = "0.4.0"
     capabilities = frozenset(
         {"themed_compose", "collision_fit", "greybox_base", "placement_gate",
          "marker_bake", "closure_check"}
@@ -323,6 +339,26 @@ class PresentationAdapter(BaseAdapter):
         # a mission that gains a resolvable deli_repo recomposes once
         # rather than silently keeping a fingerprint taken without it.
         fp["composer"] = _composer_fingerprint(job_spec, context)
+        # THIS JOB'S OWN CODE. Roadmap 93. The block above learned in August
+        # that DC's composer had to reach the fingerprint; the SAME hole was
+        # still open one level closer to home -- `run_presentation_compose.py`
+        # is what turns DC's output into a package, and rewriting it moved no
+        # key at all. Measured 2026-08-30: the driver was changed to install
+        # the worldskin importer default, a full run reported
+        # `presentation_compose  cache`, and the package shipped without it.
+        #
+        # `adapters/lux` already does this as `driver_src_hash` and has a test
+        # named after it; this is that pattern, copied rather than reinvented.
+        #
+        # A missing driver writes NO key rather than raising:
+        # `validate_configuration` already reports it by name, and a hashing
+        # routine that crashes first replaces that message with a traceback.
+        drv = _driver_path()
+        if drv.exists():
+            fp["driver_src_hash"] = hash_file(drv)
+        for a in _installed_asset_paths():
+            if a.exists():
+                fp["installed_asset_hash[%s]" % a.name] = hash_file(a)
         return fp
 
     def plan_commands(self, job_spec, context) -> Sequence[PlannedCommand]:

@@ -162,6 +162,21 @@ def _resolve_selected_candidate(ws: Workspace, mission_id: str) -> str | None:
     return None
 
 
+def _theme_for(batch: dict, model) -> str:
+    """The theme the art stages will ask for -- the same expression
+    `_job_specs_for_plan` uses, kept in one place so plan, run and the job
+    specs cannot disagree about what was requested."""
+    return str(getattr(model, "theme", "") or (batch or {}).get("theme_family", "") or "")
+
+
+def _theme_report(ws: Workspace, batch: dict, model) -> tuple[dict, list[str]]:
+    """(resolution, lines) for the theme this mission's art pass needs."""
+    from packages.tools import themes
+    repos = (ws.load_tools_local() or {}).get("repositories", {})
+    res = themes.resolve(_theme_for(batch, model), repos)
+    return res, themes.summary_lines(res)
+
+
 def _resolve_layers(args):
     """Resolve the composable layer set from CLI args. Explicit --art/--gameplay
     win; otherwise fall back to the legacy --target mapping; otherwise graybox.
@@ -209,8 +224,9 @@ def _plan_for(ws: Workspace, mission_id: str, target: str, layers=None):
 
 def cmd_plan(args) -> int:
     ws = _ws(args)
-    _, _, _, plan = _plan_for(ws, args.mission_id, getattr(args, 'target', None),
-                              layers=_resolve_layers(args))
+    _, batch, model, plan = _plan_for(ws, args.mission_id,
+                                      getattr(args, 'target', None),
+                                      layers=_resolve_layers(args))
     if args.json:
         print(pretty_dumps(plan.as_dict()))
     else:
@@ -219,6 +235,19 @@ def cmd_plan(args) -> int:
         print(f"  candidates: {', '.join(plan.candidate_ids)}")
         if plan.selected_candidate:
             print(f"  selected:   {plan.selected_candidate}")
+        # WHAT THE ART PASS WILL ASK FOR, before anything is spent (roadmap
+        # 72). `cold_7002` printed a twelve-job DAG here without a word about
+        # the theme, ran every one of them, and then died in two seconds on a
+        # missing JSON file. Printed on every plan, art layer or not: a
+        # graybox plan is exactly when a reader is deciding whether to add
+        # `--art`.
+        from packages.pipeline.planner import LAYER_ART
+        _res, _lines = _theme_report(ws, batch, model)
+        for line in _lines:
+            print(f"  {line}")
+        if LAYER_ART in plan.layers and not _res["ok"]:
+            print("  ^ this plan HAS an art layer and the theme does not resolve; "
+                  "`run` will refuse it")
         for job in plan.graph.topological_order():
             deps = f" <- {', '.join(job.depends_on)}" if job.depends_on else ""
             print(f"  {job.job_id}  [{job.adapter_id}/{job.resource_class}]{deps}")
@@ -1278,6 +1307,22 @@ def cmd_run(args) -> int:
     batch_id, batch, model, plan = _plan_for(ws, args.mission_id,
                                               getattr(args, 'target', None),
                                               layers=_resolve_layers(args))
+    # PRE-FLIGHT: a theme that cannot resolve stops the art pass, so ask now
+    # rather than after the graybox leg (roadmap 72). Measured on `cold_7002`:
+    # three candidates through Blender, then Lot, Laser Tag and walktest --
+    # tens of minutes -- and then `pixelcoat_build` exited 1 on a file that
+    # could have been stat-ed before the first job was dispatched. Only when
+    # an art layer is actually planned; graybox needs no theme.
+    from packages.pipeline.planner import LAYER_ART
+    if LAYER_ART in plan.layers:
+        _res, _lines = _theme_report(ws, batch, model)
+        if not _res["ok"]:
+            for line in _lines:
+                print(f"  {line}", file=sys.stderr)
+            print("refusing to run an art layer against a theme that does not "
+                  "resolve. Nothing has been dispatched.", file=sys.stderr)
+            return EXIT_CONFIG
+
     specs = _job_specs_for_plan(ws, batch, model, plan)
     scheduler = _build_scheduler(ws, index)
 
@@ -1310,7 +1355,14 @@ def cmd_run(args) -> int:
     # unresolved blocking issues" while `blocked_job` was never set. Addendum
     # item I: "N candidates exist so that some can be bad."
     _dropped = frozenset(getattr(summary, "eliminated_candidates", {}) or {})
-    agg = aggregate(summary.all_issues, eliminated_candidates=_dropped)
+    # AND THE SELECTION GOES IN WITH IT -- roadmap 68. Passing only the
+    # eliminated set discounts blockers on the candidate a human approved:
+    # `cold_7001` printed "Structural checks passed" over a selected candidate
+    # carrying two. `_resolve_selected_candidate` reads the same `.selected`
+    # marker the approval gate writes.
+    _selected = _resolve_selected_candidate(ws, args.mission_id)
+    agg = aggregate(summary.all_issues, eliminated_candidates=_dropped,
+                    selected_candidate=_selected)
     if _dropped:
         # `cmd_batch_run` has printed this for a while and `cmd_run` never did,
         # so on a single-mission run the reason the mission survived was
@@ -1320,6 +1372,12 @@ def cmd_run(args) -> int:
         if agg["blocking_eliminated"]:
             print(f"  {len(agg['blocking_eliminated'])} blocker(s) belong to "
                   f"eliminated candidate(s) and do not block the mission")
+        if agg["selected_eliminated"]:
+            # Loud on purpose. This is the run having no answer, and the
+            # quiet version of it is what roadmap 68 was filed for.
+            print(f"  THE SELECTED CANDIDATE WAS ELIMINATED: {_selected}")
+            print(f"  its blockers still count, and this mission has no "
+                  f"viable selection until another candidate is approved")
 
     # Record what this run left the mission in. Nothing wrote the missions table
     # before, so `status` with no mission id listed nothing and `batch report`

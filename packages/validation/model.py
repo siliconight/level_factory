@@ -84,7 +84,8 @@ def issue_from_normalized(
 
 def aggregate(issues: list[ValidationIssue],
               accepted_issue_ids: frozenset[str] = frozenset(),
-              eliminated_candidates: frozenset[str] = frozenset()) -> dict:
+              eliminated_candidates: frozenset[str] = frozenset(),
+              selected_candidate: str | None = None) -> dict:
     """Aggregate findings for reporting and gating (TDD 22.4, 22.5).
 
     `eliminated_candidates` are candidates the scheduler already discarded --
@@ -98,6 +99,20 @@ def aggregate(issues: list[ValidationIssue],
     three candidates built, and the summary line still read "Blocked:
     unresolved blocking issues". `blocked_job` was never set. The run that
     continued reported as the run that halted.
+
+    `selected_candidate` is the exception to that, and it exists because the
+    paragraph above overshot by exactly one candidate. Measured 2026-08-27 on
+    cold run `cold_7001` (roadmap 68): the candidate a human had approved at
+    `candidate_selected` picked up two `LUX_FIXTURE_COLOCATION` blockers, the
+    scheduler eliminated it, the discount fired on the strength of that
+    elimination alone, and the run printed "Structural checks passed (blockers
+    open: 0, total findings: 119)". A blocker on the SELECTED candidate always
+    counts. "N candidates exist so that some can be bad" is true of the ones
+    nobody chose; the chosen one IS the mission.
+
+    An eliminated SELECTION is itself a finding -- a mission with nothing to
+    hand over -- so `selected_eliminated` reports it rather than letting it
+    read as a clean run.
 
     OPT-IN. The default is empty, and with it every blocking issue lands in
     `blocking_open` exactly as before -- a caller that does not know which
@@ -118,7 +133,11 @@ def aggregate(issues: list[ValidationIssue],
         if issue.issue_id in accepted_issue_ids:
             accepted.append(issue.issue_id)
         elif issue.blocking:
-            if issue.candidate_id in eliminated_candidates:
+            # The selection is never discounted. Roadmap 68: the predicate
+            # used to be `in eliminated_candidates` alone, which discounted
+            # the one candidate whose blockers are the only ones that matter.
+            if (issue.candidate_id in eliminated_candidates
+                    and issue.candidate_id != selected_candidate):
                 blocking_eliminated.append(issue.issue_id)
             else:
                 blocking_open.append(issue.issue_id)
@@ -134,6 +153,12 @@ def aggregate(issues: list[ValidationIssue],
         # carried on; deleting it loses the only record of why the candidate
         # went.
         "blocking_eliminated": sorted(blocking_eliminated),
+        # The selection itself was thrown away. That is not a pass, it is a
+        # mission with nothing to hand over, and it gets said out loud rather
+        # than inferred from a blocker count that no longer mentions it.
+        "selected_eliminated": bool(
+            selected_candidate is not None
+            and selected_candidate in eliminated_candidates),
         "accepted": sorted(accepted),
         "has_blockers": len(blocking_open) > 0,
         "total": len(issues),

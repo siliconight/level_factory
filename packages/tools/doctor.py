@@ -142,6 +142,30 @@ def run_doctor(
             else:  # UNKNOWN — no comparable version
                 report.add(f"tool:{adapter_id}", PASS, f"{detail} (version unpinned)")
 
+    # WHAT THEMES ARE ACTUALLY INSTALLED (roadmap 72). Not a verdict on any
+    # particular brief -- doctor does not know which mission you mean -- but
+    # the list a reader needs to spot `delco_1997` against `delco` before a
+    # run spends the whole graybox leg finding out. NOT_CONFIGURED rather
+    # than a failure when a repo is unset: this is information, not a gate.
+    from packages.tools import themes as _themes
+    _pc = repos.get("pixelcoat", "")
+    _zoo = repos.get("zoo", "")
+    if not _pc and not _zoo:
+        report.add("themes", NOT_CONFIGURED, "pixelcoat/zoo repositories not set")
+    else:
+        _avail = _themes.pixelcoat_themes(_pc)
+        _styles, _species = _themes.zoo_styles(_zoo)
+        _detail = ("pixelcoat: " + (", ".join(_avail) if _avail else "(none)"))
+        if _species:
+            _full = sorted(s for s, n in _styles.items() if n == _species)
+            _part = sorted(s for s, n in _styles.items() if 0 < n < _species)
+            _detail += f" | zoo ({_species} species): " + (
+                ", ".join(_full) if _full else "(none on all)")
+            if _part:
+                _detail += " | zoo partial: " + ", ".join(
+                    f"{s} ({_styles[s]}/{_species})" for s in _part)
+        report.add("themes", PASS if _avail else WARN, _detail)
+
     # Workspace writability
     report.add("workspace_writable", PASS if workspace_writable else FAIL,
                "writable" if workspace_writable else "cannot write workspace/cache")

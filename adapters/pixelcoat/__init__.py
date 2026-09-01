@@ -39,8 +39,24 @@ class PixelcoatAdapter(BaseAdapter):
 
     def validate_configuration(self, job_spec, context) -> Sequence[str]:
         problems: list[str] = []
-        if job_spec.get("theme"):
-            return problems                      # theme-library mode: theme is enough
+        theme = job_spec.get("theme")
+        if theme:
+            # A theme is enough ONLY if its profile exists (roadmap 72). This
+            # used to return unconditionally, so a brief naming a theme nobody
+            # had installed reached the tool and came back as a bare `exit=1`
+            # -- after the whole graybox leg. `fingerprint_inputs` below has
+            # always built this exact path to hash the profile; it simply
+            # never asked whether the file was there.
+            repo = context.get("repository")
+            if repo:
+                prof = Path(str(repo)) / "profiles" / "themes" / f"{theme}.json"
+                if not prof.is_file():
+                    have = sorted(x.stem for x in prof.parent.glob("*.json")) \
+                        if prof.parent.is_dir() else []
+                    problems.append(
+                        f"no pixelcoat theme profile for {theme!r} at {prof}; "
+                        f"installed: {', '.join(have) if have else '(none)'}")
+            return problems                      # theme-library mode
         recipe = job_spec.get("recipe_path")     # legacy single-recipe mode
         if not recipe:
             problems.append("pixelcoat job requires a theme or a recipe_path")

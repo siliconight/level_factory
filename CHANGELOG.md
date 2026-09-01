@@ -1,3 +1,109 @@
+## [0.51.0] - the theme is checked before the graybox leg, not after it
+
+Roadmap item 72, found by paying for it. Cold run `cold_7002` put three
+candidates through Deli Counter in Blender, then Lot, then Laser Tag and
+walktest -- tens of minutes of real compute -- and then `pixelcoat_build`
+exited 1 in two seconds:
+
+    pixelcoat: error: no theme profile for 'delco_1997' at
+      ...\pixelcoat\profiles\themes\delco_1997.json
+
+`doctor` passed. `plan` printed a twelve-job DAG without a word about the
+theme. The missing profile is a content gap and arguably not a pipeline defect
+at all; **the absence of the check was the defect**.
+
+The path was never a mystery: the Pixelcoat adapter has always built exactly
+that path in `fingerprint_inputs` to hash the profile into its fingerprint. It
+knew where the file goes and never asked whether it was there.
+
+### Added
+- `packages/tools/themes.py`: reads what the installed tools actually carry --
+  Pixelcoat's `profiles/themes/*.json`, and the `styles` keys across Zoo's
+  species. Zoo coverage is reported as a FRACTION rather than a boolean,
+  because "3 of 48 species carry it" and "48 of 48" are different answers and
+  a yes/no would flatten them. Nothing here decides or writes anything.
+- `tests/unit/test_theme_preflight.py`: nine cases, including the `cold_7002`
+  theme itself, partial Zoo coverage, an unparseable species being skipped
+  rather than guessed at, and an unconfigured repository NOT being reported as
+  a no. (Eight pin the new module's contract; the ninth is the real regression
+  test and fails against 0.50.0.)
+- `tests/fixtures/repos/pixelcoat/profiles/themes/delco_1997.json`. THE STUB
+  INSTALL HAD TO BECOME A WORKING ONE. Every fixture batch names
+  `theme_family: delco_1997` and the stub Pixelcoat repo carried no `profiles/`
+  directory at all -- which cost nothing while nothing asked, and fails seven
+  tests the moment `run` starts refusing an unresolvable theme. The check is
+  right and the fixture was the thing that lied.
+
+  Six of the seven were the cascade, not the cause: one refused art layer
+  leaves no presentation preview, which reads as `pending` where the facade
+  expects `ready` and `PLANNED` where it expects `SUCCEEDED`. Only
+  `test_presentation_export_and_portability` named the real reason.
+
+  Shape copied from the real `pixelcoat/profiles/themes/delco.json` rather than
+  invented -- key-for-key and value-for-value identical. The preflight only
+  checks the file EXISTS, so any JSON would have passed; a fixture that lies
+  about its schema is a trap for whoever reads it next.
+
+### Changed
+- `run` REFUSES an art layer whose theme does not resolve, before dispatching
+  anything -- the change that actually saves the time. Only when an art layer
+  is planned; graybox needs no theme.
+- `plan` prints the theme the art stages will ask for and whether it resolves,
+  on every plan. A graybox plan is exactly when a reader is deciding whether
+  to add `--art`, so the line belongs there too.
+- `doctor` reports the themes Pixelcoat and Zoo actually carry. Not a verdict
+  on any brief -- doctor does not know which mission you mean -- but the list
+  a reader needs to spot `delco_1997` against `delco`.
+- `adapters/pixelcoat`: `validate_configuration` refuses a theme with no
+  profile, naming the path and what IS installed. Defence in depth: if a run
+  reaches dispatch anyway, the failure is an input-validation error rather
+  than a bare `exit=1` from the tool.
+
+## [0.50.0] - the gate stops discounting the candidate a human chose
+
+Roadmap item 68, found by the first cold run (`cold_7001`, roadmap 17) and
+fixed without loosening the fix it overshot. `aggregate` learned on 2026-08-12
+to stop counting blockers belonging to candidates the scheduler had already
+discarded -- correct, and for a good reason: "N candidates exist so that some
+can be bad." The predicate it installed was `issue.candidate_id in
+eliminated_candidates` and it never consulted the selection, so the discount
+fired hardest on the one candidate whose blockers are the only ones that can
+matter.
+
+Measured 2026-08-27 on real output. `category5_baie_dore_001.selected` named
+`candidate.seed_7001`; validation carried two `LUX_FIXTURE_COLOCATION` issues
+at severity `blocker`, both tagged to that same candidate; the scheduler
+eliminated it; and the run printed `Structural checks passed (blockers open:
+0, total findings: 119)`. The 2026-08-12 bug made a run that carried on report
+as one that halted. This one made a mission with no viable selection report as
+a clean pass, which is the worse direction.
+
+### Changed
+- `packages/validation/model.py`: `aggregate` takes `selected_candidate`
+  (opt-in, default `None`, so `cmd_validate` and every existing caller behave
+  exactly as before). A blocker belonging to the selection is never moved to
+  `blocking_eliminated`. `has_blockers` follows `blocking_open` as it always
+  has, so `readiness_label` corrects itself.
+- `apps/cli/commands/__init__.py`: `cmd_run` passes the selection alongside
+  the eliminated set -- `_resolve_selected_candidate` reads the same
+  `.selected` marker the approval gate writes -- and prints
+  `THE SELECTED CANDIDATE WAS ELIMINATED` when the two intersect. That case is
+  a mission with nothing to hand over and it now says so instead of being left
+  to deduce from a blocker count that no longer mentions it.
+
+### Added
+- `aggregate` returns `selected_eliminated`.
+- `tests/unit/test_selected_candidate_blockers.py`: eight cases pinning BOTH
+  halves, because the fix for either is a way of re-breaking the other -- the
+  selection's blockers count, a discarded candidate nobody chose is still
+  discounted, no-selection-passed is byte-identical to the previous behaviour,
+  acceptance still wins, a mission-scoped blocker is never discounted, and
+  findings are only ever partitioned, never dropped. All eight fail against
+  0.49.0.
+- `patches/patch_lf_selected_blocks.py`, carrying the evidence and a selftest
+  that imports the installed module rather than trusting the patch. The
+  2026-08-12 patch's own selftest still passes unchanged against this code.
+
 ## [0.49.0] - the per-object cap is deleted, and the meshes it excused are gone
 
 Roadmap 54 closes. The cap was always a mitigation with a running cost -- it

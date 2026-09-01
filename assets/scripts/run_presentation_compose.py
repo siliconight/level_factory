@@ -29,6 +29,70 @@ import sys
 from pathlib import Path
 
 
+#: Copied into the composed package and named by `[importer_defaults]`. Lives in
+#: `assets/godot/` beside `run_lux_apply.gd` and the walk bots, because it is a
+#: Godot-side asset LF ships rather than a driver LF runs.
+_WORLDSKIN = "zoo_worldskin.gd"
+
+
+def _install_worldskin(out: Path) -> None:
+    """Bake world-space UVs onto kit modules at import, for every build.
+
+    ROADMAP 76, 80 and 88, and the reason it is HERE. Zoo box-projects UVs from
+    each module's own local box, so a module's texture restarts at its own edges
+    and a `wallEnd` scaled 0.15 x 3.30 to fill a remainder stretches its skin
+    11:1. glTF cannot express "project from world position" -- it carries UV sets
+    and nothing else -- so this can only be a material property set after import.
+
+    Godot's own `import_script/path` hook is the cheapest place to set it: the
+    material is edited once inside the imported scene and every instance of that
+    GLB shares it. The alternative, a pass over the composed scene, means
+    `surface_material_override` per placement -- a separate material for each of
+    218 kit modules, which is Deli Counter's one-mesh-in-VRAM discipline undone
+    at the material layer for the sake of a boolean.
+
+    PROVEN BEFORE IT WAS WIRED. The same change made at runtime in a scratch walk
+    project was confirmed by eye -- the stretched strips and the 2 m module seams
+    both gone -- and measured against a null run: 7 of 8 shots cleared the
+    instrument\'s own floor, max |delta| 43-217 against floors of 7-16. Baking it
+    at import reproduces that to within ~50 pixels of a 1.44 Mpx frame, a
+    residual that is real (the null pair differs by 0 pixels at the same
+    threshold) and unexplained; the leading candidate is `uv1_scale` being
+    derived from the mesh at a different point in the import pipeline. Recorded
+    rather than waved away.
+
+    Best-effort: a compose that cannot write the script still produces a valid
+    package, it just produces the old look. Saying nothing would be worse than
+    either outcome, so it says which.
+    """
+    src = Path(__file__).resolve().parent.parent / "godot" / _WORLDSKIN
+    proj = out / "project.godot"
+    if not src.is_file():
+        print(f"[compose] worldskin NOT installed: {src} is missing",
+              file=sys.stderr)
+        return
+    decl = 'scene={\n"import_script/path": "res://%s"\n}' % _WORLDSKIN
+    try:
+        (out / _WORLDSKIN).write_text(src.read_text(encoding="utf-8"),
+                                      encoding="utf-8")
+        txt = proj.read_text(encoding="utf-8") if proj.exists() else ""
+        if "import_script/path" in txt:
+            return
+        if "[importer_defaults]" in txt:
+            # Append INSIDE the existing section. A second `[importer_defaults]`
+            # header is a redefinition, and Godot keeps the last one -- which
+            # would silently drop whatever the first one set.
+            txt = txt.replace("[importer_defaults]",
+                              "[importer_defaults]\n\n" + decl, 1)
+        else:
+            txt = txt.rstrip("\n") + "\n\n[importer_defaults]\n\n" + decl + "\n"
+        proj.write_text(txt, encoding="utf-8")
+        print("[compose] worldskin: kit modules import with world-space UVs "
+              f"(res://{_WORLDSKIN})")
+    except OSError as exc:
+        print(f"[compose] worldskin NOT installed: {exc}", file=sys.stderr)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--deli-repo", required=True,
@@ -136,6 +200,8 @@ def main() -> int:
                 proj.write_text(txt, encoding="utf-8")
     except OSError:
         pass
+
+    _install_worldskin(Path(a.out))
 
     bid = man.get("building_id")
     print(f"[compose] {bid} ({man.get('theme')}): "

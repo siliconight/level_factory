@@ -1,0 +1,30 @@
+{
+ "theme": "delco_1997",
+ "description": "FIXTURE THEME -- the profile the stub Pixelcoat repo carries so the fixture install is a WORKING one. Every fixture batch names theme_family delco_1997; before the theme preflight (LF 0.51.0, roadmap 72) nothing asked whether the profile existed, so this directory did not need to. It does now: `run` refuses an art layer whose theme does not resolve, which is the whole point of the feature, and a stub install that cannot resolve its own theme fails seven tests for a content reason rather than a pipeline one. Shape copied from the real pixelcoat/profiles/themes/delco.json, not invented -- the preflight only checks the file is THERE, but a fixture that lies about its schema is a trap for whoever reads it next.",
+ "materials": {
+  "brick": "brick_delco",
+  "canvas": "canvas_delco",
+  "carbon": "carbon_neutral",
+  "carpet": "carpet_delco",
+  "ceiling_tile": "ceiling_tile_delco",
+  "concrete": "concrete_delco",
+  "dirt": "dirt_delco",
+  "drywall": "drywall_delco",
+  "glass": "glass_frosted",
+  "glass_facade": "glass_facade_mirror_blue",
+  "gravel": "pebble_gravel",
+  "laminate": "laminate_neutral",
+  "leather": "leather_delco",
+  "metal": "metal_rusted_street",
+  "metal_bare": "metal_bare_neutral",
+  "metal_painted": "metal_painted_neutral",
+  "paper": "paper_neutral",
+  "plaster": "plaster_delco",
+  "plastic": "plastic_neutral",
+  "rubber": "rubber_delco",
+  "tar": "tar_neutral",
+  "tile": "tile_delco",
+  "vegetation": "vegetation_neutral",
+  "wood": "wood_delco"
+ }
+}
