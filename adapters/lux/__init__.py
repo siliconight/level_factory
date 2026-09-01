@@ -41,7 +41,16 @@ class LuxAdapter(BaseAdapter):
     # produced -- and reported success. Bumping this constant is also
     # what invalidates every existing Lux entry once, so 0.41.0 gets an
     # execution to be measured on.
-    adapter_version = "0.5.0"
+    # 0.6.0 widens the fixture gate from the lamps to the LIT FACES.
+    # `set_fixtures_powered` drives both; the gate measured only the first
+    # and `LUX_FIXTURE_POWER_GATE` is a BLOCKING finding, so every level
+    # ever gated passed a blocking check on half its subject. Bumping is
+    # what makes each existing entry execute once against the wider
+    # instrument -- a cached `powered: {kill: true}` was true about the
+    # lamps and says nothing about the glow. Same reasoning as 0.4.0 and
+    # 0.5.0 above: when the QUESTION changes, the cached ANSWER is not an
+    # answer to it.
+    adapter_version = "0.6.0"
     capabilities = frozenset(
         {"apply_preset", "apply_roles", "level_override", "validate_scene",
          "preview_states", "quality_tiers", "fixture_gate"}
@@ -265,10 +274,51 @@ class LuxAdapter(BaseAdapter):
                     issues.append({
                         "code": "LUX_FIXTURE_POWER_GATE",
                         "severity": "blocker", "category": "presentation",
-                        "message": (f"fixtures_powered gate failed: "
-                                    f"kill={powered.get('kill')} "
+                        "message": (f"fixtures_powered gate failed on the "
+                                    f"lamps: kill={powered.get('kill')} "
                                     f"restore={powered.get('restore')}"),
                         "blocking": True, "raw_source_path": str(gate)})
+                # THE LIT FACES, which `powered` above has never covered.
+                # An absent `glow` block means a pre-0.6.0 driver wrote this
+                # report, and that is reported rather than defaulted: a
+                # checker that cannot find the field it wants has learned
+                # nothing and must say so, or `or {}` turns the absence into
+                # a clean verdict.
+                glow = g.get("glow")
+                if not isinstance(glow, dict) or "evaluated" not in glow:
+                    issues.append({
+                        "code": "LUX_FIXTURE_GLOW_UNMEASURED",
+                        "severity": "moderate", "category": "contract",
+                        "message": ("gate report carries no `glow` block "
+                                    "(pre-0.6.0 driver) -- the powered "
+                                    "verdict covers the lamps only"),
+                        "blocking": False, "raw_source_path": str(gate)})
+                elif glow.get("evaluated"):
+                    if int(glow.get("materials", 0)) == 0:
+                        issues.append({
+                            "code": "LUX_NO_FIXTURE_EMISSIVES",
+                            "severity": "moderate", "category": "contract",
+                            "message": (
+                                f"no M_*_Lens / _Diffuser / _Face materials "
+                                f"under {glow.get('search_root', '?')!r} "
+                                f"(pre-v0.28 Zoo fixtures) -- the powered "
+                                f"beat cannot drive a glow that is not there"),
+                            "blocking": False, "raw_source_path": str(gate)})
+                    elif not (glow.get("kill") and glow.get("restore")):
+                        issues.append({
+                            "code": "LUX_FIXTURE_GLOW_GATE",
+                            "severity": "blocker", "category": "presentation",
+                            "message": (
+                                f"{glow.get('bound')} of "
+                                f"{glow.get('materials')} lit-face "
+                                f"material(s) bound, and the powered cut did "
+                                f"not take: kill={glow.get('kill')} "
+                                f"restore={glow.get('restore')} "
+                                f"(energy {glow.get('energy_before')} -> "
+                                f"{glow.get('energy_off')} -> "
+                                f"{glow.get('energy_restored')}). Fixtures "
+                                f"keep glowing through a power cut."),
+                            "blocking": True, "raw_source_path": str(gate)})
         report = next((p for p in output_paths if p.name == "lux.validation.json"), None)
         if report is not None:
             try:

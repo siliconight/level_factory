@@ -1,3 +1,63 @@
+## [0.52.0] - the fixture gate stops certifying half the power beat
+
+Roadmap item 94, and the reason it is worth a release rather than a patch:
+`LUX_FIXTURE_POWER_GATE` is a BLOCKING finding, and it was blocking on half
+its subject.
+
+`set_fixtures_powered` drives two things -- the spawned rig lights, and the
+fixture lit-face materials that `LuxEmissiveBinder` binds. `run_fixture_gate.gd`
+never bound, so `_energy(lamps)` was all it could measure, and it reported
+`powered: {kill: true, restore: true}` for a level where every lens, diffuser
+and sign face stays lit through the cut. Every level ever gated passed a
+blocking check that could not see the defect it exists to catch.
+
+A walkthrough could not have caught it either, which is why it survived: the
+emissive faces glow through the WorldEnvironment's glow pass whether or not
+any light is cast, so the gate and the eye are blind in the same direction.
+`--no-fixture-lights` says exactly this in its own help text and has since it
+was written.
+
+### Changed
+- `assets/godot/run_fixture_gate.gd` binds the fixture emissives before the
+  powered cycle and measures lamp energy and glow energy ACROSS THE SAME
+  kill/restore -- one experiment, not two, because two cycles can disagree
+  for reasons that are not the fixtures. The report gains a `glow` block:
+  `evaluated`, `bound`, `materials`, `search_root`, `kill`, `restore` and the
+  three energies. `stage` is passed to the bind explicitly rather than left
+  to LuxRoot's fallback, which resolves to nothing useful in a `-s` driver
+  run (see Lux 0.27.0).
+- `adapters/lux`: `adapter_version` 0.5.0 -> 0.6.0. The bump is what makes
+  every existing fixture-gate entry execute once against the wider
+  instrument. A cached `powered: {kill: true}` was a true answer to the
+  narrower question and is not an answer to this one -- the same reasoning as
+  0.4.0 (the composed scene's art) and 0.5.0 (the driver's own code).
+
+### Added
+- `LUX_FIXTURE_GLOW_GATE` (blocker): lit faces are present and the powered
+  cut did not take them. The message carries bound/total and all three
+  energies, so the finding is attributable without re-running anything.
+- `LUX_NO_FIXTURE_EMISSIVES` (moderate, non-blocking): no
+  `M_*_Lens`/`_Diffuser`/`_Face` materials under the searched root -- a
+  pre-v0.28 Zoo fixtures GLB. Non-blocking for the same reason
+  `LUX_NO_FIXTURE_MARKERS` is: nothing was gated, and saying so is the
+  answer.
+- `LUX_FIXTURE_GLOW_UNMEASURED` (moderate, non-blocking): the report carries
+  no `glow` block at all, meaning a pre-0.6.0 driver wrote it. Reported
+  rather than defaulted, because a checker that cannot find the field it
+  wants has learned nothing and must say so -- an `or {}` here would turn the
+  absence into a clean verdict, which is the defect this repo has already
+  paid for once in `export_closure_scan.json`.
+
+### Verification
+`run_fixture_gate.gd` passes `tools/gdcheck.py`. The three new findings were
+exercised against synthetic gate reports covering all six branches --
+pre-0.6.0 report, glow measured and failing, glow measured and healthy, no
+lit-face materials, no markers at all, and lamps AND glow failing together
+(which reports both findings, not one). NOT yet run against Godot: no engine
+was available to the session that wrote this, so the first real gate run is
+the measurement, and a `LUX_FIXTURE_GLOW_GATE` on it would be the defect
+being caught rather than a regression.
+
 ## [0.51.0] - the theme is checked before the graybox leg, not after it
 
 Roadmap item 72, found by paying for it. Cold run `cold_7002` put three

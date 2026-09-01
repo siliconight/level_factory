@@ -20,6 +20,7 @@ extends SceneTree
 const SPAWNER := "res://addons/lux/runtime/lux_fixture_spawner.gd"
 const VALIDATOR := "res://addons/lux/runtime/lux_validator.gd"
 const ROOT := "res://addons/lux/runtime/lux_root.gd"
+const BINDER := "res://addons/lux/runtime/lux_emissive_binder.gd"
 
 func _parse_args() -> Dictionary:
 	var out := {}
@@ -58,7 +59,8 @@ func _main() -> void:
 	var Spawner: GDScript = load(SPAWNER) as GDScript
 	var Validator: GDScript = load(VALIDATOR) as GDScript
 	var RootScript: GDScript = load(ROOT) as GDScript
-	if Spawner == null or Validator == null or RootScript == null:
+	var Binder: GDScript = load(BINDER) as GDScript
+	if Spawner == null or Validator == null or RootScript == null or Binder == null:
 		push_error("run_fixture_gate: lux runtime scripts not found under addons/lux (need lux v0.15+)")
 		quit(2)
 		return
@@ -97,6 +99,7 @@ func _main() -> void:
 		report["spawnable"] = 0
 		report["colocation_errors"] = []
 		report["powered"] = {"kill": true, "restore": true}
+		report["glow"] = {"evaluated": false, "why": "no LuxEmit_* markers"}
 		_finish(report, out_dir)
 		return
 
@@ -113,17 +116,49 @@ func _main() -> void:
 			coloc_errors.append(String(f.message))
 	report["colocation_errors"] = coloc_errors
 
+	# THE GLOW IS THE OTHER HALF OF THE BEAT AND WAS NEVER MEASURED HERE.
+	# `set_fixtures_powered` drives two things: the rig lights, and the
+	# fixture lit-face materials bound by LuxEmissiveBinder. This driver bound
+	# nothing, so `_energy(lamps)` was all it could see -- and it reported
+	# `kill: true` for a level where every lens, diffuser and sign face stays
+	# lit through the cut. A blocking gate that passes on half its subject is
+	# worse than no gate: it looks actionable and is not.
+	#
+	# `stage` is passed EXPLICITLY. LuxRoot resolves an unqualified search
+	# root from `owner`, then the parent, then `get_tree().current_scene` --
+	# and in a `-s` driver run there is no current scene at all. Naming the
+	# node whose subtree holds the fixtures is what makes a count of zero mean
+	# "this GLB has no lit faces" rather than "we searched an empty node".
+	var bind: Dictionary = lux.bind_fixture_emissives(stage)
+	var mats: Array = []
+	_collect_fixture_emissives(Binder, stage, mats)
+
 	# Powered gate on the spawned set (visibility-kill; alarm group exempt;
-	# preset-owned DirectionalLight LuxSun excluded by design).
+	# preset-owned DirectionalLight LuxSun excluded by design). Lamps and glow
+	# are read across ONE kill/restore cycle, not two: two cycles would be two
+	# experiments and could disagree for reasons that are not the fixtures.
 	var lamps: Array = []
 	_collect_fixture_lights(stage, lamps)
 	var pre: float = _energy(lamps)
+	var glow_pre: float = _emissive_energy(mats)
 	lux.set_fixtures_powered(false)
 	var off: float = _energy(lamps)
+	var glow_off: float = _emissive_energy(mats)
 	lux.set_fixtures_powered(true)
 	var back: float = _energy(lamps)
+	var glow_back: float = _emissive_energy(mats)
 	report["powered"] = {"kill": off == 0.0, "restore": back == pre,
 		"energy_before": pre, "energy_off": off, "energy_restored": back}
+	# Exact equality on the restore is right HERE and would not be elsewhere:
+	# restoring re-assigns the value the binder stamped into the material's
+	# own meta, so it is the same float travelling back, not a recomputation.
+	report["glow"] = {"evaluated": true,
+		"bound": int(bind.get("count", 0)),
+		"materials": mats.size(),
+		"search_root": String(bind.get("search_root", "")),
+		"kill": glow_off == 0.0, "restore": glow_back == glow_pre,
+		"energy_before": glow_pre, "energy_off": glow_off,
+		"energy_restored": glow_back}
 
 	_finish(report, out_dir)
 
@@ -133,9 +168,12 @@ func _finish(report: Dictionary, out_dir: String) -> void:
 	if f != null:
 		f.store_string(JSON.stringify(report, "  "))
 		f.close()
-	print("[fixture_gate] markers=%d spawned=%d colocation_errors=%d" % [
+	var glow: Dictionary = report.get("glow", {})
+	print("[fixture_gate] markers=%d spawned=%d colocation_errors=%d glow=%s" % [
 		int(report.get("markers", 0)), int(report.get("spawned", 0)),
-		(report.get("colocation_errors", []) as Array).size()])
+		(report.get("colocation_errors", []) as Array).size(),
+		("%d bound" % int(glow.get("bound", 0)) if bool(glow.get("evaluated", false))
+			else "not evaluated")])
 	quit(0)
 
 func _unspawnable(Spawner: GDScript, markers: Array) -> int:
@@ -159,4 +197,34 @@ func _energy(lamps: Array) -> float:
 		var li: Light3D = lo as Light3D
 		if is_instance_valid(li):
 			total += li.light_energy * (1.0 if li.visible else 0.0)
+	return total
+
+## Every fixture lit-face material under `n`, by the SAME naming rule the
+## binder uses -- `Binder.matches` rather than a second copy of the suffix
+## list here, because two spellings of one contract is how a gate ends up
+## measuring a set the thing it gates does not touch.
+##
+## Override material first, then the mesh's own: that is the order
+## `LuxEmissiveBinder._collect` reads them in, and reading them in the other
+## order would count a material the binder never bound.
+func _collect_fixture_emissives(Binder: GDScript, n: Node, out: Array) -> void:
+	var mi: MeshInstance3D = n as MeshInstance3D
+	if mi != null and mi.mesh != null:
+		for s in mi.mesh.get_surface_count():
+			var mat: Material = mi.get_surface_override_material(s)
+			if mat == null:
+				mat = mi.mesh.surface_get_material(s)
+			var bmat: BaseMaterial3D = mat as BaseMaterial3D
+			if bmat != null and Binder.matches(bmat.resource_name) \
+					and not out.has(bmat):
+				out.append(bmat)
+	for c in n.get_children():
+		_collect_fixture_emissives(Binder, c, out)
+
+func _emissive_energy(mats: Array) -> float:
+	var total: float = 0.0
+	for m in mats:
+		var bm: BaseMaterial3D = m as BaseMaterial3D
+		if bm != null:
+			total += bm.emission_energy_multiplier
 	return total
