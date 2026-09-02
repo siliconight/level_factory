@@ -1,3 +1,45 @@
+## [0.53.0] - the smoke asks for a theme that exists
+
+`smoke_lf.ps1` has requested `delco_1997` since it was written, and nothing
+has ever carried it. The preflight added in 0.51.0 says so precisely:
+
+    theme: delco_1997 - NO PIXELCOAT PROFILE at ...\themes\delco_1997.json
+      pixelcoat carries: bank, casino, delco, rockay, rockay_civic,
+        rockay_retail, rockay_service, stadium, street
+      zoo: no species carry a 'delco_1997' style (56 scanned) - the kit
+        falls back to flat colour
+    refusing to run an art layer against a theme that does not resolve.
+
+So the harness has NEVER completed its presentation leg. Before 0.51.0 it
+failed late, inside `pixelcoat_build`, after a full Blender functional lock;
+since the preflight it fails in seconds at stage 9 with exit 3. Nothing
+regressed -- the failure moved to where it belongs and got cheap -- but the
+smoke still cannot certify anything, and `verify-manifest` has been reporting
+DRIFT on five tools with no way to clear it.
+
+The theme is INCIDENTAL to what this script tests. It exercises junctions,
+install, both suites, workspace init, doctor, the functional lock on real
+Blender, the presentation leg including `zoo_fixtures_build` and
+`lux_fixture_gate`, approvals, export and portability. None of that is about
+which skin the level wears. A harness that blocks on a content gap is
+measuring the catalogue rather than the pipeline.
+
+**WHAT WAS NOT DONE, deliberately.** `delco_1997` was not created. It needs a
+Pixelcoat skin pack AND Zoo species styles -- the preflight names both -- so
+it is a two-repo capability request, and whether that theme should exist at
+all is a design decision rather than a fix. Filed as roadmap item 97 so the
+gap stays visible instead of being papered over by this change.
+
+### Changed
+- `tools/smoke_lf.ps1`: `theme_family` and `theme` are `delco`, which
+  Pixelcoat carries. Two string edits, no logic touched.
+
+### Verification
+The preflight that produced the refusal above is the test: a run whose stage 9
+reaches `zoo_fixtures_build` has proved this, and one that exits 3 again has
+not. NOT yet run to completion by the session that made the change -- the
+smoke is a cold Blender run and takes what it takes.
+
 ## [0.52.0] - the fixture gate stops certifying half the power beat
 
 Roadmap item 94, and the reason it is worth a release rather than a patch:

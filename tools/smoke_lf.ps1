@@ -92,11 +92,11 @@ LF verify-manifest --factory $Factory | Out-Null
 
 Section "7. BATCH + BRIEF"
 @{ schema="level_factory.batch.v0.1"; batch_id="smoke_b1"; name="Smoke"
-   seed_base=1997; theme_family="delco_1997"; missions=@("m1") } | ConvertTo-Json | Set-Content (Join-Path $Src "batch.json")
+   seed_base=1997; theme_family="delco"; missions=@("m1") } | ConvertTo-Json | Set-Content (Join-Path $Src "batch.json")
 @{ schema="level_factory.mission_brief.v0.1"; mission_id="m1"; display_name="Smoke M1"
    archetype="urban_bank"; building_count=1; site_shape="street_block"
    route_shape="push_then_backtrack"; candidate_count=3
-   target_minutes=@(25,35); theme="delco_1997"; time_of_day="afternoon" } | ConvertTo-Json | Set-Content (Join-Path $Src "briefs\m1.json")
+   target_minutes=@(25,35); theme="delco"; time_of_day="afternoon" } | ConvertTo-Json | Set-Content (Join-Path $Src "briefs\m1.json")
 LF batch create (Join-Path $Src "batch.json") | Out-Null
 
 Section "8. FUNCTIONAL LOCK (DC x3 real Blender -> Lot -> LaserTag)"
