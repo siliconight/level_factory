@@ -1,3 +1,59 @@
+## [0.54.0] - the seed reaches the building, and the lot says what it built
+
+Roadmap item 69: `candidate_count: 5` produced five site layouts of one
+identical building set -- all five `shell.glb` at 625,404 bytes, every spec
+Level Factory handed Deli Counter carrying `"seed": 1989`. The item had the
+seed located as far as the filename and no further.
+
+It was never lost. It was never sent. `_level_name` used it to make the spec
+file unique and the adapter passed no seed to `new_level.py`, because
+`new_level.py` had no way to take one -- and the 1989 in those specs is
+`casino_tower`'s own authored literal (`presets.py`), which is why cold_7002
+read 1999 off `bank` instead and the item could rule out "a single hardcoded
+constant" while still looking in the wrong place.
+
+### Changed
+- The Deli Counter adapter (0.2.0 -> 0.3.0) passes `--seed <candidate seed>`
+  to `new_level.py`, which grows the flag in Deli Counter 0.103.0.
+- `fingerprint_inputs` now includes the seed. It was excluded deliberately, on
+  a comment asserting the seed does not affect the building; that assertion was
+  wrong, and leaving it would have made the fix inert -- five candidates
+  differing only by seed would hash identically and cache-hit to one build,
+  which is the state being fixed.
+
+### What this does and does not buy
+Measured across seven presets at two seeds each, name held constant: the seed
+moves seeded cover volumes and their markers -- 8 of 14 on casino_tower, 8 of
+11 on bank, 7 of 13 on warehouse, 8 of 18 on hospital, 2 of 6 on pawn_shop --
+and moves nothing at all on office and parking_garage. It moves no stairs and
+no ladders anywhere. Shell, rooms and partitions are identical across seeds.
+
+Candidates are no longer the same file. They are still the same building, so
+item 69's own sentence -- "what is missing is building variety" -- stands, and
+the lever for it is the preset (item 37), not the seed.
+
+### The lever, said out loud (roadmap 37)
+Roadmap 37's varied lot turns out to be BUILT: `building_library` selects a lot
+of distinct archetypes, `_write_site_spec` places a mixed row, and the
+per-archetype planner fan-out that item and three briefs name as the blocker
+(roadmap 41 step 4) has landed -- `plan lot_demo_001 --art` fans five distinct
+archetypes through zoo, patina and lux into one compose.
+
+The residual is adoption. It is opt-in on `lot_library`, and of the eight
+briefs on disk two demos set it and **all three cold-run briefs do not**, so
+every interventions-per-level figure this repo quotes was measured on a site of
+one repeated building. `_write_site_spec` now says so when a brief asks for
+more than one building and names no library:
+
+    [site] 3 buildings, ONE archetype: this brief sets no `lot_library`, so
+    the same generated shell is placed 3 times (roadmap 37). Point it at a
+    build directory -- e.g. deli_counter/build -- for a lot of different
+    buildings.
+
+Two tests pin both branches (`tests/unit/test_lot_library_signal.py`): it fires
+at count > 1 and stays quiet at 1, because warning on a single-building brief
+trains the reader to scroll past the line that matters.
+
 ## [0.53.0] - the smoke asks for a theme that exists
 
 `smoke_lf.ps1` has requested `delco_1997` since it was written, and nothing

@@ -11,9 +11,12 @@ Real invocation is TWO steps (verified against the uploaded repo):
 
 ``new_level`` writes its spec into the repo's ``specs/`` dir (path is relative to
 the script, not cwd), so each job uses a unique level name to avoid collisions.
-``new_level`` has NO seed flag — DC is deterministic per preset; candidate
-variation comes from Lot's site assembly downstream, not from DC. The archetype
-maps to one of DC's named presets.
+``new_level`` takes ``--seed``, which overrides the recipe's authored seed (every
+preset pins one — casino_tower 1989, bank 1999 — so without the flag every
+candidate of a mission gets the same building). It varies seeded cover and the
+markers derived from it; it does NOT vary the shell, rooms, partitions, stairs
+or ladders, so it is only part of the candidate variety roadmap item 69 asks
+for. The archetype maps to one of DC's named presets.
 """
 from __future__ import annotations
 
@@ -105,7 +108,7 @@ def _preset_or_raw(job_spec) -> str:
 
 class DeliCounterAdapter(BaseAdapter):
     adapter_id = "deli_counter"
-    adapter_version = "0.2.0"
+    adapter_version = "0.3.0"
     capabilities = frozenset(
         {"generate_spec", "generate_building", "validate_building",
          "combat_audit", "slot_contract", "deterministic_build"}
@@ -144,10 +147,21 @@ class DeliCounterAdapter(BaseAdapter):
         return problems
 
     def fingerprint_inputs(self, job_spec, context) -> Mapping[str, object]:
-        # DC is deterministic per preset+flags; the seed does NOT affect the
-        # building (it drives Lot's site variation), so it is intentionally not
-        # part of the build fingerprint — identical configs dedupe in the cache.
+        # The seed IS part of the build. It was excluded here on the claim that
+        # "DC is deterministic per preset; the seed drives Lot's site variation
+        # only", and that claim was false: `presets.make` injects it before the
+        # seed-consuming passes, and `level_design.seed_cover` rolls each room's
+        # cover on `f"{seed}:{room_id}:seed_cover"`. Measured across seven
+        # presets, two seeds each, level name held constant — 8 of 14 cover
+        # volumes move on casino_tower, 8 of 11 on bank, 7 of 13 on warehouse,
+        # 8 of 18 on hospital, 2 of 6 on pawn_shop, and NOTHING on office or
+        # parking_garage. Stairs and ladders do not move on any of them.
+        #
+        # It must be fingerprinted or the fix is inert: five candidates that
+        # differ only by seed would hash identically and cache-hit to one
+        # build, which is the state this adapter was already in.
         return {
+            "seed": job_spec.get("seed"),
             # Fingerprinting must not VALIDATE. A hash only has to be stable
             # and distinguishing, and this runs on specs that legitimately
             # carry no archetype at all (the adapter-contract suite fingerprints
@@ -187,6 +201,8 @@ class DeliCounterAdapter(BaseAdapter):
             new_args.append("--vertex-nuance")
         if job_spec.get("rarity"):
             new_args += ["--rarity", str(job_spec["rarity"])]
+        if job_spec.get("seed") is not None:
+            new_args += ["--seed", str(int(job_spec["seed"]))]
 
         # Step 2: build the shell into the job's work dir (Blender).
         build_args = [str(repo / "build.py"), str(spec_path),

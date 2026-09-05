@@ -930,6 +930,19 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
     themed_map = themed_scene if isinstance(themed_scene, dict) else None
     lot = []
     library = getattr(model, "lot_library", None)
+    # THE SILENT DEFAULT, SAID OUT LOUD. Roadmap 37's mechanism is built and
+    # opt-in, and the opting-in is the part nobody does: of eight briefs on
+    # disk only two demos set `lot_library`, and all THREE cold-run briefs --
+    # the runs that exist to measure interventions-per-level -- do not. So
+    # every cold run measured to date placed one building N times and no line
+    # of output said so. This is the capability-gap signal item 62 asks every
+    # tool for: what was asked, what will actually be built, and the one key
+    # that changes it.
+    if not library and count > 1:
+        print(f"[site] {count} buildings, ONE archetype: this brief sets no "
+              f"`lot_library`, so the same generated shell is placed {count} "
+              f"times (roadmap 37). Point it at a build directory -- e.g. "
+              f"deli_counter/build -- for a lot of different buildings.")
     if library and (themed_map or not themed_scene):
         from packages.pipeline import building_library
         complete, incomplete, non_source = building_library.index(library)
