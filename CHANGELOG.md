@@ -1,3 +1,53 @@
+## [0.56.0] - the package imports itself, with our settings
+
+Roadmap 25, the half it never covered. The item is about generated projects and
+`cater`'s SERVED message -- "harmless for a human, who opens the project before
+pressing F6". It never considered the EXPORT, and a human who runs the shipped
+project rather than opening the editor is a third case.
+
+Found by walking `LF_precinct_yard_001.portable-godot`: no buildings, and a
+wall of `No loader found for resource ... (expected type: PackedScene)`
+followed by `Parse Error: [ext_resource] referenced non-existent resource`.
+Godot cannot load a .glb until it has imported it, and the package shipped 111
+GLBs with zero .import sidecars. **1141 load errors, measured.**
+
+The exporter has always known. `portability.py` runs `--import` on its clean
+copy before instantiating, and says why in its own comment: "the bundled GLB
+needs import artifacts and localized scripts need the global class cache before
+anything can load". So the export certified `portability PASS` on a state it
+produced for itself and did not ship.
+
+### Added
+- `_write_import_sidecars`: one import pass at export time, keeping the
+  `.import` sidecars. `.godot/` stays excluded for the reason already written
+  in this file -- machine-specific and large.
+
+  THE DEFAULT SETTING WOULD HAVE MADE THIS A BAD TRADE, and it was measured
+  before it was chosen. Godot's `gltf/embedded_image_handling` defaults to 1,
+  EXTRACT, which writes every embedded texture out as a loose .png beside its
+  GLB. All three modes, on clean copies of the same package:
+
+      variant                     ship MB   PNGs   sidecars
+      no import (as shipped)         19.3      0          0
+      embedded_image_handling=1      29.2    244        361     +63%
+      embedded_image_handling=3      19.5      0        117      +1%
+      embedded_image_handling=2      19.5      0        117      +1%
+
+  So the sidecars are rewritten to mode 3 and re-imported. Mode 3 over mode 2
+  because ship size is identical and uncompressed keeps the texture exactly as
+  Pixelcoat authored it -- roadmap 89 is a compression setting silently
+  changing a shipped build's look.
+
+  The benefit is not speed, it is SETTINGS: without our sidecars the
+  recipient's own import runs at mode 1 and extracts 244 PNGs into their
+  working copy. Verified on the shipped package -- import once, 0 errors, and
+  loose PNGs stay 0.
+
+- `HANDOFF.md` says so. It previously opened "self-contained Godot 4.7 mission
+  shell" and mentioned import zero times.
+
+Package 19 MB -> 20 MB. Full suite green.
+
 ## [0.55.0] - the export never told Godot which engine it was for
 
 `_write_project_godot` writes the PORTABLE EXPORT's project.godot -- the

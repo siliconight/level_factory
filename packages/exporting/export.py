@@ -69,6 +69,15 @@ HANDOFF_LANGUAGE = (
     "This package contains a self-contained Godot 4.7 mission shell, presentation "
     "resources, gameplay anchors, proposed mission beats, and runtime integration "
     "requirements.\n\n"
+    "IMPORT BEFORE YOU RUN IT. Godot cannot load a .glb until it has imported it. This "
+    "package ships the .import sidecars, so your import uses the settings this level was "
+    "built and checked with rather than the engine defaults -- but not the .godot/ cache, "
+    "which is machine-specific. Open the project once in the editor, or run "
+    "`godot --headless --path <this folder> --import`, BEFORE running the scene. "
+    "Skipping that step gives `No loader found for resource` on every mesh, then "
+    "`Parse Error: [ext_resource] referenced non-existent resource`, and an empty "
+    "level -- which looks like a broken package and is not one. Measured on this "
+    "package: 1141 load errors without the import pass, 0 with it.\n\n"
     "Level Factory and its authoring tools are not required to consume this package.\n\n"
     "The production game runtime remains authoritative for mission progression, "
     "gameplay behavior, enemy AI, replication, persistence, late joining, "
@@ -267,6 +276,105 @@ def _root_site_wanted(presentation_dir: Path | None) -> bool:
         return True
 
 
+def _write_import_sidecars(export_dir: Path, godot_executable) -> int:
+    """Run one import pass and keep the `.import` sidecars, not the cache.
+
+    ROADMAP 25, the half it never covered. Godot cannot load a `.glb` as a
+    PackedScene until it has imported it, and this package ships neither
+    sidecars nor a cache -- so a recipient who runs the project before opening
+    the editor gets `No loader found for resource` on every mesh and an empty
+    level. Measured on `LF_precinct_yard_001.portable-godot`: 111 GLBs, 0
+    sidecars, and the first walk of it produced exactly that.
+
+    The portability check has ALWAYS known: it runs `--import` on its clean
+    copy first, saying so in its own comment -- "the bundled GLB needs import
+    artifacts and localized scripts need the global class cache before
+    anything can load". So the export certified `portability PASS` on a state
+    it produced for itself and did not ship.
+
+    SIDECARS, NOT THE CACHE. `.godot/` stays excluded for the reason already
+    written twenty lines above -- machine-specific and large; measured at 13 MB
+    against 1.4 MB of sidecars on a 19 MB package. What the sidecar buys is not
+    speed but SETTINGS: it pins the import parameters this level was built and
+    photographed under, so the recipient does not silently import with engine
+    defaults. That is not hypothetical -- roadmap 89 is a mipmap setting
+    changing the look of a shipped build.
+
+    Safe to re-import: the shipped scenes carry ZERO `uid://` references (118
+    of 118 are `path="res://..."`), so regenerated ids bind to nothing.
+
+    TWO PASSES, AND THE SECOND ONE IS THE POINT. Godot's default GLTF setting
+    is `gltf/embedded_image_handling=1` -- EXTRACT -- which writes every
+    embedded texture out as a loose .png beside the GLB, so the package carries
+    each one twice. Measured on this package, all three modes, clean copies:
+
+        variant                     ship MB   PNGs   sidecars
+        no import (as shipped)         19.3      0          0
+        embedded_image_handling=1      29.2    244        361   (+63%)
+        embedded_image_handling=3      19.5      0        117   (+1%)
+        embedded_image_handling=2      19.5      0        117   (+1%)
+
+    So pass one produces the sidecars, this rewrites them to mode 3 (Embed as
+    Uncompressed), drops what extract wrote, and pass two re-imports. Mode 3
+    over mode 2 (Basis Universal) because the ship size is identical and
+    uncompressed keeps the texture exactly as Pixelcoat authored it -- roadmap
+    89 is a compression setting silently changing a shipped build's look.
+
+    The cost of NOT doing this, measured on the same package: 1141 load errors.
+
+    Best-effort. A missing Godot is a setup problem, not an export failure, and
+    HANDOFF.md tells the recipient what to do either way.
+    """
+    if not godot_executable:
+        return 0
+    import shutil as _shutil
+    import subprocess as _subprocess
+
+    def _import_pass() -> bool:
+        try:
+            _subprocess.run(
+                [str(godot_executable), "--headless", "--path",
+                 str(export_dir), "--import"],
+                capture_output=True, text=True, timeout=1200)
+            return True
+        except (OSError, _subprocess.SubprocessError):
+            return False
+
+    if not _import_pass():
+        return 0
+
+    KEY = "gltf/embedded_image_handling"
+    rewrote = 0
+    for sidecar in export_dir.rglob("*.glb.import"):
+        try:
+            text = sidecar.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if KEY not in text or f"{KEY}=3" in text:
+            continue
+        sidecar.write_text("\n".join(
+            f"{KEY}=3" if ln.startswith(KEY) else ln
+            for ln in text.splitlines()) + "\n", encoding="utf-8")
+        rewrote += 1
+
+    if rewrote:
+        # Drop what EXTRACT wrote, so the second pass is measured clean. Only
+        # textures beside a GLB -- the package's own PNGs (Lux's film grain,
+        # the validation overlays) are content and are never touched.
+        for png in list(export_dir.rglob("*.png")):
+            if not list(png.parent.glob("*.glb")):
+                continue
+            png.unlink(missing_ok=True)
+            Path(str(png) + ".import").unlink(missing_ok=True)
+        _shutil.rmtree(export_dir / ".godot", ignore_errors=True)
+        _import_pass()
+
+    cache = export_dir / ".godot"
+    if cache.is_dir():
+        _shutil.rmtree(cache, ignore_errors=True)
+    return len(list(export_dir.rglob("*.import")))
+
+
 def _write_project_godot(export_dir: Path, entry_scene: str, mission_id: str,
                          godot_version: str) -> None:
     """A minimal, autoload-free, plugin-free project so the shell is portable.
@@ -353,6 +461,11 @@ def export_mission(
     # 0.4.0; lot is 0.41.0) and 0.27.0 shipped the wrong one of the two
     # under a key named `tools`.
     pinned_tools: dict | None = None,
+    #: Used for ONE import pass so the package ships `.import` sidecars
+    #: (roadmap 25). Defaults to None so every existing caller -- including
+    #: the unit suite, which has no Godot -- keeps working; the package is
+    #: then exactly what it was before, and HANDOFF.md still says what to do.
+    godot_executable: str | None = None,
 ) -> ExportResult:
     # ONE INSTANT, used by the archive name and the manifest both. Two
     # calls to the clock would put two different times on one build.
@@ -668,6 +781,7 @@ def export_mission(
     _write_project_godot(export_dir, profile.entry_scene, mission_id,
                          profile.godot_version)
     (export_dir / "HANDOFF.md").write_text(HANDOFF_LANGUAGE, encoding="utf-8")
+    _write_import_sidecars(export_dir, godot_executable)
 
     resource_manifest = build_resource_manifest(export_dir)
     (export_dir / "portable_resource_manifest.json").write_text(

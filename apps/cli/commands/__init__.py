@@ -2582,6 +2582,7 @@ def cmd_export(args) -> int:
         seed=export_seed, candidate_id=export_candidate,
         pinned_tools=pinned_tools,
         factory_version=factory_version, factory_tag=factory_tag,
+        godot_executable=ws.load_tools_local().get("godot_executable"),
     )
     if args.format == "zip":
         zip_export(result)
