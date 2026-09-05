@@ -50,9 +50,9 @@ def _settings(text: str, section: str) -> dict:
     return out
 
 
-def _exported(tmp_path, lights):
+def _exported(tmp_path, lights, godot_version="4.7"):
     _package(tmp_path, lights)
-    _write_project_godot(tmp_path, "mission.tscn", "m")
+    _write_project_godot(tmp_path, "mission.tscn", "m", godot_version)
     return (tmp_path / "project.godot").read_text(encoding="utf-8")
 
 
@@ -108,6 +108,32 @@ def test_no_package_writes_a_per_object_cap(tmp_path):
     tile size or the offending mesh; do not resurrect this line."""
     for lights in (20, 136):
         assert "max_lights_per_object" not in _exported(tmp_path, lights)
+
+
+# --- the export declares its engine version --------------------------------
+
+def test_the_export_declares_config_features(tmp_path):
+    """Without `config/features` Godot treats the folder as an unversioned
+    project and drops to the PROJECT MANAGER instead of opening the level.
+    `presentation_compose` already patches this in for the composed package;
+    the portable export -- the actual deliverable -- did not write it at all.
+    Measured before the fix: 0 of 4 shipped exports declared it, while every
+    one of their manifests recorded godot_version 4.7."""
+    assert 'config/features=PackedStringArray("4.7")' in _exported(tmp_path, 0)
+
+
+def test_the_declared_version_comes_from_the_profile(tmp_path):
+    """ExportProfile.godot_version was carried into the package manifest and
+    nowhere else -- an unused parameter is an unfinished thought. A caller
+    targeting another engine build must not silently ship 4.7."""
+    assert 'config/features=PackedStringArray("4.9")' in \
+        _exported(tmp_path, 0, godot_version="4.9")
+
+
+def test_the_preview_and_the_export_declare_the_same_version(tmp_path):
+    e = _settings(_exported(tmp_path, 0), "application")
+    p = _settings(_preview(tmp_path, 0), "application")
+    assert e["config/features"] == p["config/features"]
 
 
 # --- and the two writers still agree --------------------------------------

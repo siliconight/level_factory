@@ -1,3 +1,44 @@
+## [0.55.0] - the export never told Godot which engine it was for
+
+`_write_project_godot` writes the PORTABLE EXPORT's project.godot -- the
+deliverable, the folder that has to open in somebody else's editor with none
+of these tools present. It omitted `config/features` entirely.
+
+That is not cosmetic. Without it Godot treats the folder as an unversioned
+project and drops to the PROJECT MANAGER instead of opening the level, which
+is the same failure `presentation_compose` already carries a patch for
+(`run_presentation_compose.py`, "DC's portable project.godot omits
+config/features"). The compose path was patched; the export path was not.
+
+MEASURED ON SHIPPED ARTIFACTS, not inferred: 0 of 4 portable exports on disk
+declare it --
+
+    LF_category5_baie_dore_001.portable-godot   features: 0
+    LF_bank_block_001.portable-godot            features: 0
+    LF_lot_demo_001.portable-godot              features: 0
+    lot_demo_001.portable-godot                 features: 0
+
+-- while every one of their manifests records `godot_version: 4.7`. The
+package asserted a version it never told the engine.
+
+### Fixed
+- `_write_project_godot` takes `godot_version` and writes
+  `config/features=PackedStringArray("<version>")` into `[application]`.
+- The value comes from `ExportProfile.godot_version`, which existed, defaulted
+  to "4.7", and was read in exactly one place: the package manifest. An unused
+  parameter is an unfinished thought, and this was the missing term.
+
+Three tests pin it: the line is present, it follows the profile rather than a
+hardcoded literal, and the export and the walk preview declare the SAME
+version -- the drift `walk_preview._PROJECT` warns about ("two projects
+disagreeing about what a complete project.godot contains").
+
+Existing exports on disk are unchanged until re-exported; the fix is in the
+generator, which is where it belongs.
+
+Known, not fixed here: `deli_counter/portable_building.py` omits the same line
+for its portable BUILDING package. That is Deli Counter's to bump.
+
 ## [0.54.0] - the seed reaches the building, and the lot says what it built
 
 Roadmap item 69: `candidate_count: 5` produced five site layouts of one

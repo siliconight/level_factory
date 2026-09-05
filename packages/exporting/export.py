@@ -267,13 +267,27 @@ def _root_site_wanted(presentation_dir: Path | None) -> bool:
         return True
 
 
-def _write_project_godot(export_dir: Path, entry_scene: str, mission_id: str) -> None:
-    """A minimal, autoload-free, plugin-free project so the shell is portable."""
+def _write_project_godot(export_dir: Path, entry_scene: str, mission_id: str,
+                         godot_version: str) -> None:
+    """A minimal, autoload-free, plugin-free project so the shell is portable.
+
+    `config/features` IS the version declaration, and omitting it is not
+    cosmetic: without it Godot treats the folder as an unversioned project and
+    drops to the PROJECT MANAGER instead of opening the level -- the same
+    failure `presentation_compose` already patches around, and the plainest
+    possible violation of the standalone contract for a package whose whole
+    job is to open in somebody else's editor.
+
+    Measured on four shipped exports before this landed: 0 of 4 declared it,
+    while every one of their manifests recorded `godot_version: 4.7`. The
+    package asserted a version it did not tell the engine.
+    """
     (export_dir / "project.godot").write_text(
         "; Portable Level Factory mission shell (autoload-free, no editor plugins)\n"
         "config_version=5\n\n"
         "[application]\n"
         f'config/name="{mission_id} (shell)"\n'
+        f'config/features=PackedStringArray("{godot_version}")\n'
         f'run/main_scene="res://{entry_scene}"\n\n'
         + rendering_block(count_package_lights(export_dir)) +
         "[debug]\n"
@@ -651,7 +665,8 @@ def export_mission(
             print("[export]   ... and %d more" % (len(scan.issues) - 20))
 
     # 4. project.godot, HANDOFF.md, manifests.
-    _write_project_godot(export_dir, profile.entry_scene, mission_id)
+    _write_project_godot(export_dir, profile.entry_scene, mission_id,
+                         profile.godot_version)
     (export_dir / "HANDOFF.md").write_text(HANDOFF_LANGUAGE, encoding="utf-8")
 
     resource_manifest = build_resource_manifest(export_dir)
