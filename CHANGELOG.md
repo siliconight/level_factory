@@ -1,3 +1,47 @@
+## [0.58.0] - world projection keeps the tile period it was given
+
+Roadmap 104, found by shipping 0.57.0 and then checking what it did to the
+Pixelcoat change it was supposed to complement.
+
+### Fixed
+- `zoo_worldskin.gd` now carries the material's AUTHORED `uv1_scale` into the
+  world-space density -- `uv1_scale = measured_density * authored` -- instead
+  of replacing it with the measured density alone.
+
+  WHAT IT WAS DOING. Pixelcoat's `meters_per_tile` reaches a package as the
+  glTF `KHR_texture_transform` scale, which Godot imports as the material's
+  `uv1_scale`. The script overwrote that with the density it measures off the
+  mesh, which is Zoo's texel constant and does not vary with the field. So
+  every skin in every world-projected package rendered at one density, and
+  `meters_per_tile` was inert. Measured on `precinct_yard_001`, four skins
+  whose transforms are 0.4, 0.6667, 0.3333 and 1.0 -- concrete at 2.5 m, metal
+  at 1.5 m, drywall at 3.0 m, glass at 1.0 m -- every one came out at 1.2000.
+
+  THE DOCSTRING ARGUED AGAINST THIS FIX, and it was wrong on a checkable
+  point. It held that Godot "bakes `KHR_texture_transform` into the mesh UVs",
+  and therefore that re-applying the measured density alone "reproduces the
+  old density exactly". If that were so, `_uv_density` would return DIFFERENT
+  numbers for skins with different tile periods; it returns the same one. The
+  transform is in the material, not the mesh. The earlier failure the
+  docstring records is real but is a different operation: that version
+  multiplied by Zoo's CONSTANT 1.2, not by the material's own authored value.
+  The refutation is kept above the function rather than deleted.
+
+  MEASURED with `tools/texel_density.gd` on two copies of one shipped package
+  differing only in this script. Before: concrete, metal, drywall and glass
+  all 1.200. After: concrete, metal and drywall 0.600 -- they share
+  `meters_per_tile` 2.0 -- and glass 1.200, because glass is authored at 1.0 m
+  and is now the only skin that keeps a different density. Per-skin mismatch
+  stays 1.0x, so roadmap 88's filler fix is untouched: this moves the density,
+  not the projection. `portability-test` PASS.
+
+  THIS IS A LIBRARY-WIDE ART CHANGE and was approved as one. Concrete, metal
+  and drywall render about 2x coarser than in any previous world-projected
+  build, including the side-by-side that closed 88, which was judged at 1.2.
+  At `meters_per_tile: 2.0` a texture now genuinely repeats every 2.0 m in
+  world space, which is what the profile always claimed; before, every skin
+  repeated every 0.833 m whatever it asked for.
+
 ## [0.57.0] - the package runs the script it was already shipping
 
 Roadmap 88. `presentation_compose` has installed `zoo_worldskin.gd` and

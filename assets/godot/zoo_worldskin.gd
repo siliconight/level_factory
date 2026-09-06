@@ -77,9 +77,18 @@ func _apply(n: Node, seen: Dictionary) -> Array:
 			if density <= 0.0:
 				no_density += 1
 				continue
+			# The AUTHORED tile period, which is Pixelcoat's
+			# `meters_per_tile` arriving as the glTF
+			# `KHR_texture_transform` scale. Read it before overwriting it:
+			# `uv1_scale` is where the importer put it, and dropping it
+			# rendered the whole library at one density. See `_uv_density`.
+			var authored: float = bm.uv1_scale.x
+			if authored <= 0.0:
+				authored = 1.0
+			var world: float = density * authored
 			bm.uv1_triplanar = true
 			bm.uv1_world_triplanar = true
-			bm.uv1_scale = Vector3(density, density, density)
+			bm.uv1_scale = Vector3(world, world, world)
 			changed += 1
 	for c in n.get_children():
 		var sub: Array = _apply(c, seen)
@@ -92,13 +101,28 @@ func _apply(n: Node, seen: Dictionary) -> Array:
 ##
 ## THE SCALE IS MEASURED, NOT GUESSED, and the guess was wrong once already.
 ## The first runtime version multiplied by Zoo's `texel=1.2` assuming the
-## material still carried Pixelcoat's tiling as a UV scale; it does not, because
-## Godot's glTF importer bakes `KHR_texture_transform` into the mesh UVs. The
-## stone came out twice its proper size. The density is recoverable from the
-## mesh that already has it: the median of |dUV| / |dPOSITION| over its edges IS
-## the texels-per-metre the baked projection used, so re-applying it as
-## `uv1_scale` reproduces the old density exactly while the projection becomes
-## world-space.
+## material still carried Pixelcoat's tiling as a UV scale, and the stone came
+## out twice its proper size. Multiplying by a CONSTANT is what was wrong
+## there; the caller now multiplies by the material's own authored
+## `uv1_scale`, which is a different operation and not that mistake.
+##
+## REFUTED 2026-09-06, and the refutation is kept because it is what this
+## function's result means. The paragraph above used to continue "because
+## Godot's glTF importer bakes `KHR_texture_transform` into the mesh UVs", and
+## concluded that re-applying the measured density alone "reproduces the old
+## density exactly". BOTH HALVES ARE FALSE. If the transform were baked into
+## the mesh UVs, this function would return a DIFFERENT number for skins with
+## different tile periods. Measured on `precinct_yard_001`, four skins whose
+## transforms are 0.4, 0.6667, 0.3333 and 1.0 -- concrete at 2.5 m, metal at
+## 1.5 m, drywall at 3.0 m, glass at 1.0 m -- every one returned 1.2000, which
+## is Zoo's texel constant and does not vary with the field. The importer puts
+## the transform in the MATERIAL's `uv1_scale`, not in the mesh.
+##
+## So what this returns is the mesh's own UV density and NOT the on-mesh
+## density, which is that times the material's `uv1_scale`. Setting
+## `uv1_scale` to this value alone discarded every skin's authored tile period
+## and rendered the whole library at one density -- roadmap 104, shipped in
+## every world-projected package from level_factory 0.57.0 until it was found.
 ##
 ## Median rather than mean: a bevelled box carries degenerate edges, and one of
 ## those in a mean drags the whole material to the wrong scale.
