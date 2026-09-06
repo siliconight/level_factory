@@ -375,6 +375,27 @@ def _write_import_sidecars(export_dir: Path, godot_executable) -> int:
     return len(list(export_dir.rglob("*.import")))
 
 
+#: Installed into the composed package by `run_presentation_compose.py`, which
+#: is where the reasoning for it lives. Named here so the export can declare
+#: it; one constant, so the two cannot drift apart silently.
+_WORLDSKIN = "zoo_worldskin.gd"
+
+
+def _importer_defaults_block(export_dir: Path) -> str:
+    """Declare the kit's post-import script, if the package actually ships it.
+
+    `zoo_worldskin.gd` scopes itself by asset name (`wall_`, `wallEnd_`,
+    `window_`, `doorway_`, `breach_`) and leaves everything else alone, so
+    declaring it project-wide is safe: props and dressing import unchanged.
+    """
+    if not (export_dir / _WORLDSKIN).is_file():
+        return ""
+    return ("[importer_defaults]\n\n"
+            "scene={\n"
+            f'"import_script/path": "res://{_WORLDSKIN}"\n'
+            "}\n\n")
+
+
 def _write_project_godot(export_dir: Path, entry_scene: str, mission_id: str,
                          godot_version: str) -> None:
     """A minimal, autoload-free, plugin-free project so the shell is portable.
@@ -389,6 +410,21 @@ def _write_project_godot(export_dir: Path, entry_scene: str, mission_id: str,
     Measured on four shipped exports before this landed: 0 of 4 declared it,
     while every one of their manifests recorded `godot_version: 4.7`. The
     package asserted a version it did not tell the engine.
+
+    `[importer_defaults]` IS WHAT MAKES WORLD-SPACE UVs SHIP, and leaving it
+    out is why they never did. `presentation_compose` installs
+    `zoo_worldskin.gd` and declares it in ITS project.godot, but the export
+    writes this file from scratch and dropped the declaration -- so the
+    package carried the script and ran it on nothing. Measured on
+    `LF_precinct_yard_001.portable-godot`: the script present, no
+    `[importer_defaults]`, and an empty `import_script/path` on all 111 GLB
+    sidecars, because `_write_import_sidecars` runs after this and bakes the
+    engine default into every one. Every recipient got box-projected UVs --
+    roadmap 88's defect, shipped, with its own fix sitting unused beside it.
+
+    Declared ONLY when the script is actually in the package. Naming a script
+    that is not there fails every scene import, which is a worse package than
+    one with the old look.
     """
     (export_dir / "project.godot").write_text(
         "; Portable Level Factory mission shell (autoload-free, no editor plugins)\n"
@@ -397,7 +433,8 @@ def _write_project_godot(export_dir: Path, entry_scene: str, mission_id: str,
         f'config/name="{mission_id} (shell)"\n'
         f'config/features=PackedStringArray("{godot_version}")\n'
         f'run/main_scene="res://{entry_scene}"\n\n'
-        + rendering_block(count_package_lights(export_dir)) +
+        + rendering_block(count_package_lights(export_dir))
+        + _importer_defaults_block(export_dir) +
         "[debug]\n"
         "; Localized tool scripts are strict-clean under their home projects'\n"
         "; warning config; engine DEFAULTS escalate inference-on-Variant to a\n"

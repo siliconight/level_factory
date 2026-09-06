@@ -1,3 +1,48 @@
+## [0.57.0] - the package runs the script it was already shipping
+
+Roadmap 88. `presentation_compose` has installed `zoo_worldskin.gd` and
+declared it in ITS `project.godot` for some time. The export writes
+`project.godot` from scratch and dropped the declaration, so every shipped
+package carried the script and ran it on nothing.
+
+### Fixed
+- `_write_project_godot` now emits an `[importer_defaults]` block naming
+  `res://zoo_worldskin.gd`, when the package actually ships that file.
+
+  WHAT IT WAS DOING INSTEAD, measured on
+  `LF_precinct_yard_001.portable-godot`: the script present at the package
+  root, no `[importer_defaults]` in `project.godot`, and an empty
+  `import_script/path` on all 111 GLB sidecars -- because 0.56.0's
+  `_write_import_sidecars` runs after `_write_project_godot` and bakes the
+  engine default into every sidecar it creates. So the two features
+  interacted: the sidecar pass, added for import settings, pinned the ABSENCE
+  of the import script into the package. Nothing warned, because both halves
+  did exactly what they said.
+
+  MEASURED WITH `tools/texel_density.gd`, on the shipped package rather than
+  on a walk project, 3554 kit surfaces. Before: concrete 47.0x density
+  mismatch between surfaces, metal 66.0x with 58.0x stretch WITHIN a single
+  surface, drywall 12.5x. After: every skin reads 1.200 at 1.0x, flagged
+  world-triplanar. Every recipient had been getting box-projected UVs -- the
+  defect roadmap 88 describes, shipped, with its own fix sitting unused beside
+  it in the same folder.
+
+  Declared only when the file is present. Naming a script the package does not
+  carry fails every scene import, which is a worse package than one with the
+  old look.
+
+  `portability-test` PASS on the re-exported package.
+
+### Noted
+The elaborate route was not needed. A `.tres` + `_subresources` material
+override per GLB also works and was proven to, but it has to reproduce the
+whole material by hand -- base colour and alpha, `metallicFactor`,
+`texture_filter` off the glTF sampler -- and each omission is a silent
+regression, because a `.tres` that leaves a field out takes Godot's default
+rather than the GLB's value. The engine already had a supported hook and the
+package already shipped the script for it. Worth remembering before building
+the second mechanism next time.
+
 ## [0.56.0] - the package imports itself, with our settings
 
 Roadmap 25, the half it never covered. The item is about generated projects and
