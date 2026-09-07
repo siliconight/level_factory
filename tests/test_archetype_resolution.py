@@ -11,6 +11,8 @@ pipeline succeeds, every gate passes, and the deliverable is the wrong
 archetype.
 """
 
+from pathlib import Path
+
 import pytest
 
 from adapters.deli_counter import (UnknownArchetype, _ARCHETYPE_ALIASES,
@@ -94,3 +96,100 @@ def test_unresolvable_archetypes_still_hash_DISTINCTLY():
     a = _preset_or_raw({"archetype": "mixed_block"})
     b = _preset_or_raw({"archetype": "mixed_tower"})
     assert a != b
+
+
+# ---------------------------------------------------------------------------
+# THE CORPUS. Everything above this line is synthetic, and that is the gap
+# roadmap 118 records: `_preset_for` was given ten tests and none of them ever
+# asked whether the briefs ON DISK resolve. The brief whose silent-bank
+# incident is quoted in this module's own docstring STILL names an archetype
+# that refuses -- it stopped building the wrong thing and never started
+# building the right one, because nothing looked.
+# ---------------------------------------------------------------------------
+
+import json
+
+_ROOT = Path(__file__).resolve().parents[2]
+
+#: Briefs known to name an archetype no preset answers to, with the reason.
+#: NOT a suppression list: a brief here is a defect somebody has to decide
+#: about, and a brief NOT here that refuses fails this suite immediately.
+#: Both are multi-building briefs using `archetype` to name a BLOCK, which is
+#: why neither is fixed by an alias -- see roadmap 118's expensive half.
+_KNOWN_UNRESOLVABLE = {
+    "commercial_strip": "restaurant_row_001, 3 buildings, no lot_library",
+    "mixed_block": "rockay_lot_demo_001, 5 buildings, HAS lot_library",
+}
+
+
+#: Directories whose briefs are scratch, not corpus: `_runs` is per-invocation
+#: smoke output and `build` is generated.
+_SKIP_DIRS = {"_runs", "build", "node_modules", ".git"}
+
+
+def _brief_paths():
+    """Every brief in the repo: examples, recorded cold runs, workspaces.
+
+    A PREDICATE RATHER THAN A LIST OF PATTERNS, deliberately. The first
+    version of this spelled four globs and missed `level_factory/examples/`
+    entirely -- it found 19 of 21 briefs and reported the corpus clean of a
+    defect that was sitting in one of the 2. A walk cannot miss a directory
+    shape nobody thought of.
+    """
+    out = []
+    for path in _ROOT.rglob("*.json"):
+        if _SKIP_DIRS & set(path.parts):
+            continue
+        if path.name == "brief.json" or path.parent.name == "briefs":
+            out.append(path)
+    return sorted(out)
+
+
+def _archetype(path):
+    try:
+        d = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    a = d.get("archetype")
+    return a if isinstance(a, str) and a else None
+
+
+def test_the_corpus_is_not_empty():
+    """A sweep over zero briefs passes and proves nothing (CLAUDE.md)."""
+    paths = _brief_paths()
+    assert len(paths) >= 20, [str(p) for p in paths]
+    assert [p for p in paths if _archetype(p)], "no brief carries an archetype"
+
+
+def test_every_brief_on_disk_resolves_or_is_a_named_defect():
+    unresolved = {}
+    for path in _brief_paths():
+        a = _archetype(path)
+        if a is None:
+            continue
+        try:
+            _preset_for(a)
+        except UnknownArchetype:
+            unresolved.setdefault(a, []).append(
+                str(path.relative_to(_ROOT)).replace("\\", "/"))
+    new = {a: f for a, f in unresolved.items() if a not in _KNOWN_UNRESOLVABLE}
+    assert not new, (
+        "brief archetype(s) resolve to no preset and are not recorded in "
+        "_KNOWN_UNRESOLVABLE: %s" % new)
+
+
+def test_the_known_offenders_are_still_there():
+    """If one gets fixed, this fails and the entry comes out. A stale
+    exception list is how a fixed defect keeps looking open -- and how a
+    reintroduced one keeps looking fixed."""
+    seen = set()
+    for path in _brief_paths():
+        a = _archetype(path)
+        if a is None:
+            continue
+        try:
+            _preset_for(a)
+        except UnknownArchetype:
+            seen.add(a)
+    assert seen == set(_KNOWN_UNRESOLVABLE), (
+        "recorded %s, found %s" % (sorted(_KNOWN_UNRESOLVABLE), sorted(seen)))
