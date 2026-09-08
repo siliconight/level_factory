@@ -1,3 +1,50 @@
+## [0.59.0] - the body that tests the doors comes from the contract
+
+Roadmap 123. Laser Tag 0.11.0 made the evaluation pill's body settable from
+the scenario resource; this is the other half, and Level Factory is the seam
+because it is the one place that already writes a file into the other tool's
+staged project.
+
+### Added
+- `packages/validation/agent_contract.py` -- reads `characters.player` out of
+  `deli_counter/agent_contract.json` and maps it onto the scenario's Body
+  fields. `body_drift` reports where the contract and the stock scenario
+  disagree instead of resolving it silently: the contract wins, but a stock
+  value that has drifted from it is a number somebody typed twice, and the
+  second copy is the one that rots.
+
+  IT READS THE BODY'S RADIUS, NOT THE BAKE'S, and that distinction is the
+  whole defect. `nav_bake.agent_radius_m` is 0.40 and its own note says
+  "fattest navigating character + 0.05 safety" -- a bake parameter with the
+  margin already folded in. The pill had been built at 0.40 against the
+  contract's 0.35, so every door-width and corridor test ran against a proxy
+  14% fatter than the character it stood for and the margin was spent twice.
+
+  A missing, unreadable or player-less contract returns None rather than
+  raising, the same rule `lasertag_contract.read_engagement_from` follows: a
+  pre-flight that refuses to run because a tool moved a file is worse than one
+  that degrades and says which numbers it used.
+
+### Changed
+- The Laser Tag adapter writes the body into `mission_scenario.tres`.
+  Precedence is stock <- contract <- this job's `scenario` block: the contract
+  beats the stock because it says it is the source of truth, and an explicit
+  scenario key beats the contract because a brief asking for a different body
+  is asking on purpose. Drift is printed as `[laser_tag] body: ...`.
+
+  WHAT A CONSUMER GETS. A studio states its characters' size once, in
+  `agent_contract.json`, and the pill that proves their doors fit is built at
+  that size -- with no cross-repo import and nothing read across repositories
+  at run time. Verified against a real installation
+  (`workspaces/cold-7001-ws/tools.local.json`): the shipped contract resolves
+  to 0.35 / 1.8 / 1.6 / 4.0 with no drift.
+
+- `_STOCK_SCENARIO` carries the four Body fields, so a run with no Deli
+  Counter checkout still states a body rather than inheriting whatever
+  `LT_PlayerPill.tscn` happens to hold. One consequence worth naming: the
+  scenario resource is now written whenever a body is resolvable, where before
+  it was written only when a job supplied a `scenario` block.
+
 ## [0.58.0] - world projection keeps the tile period it was given
 
 Roadmap 104, found by shipping 0.57.0 and then checking what it did to the

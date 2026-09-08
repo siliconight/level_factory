@@ -47,6 +47,16 @@ _STOCK_SCENARIO: dict = {
     "fail_on_missing_enemy_spawns": True,
     "fail_on_unreachable_spawns": True,
     "require_navigation": False,
+    # THE BODY THE PROXY STANDS FOR. These are fallbacks, not the source: they
+    # are overwritten from `deli_counter/agent_contract.json` whenever the
+    # repository is reachable (see `_body_overrides`). They are written out at
+    # all so the generated resource stays complete and readable, and so a run
+    # with no Deli Counter checkout still produces a body rather than whatever
+    # `LT_PlayerPill.tscn` happens to carry.
+    "player_radius_m": 0.35,
+    "player_height_m": 1.8,
+    "player_eye_height_m": 1.6,
+    "player_walk_speed_mps": 4.0,
 }
 
 #: Where the generated resource lands inside the staged project, and the
@@ -68,6 +78,26 @@ def _tres_value(value) -> str:
     if isinstance(value, int):
         return str(value)
     return f'"{value}"'
+
+
+def _body_overrides(context: Mapping) -> tuple[dict, list[str]]:
+    """The contract's body, and anything it disagrees with the stock on.
+
+    LEVEL FACTORY IS THE SEAM (roadmap 123). Deli Counter owns
+    `agent_contract.json` and reads it; Laser Tag owns the pill and, since
+    0.11.0, can be told what body to build. Neither imports the other. This is
+    the one place that already writes a file into the other tool's staged
+    project, so the numbers cross here or they do not cross at all.
+
+    Degrades rather than refuses: no repository, no file or malformed JSON
+    leaves the stock values in place, which carry the same numbers.
+    """
+    from packages.validation import agent_contract
+    repo = (context.get("repositories") or {}).get("deli_counter")
+    body = agent_contract.read_player_body(repo)
+    if not body:
+        return {}, []
+    return body, agent_contract.body_drift(body, _STOCK_SCENARIO)
 
 
 def _write_scenario(project: Path, overrides: Mapping) -> str | None:
@@ -330,8 +360,18 @@ class LaserTagAdapter(BaseAdapter):
             "scenario_res",
             "res://addons/laser_tag_tool/resources/default_laser_tag_scenario.tres"))
         wanted = job_spec.get("scenario")
-        if isinstance(wanted, Mapping) and wanted and project:
-            written = _write_scenario(Path(str(project)), wanted)
+        # PRECEDENCE: stock <- agent_contract.json <- this job's scenario.
+        # The contract beats the stock because it says it is the source of
+        # truth; an explicit scenario key beats the contract because a brief
+        # asking for a different body is asking on purpose.
+        body, drift = _body_overrides(context)
+        for _line in drift:
+            print(f"[laser_tag] body: {_line}")
+        merged: dict = dict(body)
+        if isinstance(wanted, Mapping):
+            merged.update(wanted)
+        if merged and project:
+            written = _write_scenario(Path(str(project)), merged)
             if written is not None:
                 scenario = written
 
