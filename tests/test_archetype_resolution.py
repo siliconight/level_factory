@@ -114,11 +114,27 @@ _ROOT = Path(__file__).resolve().parents[2]
 #: Briefs known to name an archetype no preset answers to, with the reason.
 #: NOT a suppression list: a brief here is a defect somebody has to decide
 #: about, and a brief NOT here that refuses fails this suite immediately.
-#: Both are multi-building briefs using `archetype` to name a BLOCK, which is
-#: why neither is fixed by an alias -- see roadmap 118's expensive half.
+#:
+#: `commercial_strip` CAME OUT 2026-09-09, and how it came out is the point.
+#: Cold run 9003 built `restaurant_row_001` and the resolver refused, so the
+#: run needed an intervention -- and the first one made was an alias,
+#: `commercial_strip -> corner_deli`, which THIS TEST caught within the hour.
+#: Roadmap 118 had already decided against exactly that: both entries were
+#: multi-building briefs using `archetype` to name a BLOCK, and its status
+#: settles the question from the corpus rather than by argument -- 17 of the
+#: 19 multi-building briefs on disk already name a BUILDING while asking for
+#: three to five of them. So the brief was wrong, not the resolver, and the
+#: fix was to name its anchor building: the one the objectives hang on, which
+#: for `enter_kitchen` / `reach_office` / `crack_safe` is `corner_deli`.
+#: The alias was reverted.
+#:
+#: `mixed_block` STAYS, and not because nobody got to it. Its only carrier is
+#: under `workspaces/rockay-ws`, which CLAUDE.md makes read-only evidence --
+#: "a level to iterate against: read it, do not edit it". Fixing it means
+#: fixing the brief, and that brief is not ours to edit.
 _KNOWN_UNRESOLVABLE = {
-    "commercial_strip": "restaurant_row_001, 3 buildings, no lot_library",
-    "mixed_block": "rockay_lot_demo_001, 5 buildings, HAS lot_library",
+    "mixed_block": "rockay_lot_demo_001, 5 buildings, HAS lot_library; "
+                   "its brief lives under read-only rockay-ws",
 }
 
 
