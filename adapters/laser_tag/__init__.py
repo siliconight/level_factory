@@ -57,6 +57,28 @@ _STOCK_SCENARIO: dict = {
     "player_height_m": 1.8,
     "player_eye_height_m": 1.6,
     "player_walk_speed_mps": 4.0,
+    # TRAVERSAL UNDER FIRE (Laser Tag 0.10.0, roadmap 121). Laser Tag shipped
+    # the flag and Level Factory could not reach it: these were absent from
+    # this table, and an override for a key not in it was DISCARDED without a
+    # word, so a brief asking for `advance_while_engaging` was graded against
+    # a bot that stops dead on sight and nothing said otherwise. Defaults are
+    # Laser Tag's own, so writing them changes no behaviour.
+    "player_sight_range": 45.0,
+    "advance_while_engaging": False,
+    "engaged_move_speed_scale": 0.5,
+    "enable_shot_audio": True,
+}
+
+#: `LT_TestScenario` fields deliberately NOT written, and why. Named rather
+#: than merely absent, so `_write_scenario` can refuse an override for one with
+#: a reason instead of the generic "unknown key".
+_NOT_WRITTEN = {
+    "map_scene":
+        "a PackedScene reference, and the runner loads the map from --map "
+        "instead -- nothing reads scenario.map_scene",
+    "random_seed":
+        "run_map_eval overwrites it from --seed before the first run, so a "
+        "value written here is inert",
 }
 
 #: Where the generated resource lands inside the staged project, and the
@@ -114,9 +136,24 @@ def _write_scenario(project: Path, overrides: Mapping) -> str | None:
     if not script.is_file():
         return None
     values = dict(_STOCK_SCENARIO)
+    # AN OVERRIDE THAT CANNOT LAND IS AN ERROR, not a silent no-op. This read
+    # `if key in values` and dropped everything else on the floor: setting
+    # `advance_while_engaging` wrote nothing, the run was graded against the
+    # stock bot, and the report looked like an answer to the question that had
+    # been asked. Same rule the validation packages follow for readers -- a
+    # field that cannot be found has to say so rather than pass.
     for key, value in overrides.items():
         if key in values:
             values[key] = value
+        elif key in _NOT_WRITTEN:
+            raise ValueError(
+                f"scenario key {key!r} is not written into "
+                f"{_SCENARIO_NAME}: {_NOT_WRITTEN[key]}")
+        else:
+            raise ValueError(
+                f"unknown scenario key {key!r} -- LT_TestScenario has no such "
+                f"field, or it is missing from _STOCK_SCENARIO. Known keys: "
+                f"{', '.join(sorted(values))}")
     lines = [
         '[gd_resource type="Resource" script_class="LT_TestScenario" '
         'load_steps=2 format=3]',

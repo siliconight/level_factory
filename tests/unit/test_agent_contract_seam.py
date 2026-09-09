@@ -17,6 +17,7 @@ THE TEST THAT MATTERS IS `test_a_studio_states_its_body_once`. Everything else
 here guards the degradation paths.
 """
 import json
+from pathlib import Path
 
 import pytest
 
@@ -144,3 +145,58 @@ def test_no_repository_leaves_the_stock_body(tmp_path):
     laser_tag._write_scenario(project, {})
     tres = (project / "mission_scenario.tres").read_text(encoding="utf-8")
     assert "player_radius_m = 0.35" in tres
+
+
+# ---- the scenario surface --------------------------------------------------
+
+def test_the_traversal_flag_is_reachable_from_a_job(tmp_path):
+    """Laser Tag 0.10.0 shipped `advance_while_engaging` for roadmap 121 and
+    Level Factory could not set it: the key was absent from `_STOCK_SCENARIO`
+    and `_write_scenario` dropped anything not in that table. A brief asking
+    for traversal under fire was graded against a bot that stops dead on
+    sight, and nothing in the report said the request had been ignored."""
+    project = _staged(tmp_path)
+    laser_tag._write_scenario(project, {"advance_while_engaging": True,
+                                        "engaged_move_speed_scale": 0.35})
+    tres = (project / "mission_scenario.tres").read_text(encoding="utf-8")
+    assert "advance_while_engaging = true" in tres
+    assert "engaged_move_speed_scale = 0.35" in tres
+    assert "player_sight_range = 45" in tres
+
+
+def test_an_override_that_cannot_land_is_refused(tmp_path):
+    """The failure mode this replaces is silence. A writer that discards an
+    instruction is worse than one that refuses it, because the run still
+    produces a graded report and the report looks like an answer."""
+    project = _staged(tmp_path)
+    with pytest.raises(ValueError, match="unknown scenario key"):
+        laser_tag._write_scenario(project, {"advance_while_engagng": True})
+
+
+@pytest.mark.parametrize("key,value", [("map_scene", "res://x.tscn"),
+                                       ("random_seed", 7)])
+def test_fields_we_deliberately_do_not_write_say_why(tmp_path, key, value):
+    """Both are real `LT_TestScenario` fields, and both would be inert here --
+    the runner loads the map from `--map` and overwrites `random_seed` from
+    `--seed`. Refusing with the reason beats writing a value that does
+    nothing."""
+    project = _staged(tmp_path)
+    with pytest.raises(ValueError, match="not written into"):
+        laser_tag._write_scenario(project, {key: value})
+
+
+def test_every_stock_key_is_a_real_scenario_field():
+    """Guards the other direction: a key here that Laser Tag does not export
+    would be written into the resource and silently ignored by Godot, which is
+    the same defect facing the other way. Skipped when the sibling checkout is
+    not present."""
+    import re
+    gd = (Path(__file__).resolve().parents[3] / "lasertag" / "addons"
+          / "laser_tag_tool" / "resources" / "LT_TestScenario.gd")
+    if not gd.is_file():
+        pytest.skip("lasertag checkout not beside level_factory")
+    exports = set(re.findall(r"^@export var (\w+)", gd.read_text(encoding="utf-8"),
+                             re.M))
+    unknown = sorted(k for k in laser_tag._STOCK_SCENARIO if k not in exports)
+    assert unknown == [], unknown
+

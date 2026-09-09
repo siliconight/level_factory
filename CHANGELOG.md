@@ -1,3 +1,35 @@
+## [0.60.0] - a scenario override that cannot land is an error
+
+Found while trying to A/B Laser Tag's traversal-under-fire flag and discovering
+the pipeline had no way to turn it on.
+
+### Fixed
+- `_write_scenario` refuses an override it cannot write instead of discarding
+  it. The merge read `if key in values` and dropped everything else on the
+  floor, so setting `advance_while_engaging` wrote nothing, the run was graded
+  against a bot that stops dead on sight, and the report looked like an answer
+  to the question that had been asked. Same rule the validation packages
+  already follow for readers: a field that cannot be found has to say so.
+
+### Added
+- Four `LT_TestScenario` fields the adapter could not reach --
+  `player_sight_range`, `advance_while_engaging`, `engaged_move_speed_scale`,
+  `enable_shot_audio`. The first three are the traversal-under-fire trio Laser
+  Tag shipped in 0.10.0 for roadmap 121; the pipeline has been unable to
+  request the feature it asked for. Defaults are Laser Tag's own, so writing
+  them changes no behaviour.
+
+- `_NOT_WRITTEN`, naming the two fields deliberately left out and why, so a
+  job setting one gets the reason rather than "unknown key". `map_scene` is a
+  PackedScene reference and the runner loads the map from `--map`;
+  `random_seed` is overwritten from `--seed` before the first run, so a value
+  written here would be inert.
+
+- A test asserting every `_STOCK_SCENARIO` key is a real `@export` on
+  `LT_TestScenario`, guarding the same defect facing the other way -- a key
+  Godot does not recognise would be written and silently ignored. Skips when
+  the sibling checkout is absent.
+
 ## [0.59.0] - the body that tests the doors comes from the contract
 
 Roadmap 123. Laser Tag 0.11.0 made the evaluation pill's body settable from
