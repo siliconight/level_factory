@@ -145,10 +145,44 @@ class Engagement:
     player_laser: float
     player_sight_is_configurable: bool
     source: str
+    #: WHERE each side sights from, and the height both aim at. Ranges answer
+    #: "how far"; these answer "over what", and Lot needs both -- `site_cover`
+    #: derives `MIN_COVER_HEIGHT` from its own copies of them and its docstring
+    #: says this module reports drift on them, which it did not until roadmap
+    #: 131. Before Laser Tag 0.20.0 there was nothing coherent to report: the
+    #: crew sighted from a literal 1.4, the enemy from a marker in a .tscn, and
+    #: the chest from a const, none reachable from a scenario.
+    crew_eye: float = 1.6
+    enemy_eye: float = 1.6
+    aim_height: float = 1.0
 
     @property
     def opening_range(self) -> float:
         return max(self.enemy_sight, self.player_sight)
+
+    @property
+    def cover_break_height(self) -> float:
+        """How tall a solid must be to stop BOTH sides seeing each other.
+
+        A sightline is two lines: each side sights from its own eye at the
+        other's chest, so one descends while the other climbs and a solid
+        tall enough to break one can sit under the other. Half a broken
+        sightline is not half a fix -- `time_to_first_contact` is stamped on
+        the first shot by EITHER side, so the free shot that remains starts
+        the clock exactly where it was.
+
+        The minimum of the higher of the two lines, which is where they
+        cross. Reduces to ``(eye + chest) / 2`` when both sides sight from
+        the same height, which is the form `lot/site_cover` derives.
+
+        ``None`` when the aim height is at or above both eyes: no solid short
+        enough to call cover breaks the pair, and returning a number there
+        would invent a crossing.
+        """
+        spread = self.crew_eye + self.enemy_eye - 2.0 * self.aim_height
+        if spread <= 0.0:
+            return None
+        return self.crew_eye - (self.crew_eye - self.aim_height) ** 2 / spread
 
     @property
     def opener(self) -> str:
@@ -169,6 +203,10 @@ class Engagement:
             "opening_range": self.opening_range,
             "opener": self.opener,
             "player_sight_is_configurable": self.player_sight_is_configurable,
+            "crew_eye": self.crew_eye,
+            "enemy_eye": self.enemy_eye,
+            "aim_height": self.aim_height,
+            "cover_break_height": self.cover_break_height,
             "source": self.source,
         }
 
@@ -188,7 +226,8 @@ MEASURED = Engagement(
 
 
 def read_engagement(scenario_text: str = "", bot_text: str = "",
-                    brain_text: str = "", harness_text: str = "") -> Engagement:
+                    brain_text: str = "", harness_text: str = "",
+                    scenario_script_text: str = "") -> Engagement:
     """Build the contract from whatever of the evaluator's files can be read.
 
     Each field falls back to `MEASURED` independently rather than the whole
@@ -200,6 +239,12 @@ def read_engagement(scenario_text: str = "", bot_text: str = "",
     bot = parse_exports(bot_text)
     brain = parse_exports(brain_text)
     wiring = scenario_wiring(harness_text)
+    # `LT_TestScenario.gd`'s OWN defaults, because a `.tres` only carries the
+    # fields somebody wrote into it: `default_laser_tag_scenario.tres` names
+    # none of the three sight heights, so reading the resource alone reports
+    # the fallback for a field the tool does in fact define. The resource wins
+    # where it speaks; the script answers where it is silent.
+    defaults = parse_exports(scenario_script_text)
 
     def num(value, fallback: float) -> float:
         return float(value) if isinstance(value, (int, float)) else fallback
@@ -216,10 +261,17 @@ def read_engagement(scenario_text: str = "", bot_text: str = "",
     player_sight = num(scenario.get("player_sight_range"), 0.0) if player_wired \
         else num(bot.get("sight_range"), MEASURED.player_sight)
 
+    def sight(field: str, fallback: float) -> float:
+        if field in scenario:
+            return num(scenario.get(field), fallback)
+        return num(defaults.get(field), fallback)
+
     read = [name for name, text in (("scenario", scenario_text),
                                     ("bot controller", bot_text),
                                     ("enemy brain", brain_text),
-                                    ("harness", harness_text)) if text]
+                                    ("harness", harness_text),
+                                    ("scenario script", scenario_script_text))
+            if text]
     return Engagement(
         enemy_sight=enemy_sight,
         enemy_laser=num(scenario.get("enemy_laser_range"), MEASURED.enemy_laser),
@@ -228,6 +280,9 @@ def read_engagement(scenario_text: str = "", bot_text: str = "",
         player_sight=player_sight,
         player_laser=num(scenario.get("player_laser_range"), MEASURED.player_laser),
         player_sight_is_configurable=player_wired,
+        crew_eye=sight("player_eye_height_m", MEASURED.crew_eye),
+        enemy_eye=sight("enemy_eye_height_m", MEASURED.enemy_eye),
+        aim_height=sight("aim_height_m", MEASURED.aim_height),
         source=("read from " + ", ".join(read)) if read else MEASURED.source,
     )
 
@@ -238,6 +293,7 @@ _FILES = {
     "bot_text": "addons/laser_tag_tool/scripts/player/LT_BotPlayerController.gd",
     "brain_text": "addons/laser_tag_tool/scripts/enemy/LT_EnemyBrain.gd",
     "harness_text": "addons/laser_tag_tool/scripts/core/LT_MapEvalHarness.gd",
+    "scenario_script_text": "addons/laser_tag_tool/resources/LT_TestScenario.gd",
 }
 
 
@@ -296,6 +352,56 @@ def check_drift(assumed: float, engagement: Engagement,
             f"Laser Tag opens fire at {required:g} m ({engagement.source}) — the "
             f"placement is stricter than the evaluator requires, which costs "
             f"site area rather than runs, but the two numbers no longer agree")
+    return problems
+
+
+def check_sight_drift(assumed_eye: float, assumed_chest: float,
+                      engagement: Engagement, *,
+                      who: str = "the producer") -> list[str]:
+    """Findings for a tool that derived cover heights from its own copies.
+
+    `check_drift` above does this for the opening RANGE. This is the other
+    half, and `lot/site_cover.py` has said in its own docstring since it was
+    written that this module reports it -- while `Engagement` carried only
+    ranges, so the two constants that docstring is ABOUT were unchecked
+    (roadmap 131). Lot cannot import this module; it carries `EYE_HEIGHT` and
+    `CHEST_HEIGHT`, states where they came from, and this is the check that
+    the statement is still true.
+
+    Reported per constant AND as the height they produce, because the
+    derived number is what actually places a crate: two constants can each
+    be a little wrong and cross in the right place, or agree individually
+    and not be the pair the evaluator uses.
+    """
+    problems: list[str] = []
+    real_break = engagement.cover_break_height
+    if real_break is None:
+        problems.append(
+            f"{who} cannot derive a cover height from this evaluator: it aims "
+            f"at {engagement.aim_height:g} m, at or above both sight heights "
+            f"({engagement.crew_eye:g} m and {engagement.enemy_eye:g} m), so "
+            f"the two lines never cross and no solid short enough to be cover "
+            f"breaks the pair ({engagement.source})")
+        return problems
+    # The crew's eye alone, which is what a producer carrying ONE eye height
+    # can compute -- the shape `site_cover.MIN_COVER_HEIGHT` has.
+    assumed_break = (assumed_eye + assumed_chest) / 2.0
+    if abs(assumed_eye - engagement.crew_eye) >= 0.005:
+        problems.append(
+            f"{who} sizes cover against a {assumed_eye:g} m eye and Laser Tag "
+            f"sights the crew from {engagement.crew_eye:g} m ({engagement.source})")
+    if abs(assumed_chest - engagement.aim_height) >= 0.005:
+        problems.append(
+            f"{who} sizes cover against a {assumed_chest:g} m chest and Laser "
+            f"Tag aims at {engagement.aim_height:g} m ({engagement.source})")
+    if abs(assumed_break - real_break) >= 0.005:
+        problems.append(
+            f"{who} breaks a mutual sightline at {assumed_break:.4g} m and the "
+            f"evaluator's own geometry crosses at {real_break:.4g} m (crew eye "
+            f"{engagement.crew_eye:g}, enemy eye {engagement.enemy_eye:g}, "
+            f"chest {engagement.aim_height:g}) — cover built to the first "
+            f"number leaves one side a free shot over it, and first contact is "
+            f"stamped on the first shot by either side")
     return problems
 
 

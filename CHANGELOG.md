@@ -1,3 +1,37 @@
+## [0.63.0] - the drift check covers the constants its docstring is about
+
+Roadmap 131. `lot/site_cover.py` and `lot/site_spawns.py` both say, in the
+comment attached to `EYE_HEIGHT` and `CHEST_HEIGHT`, that this package "reads
+the real files and reports drift against what is written here". `Engagement`
+carried five numbers and all five were RANGES. The two constants those
+comments are about were the two nothing checked -- and they are the ones that
+decide how tall a piece of cover has to be.
+
+### Added
+- `Engagement.crew_eye`, `.enemy_eye`, `.aim_height`, read from the Laser Tag
+  checkout, and `.cover_break_height` derived from them:
+  `h = a - (a - c)^2 / (a + b - 2c)`. That reduces to `(eye + chest) / 2` --
+  the form Lot derives -- only when both sides sight from the same height, and
+  before Laser Tag 0.20.0 they did not (1.4 and 1.5). It returns `None` when
+  the aim height is at or above both eyes, because no solid short enough to be
+  cover breaks that pair and a number there would be invented.
+- `check_sight_drift(assumed_eye, assumed_chest, engagement)`, reporting per
+  constant AND on the height they produce. Two constants can each be a little
+  wrong and cross in the right place, or agree individually and not be the
+  pair the evaluator uses.
+- `_FILES` gains `LT_TestScenario.gd`. A `.tres` only carries the fields
+  somebody wrote into it and the shipped `default_laser_tag_scenario.tres`
+  names none of the three sight heights, so reading the resource alone would
+  report a fallback for a field the tool does define. Resource wins where it
+  speaks; the script answers where it is silent.
+- `test_the_shipped_lot_constants_agree_with_the_shipped_evaluator` runs the
+  check against both sibling checkouts as they stand on disk, skipping when
+  either is absent. A drift check that only ever sees fixtures is a check that
+  cannot catch the drift it exists for.
+- `_STOCK_SCENARIO` gains `enemy_eye_height_m` and `aim_height_m`, so a job
+  can reach the other two thirds of the sightline geometry. Defaults are the
+  contract's own, so a stock run is unchanged.
+
 ## [0.62.0] - the shipped briefs say how many people arrive
 
 Roadmap 129. `_STOCK_SCENARIO` ships `enemy_count` 6 and `player_count` 1;

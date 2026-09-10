@@ -57,6 +57,17 @@ _STOCK_SCENARIO: dict = {
     "player_height_m": 1.8,
     "player_eye_height_m": 1.6,
     "player_walk_speed_mps": 4.0,
+    # THE OTHER TWO THIRDS OF THE SIGHTLINE (Laser Tag 0.20.0, roadmap 131).
+    # `player_eye_height_m` was one of SEVEN heights describing one firefight,
+    # and the only one anything here could set: the enemy's eye and muzzle
+    # were authored in `LT_EnemyPill.tscn`, the crew's visibility probe was a
+    # hardcoded 1.4, and the chest both sides aim at was a const. How tall a
+    # solid must be to break a MUTUAL line is decided by the two eyes and the
+    # aim height together, so a consumer stating a body could reach a third of
+    # the geometry. Defaults are the contract's own, so writing them changes
+    # nothing on a stock run.
+    "enemy_eye_height_m": 1.6,
+    "aim_height_m": 1.0,
     # TRAVERSAL UNDER FIRE (Laser Tag 0.10.0, roadmap 121). Laser Tag shipped
     # the flag and Level Factory could not reach it: these were absent from
     # this table, and an override for a key not in it was DISCARDED without a

@@ -16,6 +16,8 @@ across, and the whole defect is a field that looks like a knob and is not one.
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
@@ -207,7 +209,8 @@ def test_reading_a_real_checkout_layout_finds_the_files(tmp_path):
         path = tmp_path / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text({"scenario_text": SCENARIO, "bot_text": BOT,
-                         "brain_text": BRAIN, "harness_text": HARNESS}[key],
+                         "brain_text": BRAIN, "harness_text": HARNESS,
+                         "scenario_script_text": SCENARIO_SCRIPT}[key],
                         encoding="utf-8")
     eng = lt.read_engagement_from(tmp_path)
     assert eng.opening_range == 45.0
@@ -269,3 +272,96 @@ def test_it_is_not_a_finding_once_the_crew_sees_no_further_than_the_enemy():
                                           "sight_range: float = 30.0"))
     assert eng.opening_range == 35.0
     assert lt.check_configurability(eng) == []
+
+
+# ---------------------------------------------------------------------------
+# the sight GEOMETRY, not the ranges (roadmap 131)
+# ---------------------------------------------------------------------------
+#: The scenario script's own defaults. A `.tres` only carries the fields
+#: somebody wrote into it, and the shipped
+#: `default_laser_tag_scenario.tres` names none of these three -- so a reader
+#: that consulted the resource alone would report a fallback for a field the
+#: tool does define.
+SCENARIO_SCRIPT = """extends Resource
+class_name LT_TestScenario
+
+@export var player_radius_m: float = 0.35
+@export var player_eye_height_m: float = 1.6
+@export var enemy_eye_height_m: float = 1.6
+@export var aim_height_m: float = 1.0
+"""
+
+
+def _eng(**kwargs):
+    texts = {"scenario_text": SCENARIO, "bot_text": BOT, "brain_text": BRAIN,
+             "harness_text": HARNESS, "scenario_script_text": SCENARIO_SCRIPT}
+    texts.update(kwargs)
+    return lt.read_engagement(**texts)
+
+
+def test_the_sight_heights_come_from_the_script_when_the_resource_is_silent():
+    """The shipped resource writes none of them, and they are still real."""
+    eng = _eng()
+    assert (eng.crew_eye, eng.enemy_eye, eng.aim_height) == (1.6, 1.6, 1.0)
+    assert "scenario script" in eng.source
+
+
+def test_the_resource_wins_where_it_speaks():
+    """Precedence is script default <- resource, the same direction every
+    other field here reads."""
+    eng = _eng(scenario_text=SCENARIO + "enemy_eye_height_m = 1.2\n")
+    assert eng.enemy_eye == 1.2
+    assert eng.crew_eye == 1.6          # untouched by the override
+
+
+def test_the_crossing_height_is_derived_from_both_eyes():
+    """THE POINT OF THE ADDITION. `MIN_COVER_HEIGHT` in Lot is
+    `(eye + chest) / 2`, which is only correct when the two sides sight from
+    the same height -- and for the whole life of that constant they did not.
+    """
+    assert _eng().cover_break_height == pytest.approx(1.3)
+    # 1.4 / 1.5 / 1.0, the heights Laser Tag actually used before 0.20.0.
+    eng = _eng(scenario_text=SCENARIO + "player_eye_height_m = 1.4\n"
+                                        "enemy_eye_height_m = 1.5\n")
+    assert eng.cover_break_height == pytest.approx(1.4 - 0.16 / 0.9)
+    assert eng.cover_break_height == pytest.approx(1.2222, abs=1e-4)
+
+
+def test_an_aim_above_both_eyes_has_no_crossing_and_says_so():
+    """Returning a number here would invent one. Nothing short enough to be
+    cover breaks a pair that aims above where it looks from."""
+    eng = _eng(scenario_text=SCENARIO + "aim_height_m = 1.9\n")
+    assert eng.cover_break_height is None
+    problems = lt.check_sight_drift(1.4, 1.0, eng)
+    assert len(problems) == 1
+    assert "never cross" in problems[0]
+
+
+def test_a_producer_carrying_the_evaluators_numbers_is_not_a_finding():
+    assert lt.check_sight_drift(1.6, 1.0, _eng()) == []
+
+
+def test_lots_old_pair_is_reported_against_the_real_geometry():
+    """The check `site_cover.py` has claimed in its docstring since it was
+    written, and which did not exist: it carried 1.4 / 1.0 and crossed at 1.2
+    while the evaluator crossed at 1.3."""
+    problems = lt.check_sight_drift(1.4, 1.0, _eng(), who="Lot site_cover")
+    assert len(problems) == 2
+    assert any("1.4 m eye" in p and "1.6 m" in p for p in problems)
+    assert any("1.2 m" in p and "1.3 m" in p for p in problems)
+
+
+def test_the_shipped_lot_constants_agree_with_the_shipped_evaluator():
+    """The two repositories, as they stand on disk. Skipped when either
+    sibling checkout is absent -- this is the check that stops the copies
+    drifting, so it has to run against the copies rather than a fixture."""
+    lot = ROOT.parent / "lot"
+    lasertag = ROOT.parent / "lasertag"
+    if not (lot / "site_cover.py").is_file() or not lasertag.is_dir():
+        pytest.skip("lot and lasertag checkouts not beside level_factory")
+    import re
+    text = (lot / "site_cover.py").read_text(encoding="utf-8")
+    eye = float(re.search(r"^EYE_HEIGHT = ([\d.]+)", text, re.M).group(1))
+    chest = float(re.search(r"^CHEST_HEIGHT = ([\d.]+)", text, re.M).group(1))
+    assert lt.check_sight_drift(eye, chest, lt.read_engagement_from(lasertag),
+                                who="Lot site_cover") == []
