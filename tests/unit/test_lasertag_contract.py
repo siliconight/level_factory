@@ -365,3 +365,72 @@ def test_the_shipped_lot_constants_agree_with_the_shipped_evaluator():
     chest = float(re.search(r"^CHEST_HEIGHT = ([\d.]+)", text, re.M).group(1))
     assert lt.check_sight_drift(eye, chest, lt.read_engagement_from(lasertag),
                                 who="Lot site_cover") == []
+
+
+# ---------------------------------------------------------------------------
+# the crew's sight, when the resource is silent about it (roadmap 134)
+# ---------------------------------------------------------------------------
+#: The harness as it actually is since Laser Tag 0.11.0: it assigns the crew's
+#: sight from the scenario, which is what makes `player_wired` true and puts
+#: the resource in charge. `HARNESS` above predates that line and is kept as
+#: the fixture for the unwired branch -- and using it here by accident made
+#: the first draft of these tests pass without the fix, because the unwired
+#: branch reads the bot's 45.0 and never touches the code under test.
+HARNESS_WIRED = HARNESS.replace(
+    "\tbot_controller.use_navigation = true",
+    "\tbot_controller.sight_range = scenario.player_sight_range\n"
+    "\tbot_controller.use_navigation = true")
+
+
+def test_a_silent_resource_falls_back_to_the_export_default_not_zero():
+    """THE DEFECT THIS MODULE WAS WRITTEN TO PREVENT, COMMITTED BY IT.
+
+    `player_sight` read `num(scenario.get("player_sight_range"), 0.0)` on the
+    wired branch, and the shipped `default_laser_tag_scenario.tres` does not
+    write that field. So the crew's sight came back 0.0, `opening_range`
+    reported 35 instead of 45, `opener` named the ENEMY when the crew shoots
+    first, and `check_drift` told Lot its correct 45 was stricter than
+    required -- the exact inversion of this module's own docstring.
+
+    Wired means the scenario decides. A silent scenario still decides: what
+    the run gets is the resource's own export default.
+    """
+    eng = _eng(harness_text=HARNESS_WIRED,
+               scenario_script_text=SCENARIO_SCRIPT
+               + "@export var player_sight_range: float = 45.0\n")
+    assert eng.player_sight_is_configurable is True, "must be the wired branch"
+    assert eng.player_sight == 45.0
+    assert eng.opening_range == 45.0
+    assert eng.opener == "the crew"
+
+
+def test_the_resource_still_wins_when_it_speaks():
+    eng = _eng(scenario_text=SCENARIO + "player_sight_range = 20.0\n",
+               harness_text=HARNESS_WIRED,
+               scenario_script_text=SCENARIO_SCRIPT
+               + "@export var player_sight_range: float = 45.0\n")
+    assert eng.player_sight == 20.0
+    assert eng.opening_range == 35.0      # the enemy's is now the binding one
+    assert eng.opener == "the enemy"
+
+
+def test_an_unwired_crew_sight_still_comes_from_the_bot():
+    """Unchanged, and the distinction is the point: a field the harness never
+    assigns is a script default wearing a scenario's clothes, so the BOT's
+    number is what the run gets."""
+    eng = _eng(harness_text="func _configure_enemy(): pass\n")
+    assert eng.player_sight_is_configurable is False
+    assert eng.player_sight == 45.0       # LT_BotPlayerController's own export
+
+
+def test_the_shipped_checkout_opens_at_the_crews_range():
+    """Against the real files. This is the number Lot sizes every enemy
+    placement against, and it read 35 for as long as the module existed."""
+    lasertag = ROOT.parent / "lasertag"
+    if not lasertag.is_dir():
+        pytest.skip("lasertag checkout not beside level_factory")
+    eng = lt.read_engagement_from(lasertag)
+    assert eng.player_sight == 45.0
+    assert eng.opening_range == 45.0
+    assert eng.opener == "the crew"
+    assert lt.check_drift(45.0, eng, who="Lot site_spawns") == []

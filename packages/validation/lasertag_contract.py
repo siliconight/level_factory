@@ -256,15 +256,36 @@ def read_engagement(scenario_text: str = "", bot_text: str = "",
     enemy_sight = num(scenario.get("enemy_sight_range"), MEASURED.enemy_sight) \
         if enemy_sight_wired else num(brain.get("sight_range"), MEASURED.enemy_sight)
 
-    player_wired = any(field.startswith("player_sight")
-                       for field in wiring.values())
-    player_sight = num(scenario.get("player_sight_range"), 0.0) if player_wired \
-        else num(bot.get("sight_range"), MEASURED.player_sight)
-
     def sight(field: str, fallback: float) -> float:
+        """Resource first, then the scenario SCRIPT'S own default.
+
+        A `.tres` carries only the fields somebody wrote into it, and the
+        shipped `default_laser_tag_scenario.tres` writes very few -- so
+        "absent from the resource" means "the export default applies", not
+        "unknown".
+        """
         if field in scenario:
             return num(scenario.get(field), fallback)
         return num(defaults.get(field), fallback)
+
+    player_wired = any(field.startswith("player_sight")
+                       for field in wiring.values())
+    # WIRED MEANS THE SCENARIO DECIDES, AND A SILENT SCENARIO STILL DECIDES:
+    # the value the run gets is then the resource's own export default, not
+    # zero. This read `num(scenario.get(...), 0.0)`, and the shipped resource
+    # never writes `player_sight_range` -- so the crew's sight came back 0.0,
+    # `opening_range` reported 35 instead of 45, `opener` named the ENEMY when
+    # the crew shoots first, and `check_drift` told Lot that its correct 45
+    # was STRICTER THAN THE EVALUATOR REQUIRES.
+    #
+    # That is the exact error this module's own docstring exists to describe
+    # -- "the fight actually opens at 45 m because the crew's bot sees ten
+    # metres further" -- committed by the module written to prevent it.
+    # Present since the module was written: cold run 9004 carried three of
+    # the resulting findings and cold run 9005 three more (roadmap 134).
+    player_sight = (sight("player_sight_range", MEASURED.player_sight)
+                    if player_wired
+                    else num(bot.get("sight_range"), MEASURED.player_sight))
 
     read = [name for name, text in (("scenario", scenario_text),
                                     ("bot controller", bot_text),

@@ -1,3 +1,63 @@
+## [0.64.0] - two gates that were firing into nothing
+
+Roadmap 133 and 134, both found by attributing cold run 9005's output rather
+than by measuring anything.
+
+### Added
+- `PRESENTATION_ZFIGHT`. `presentation_compose` computes a z-fight check,
+  writes it into `portable_resource_manifest.json`, prints **"the package
+  would flicker"** and exits 3 — and `normalize_validation` had no branch for
+  `zfight_check`. The stage's exit code is advisory by design, so the job
+  records SUCCEEDED and the finding reached no status line. **Three cold runs
+  shipped a package the composer said would flicker, each recorded as clean:**
+  33 pairs on 9003, 15 on 9004, 30 on 9005.
+
+  The finding separates what can be SEEN from the total. Of 9005's 30 pairs, 8
+  are buried inside a solid and 14 are between two greybox faces, so 8 are
+  visible — reporting 30 would send somebody hunting thirty seams in a scene
+  that has eight. It names the worst three, which on this level are all stair
+  bases coplanar with floors.
+
+  Advisory, like the placement gate beside it: coplanar faces are an art
+  defect and refusing to build the level over one stops it existing long
+  enough to be looked at.
+
+### Fixed
+- **`player_sight` fell back to 0.0 and the whole engagement contract went with
+  it.** `default_laser_tag_scenario.tres` does not write `player_sight_range`,
+  so the wired branch took its fallback:
+
+  ```
+                      read          true
+  player_sight         0.0          45.0
+  opening_range       35.0          45.0
+  opener          the enemy     the crew
+  ```
+
+  `check_drift` then told Lot that its correct `OPENING_RANGE = 45.0` was
+  *"stricter than the evaluator requires"*. Lot was right and the reader was
+  wrong, and this module's own opening docstring describes that exact bug as
+  the reason it exists. Acting on the finding would have cut enemy standoff by
+  ten metres on every site.
+
+  Wired means the scenario decides, and a silent scenario still decides: what
+  a run gets is the resource's own `@export` default. Fixed with the fallback
+  chain 0.63.0 already added for the three sight heights.
+
+### Corrected
+- Roadmap 133 first claimed the placement gate was invisible too. It is not —
+  `PRESENTATION_PLACEMENT_MISMATCH` has always been emitted and appears in
+  cold run 9005's `validate` output. The claim came from reading the job log,
+  where both gates print together, without checking which reached a finding.
+
+### Measured
+`test_presentation_gates_are_reported.py` (9 tests) and four additions to
+`test_lasertag_contract.py`: 8 of the 13 verified failing against the pre-fix
+modules. The first draft of the contract tests passed WITHOUT the fix, because
+the `HARNESS` fixture predates Laser Tag 0.11.0 and does not wire the crew's
+sight — so they took the unwired branch and never reached the code under test.
+They now assert `player_sight_is_configurable is True` before anything else.
+
 ## [0.63.1] - the aim height crosses the seam
 
 Roadmap 131's residue. `aim_height_m` is a BODY dimension and was the last one

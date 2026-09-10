@@ -503,6 +503,44 @@ class PresentationAdapter(BaseAdapter):
                             f"{pc.get('matched')}/{pc.get('checked')} aligned"),
                 "blocking": False, "raw_source_path": str(manifest)})
 
+        # Z-FIGHTING: the composer computes it, prints "the package would
+        # flicker", exits 3 -- and nothing read it. `presentation_compose`'s
+        # exit code is advisory by design, so the job records SUCCEEDED, and
+        # with no branch here the finding never reached a status line. Three
+        # cold runs shipped a package the composer itself said would flicker
+        # and each was recorded as clean (roadmap 133).
+        #
+        # Advisory, like the placement gate beside it: coplanar faces are an
+        # art defect and refusing to build the level over one would stop it
+        # existing long enough to be looked at. Loud, though -- the count and
+        # the worst offenders by name, so it is actionable rather than a
+        # number.
+        #
+        # `buried_pairs` and `greybox_internal_pairs` are broken out because
+        # they are not the same defect: a pair where one face is buried inside
+        # a solid cannot flicker, and a pair between two greybox faces is
+        # under the art rather than in it. Reporting the total alone would
+        # send somebody hunting for 30 visible seams when this scene has 8.
+        zf = man.get("zfight_check")
+        if isinstance(zf, Mapping) and zf.get("ok") is False:
+            pairs = int(zf.get("pairs") or 0)
+            buried = int(zf.get("buried_pairs") or 0)
+            internal = int(zf.get("greybox_internal_pairs") or 0)
+            visible = max(0, pairs - buried - internal)
+            worst = ", ".join(
+                f"{f.get('a')} / {f.get('b')}"
+                for f in (zf.get("findings") or [])[:3] if isinstance(f, Mapping))
+            issues.append({
+                "code": "PRESENTATION_ZFIGHT",
+                "severity": "moderate", "category": "presentation",
+                "message": (
+                    f"{pairs} coplanar face pair(s) across "
+                    f"{zf.get('solids')} solids in {zf.get('scene')} — the "
+                    f"package would flicker where two surfaces share a plane. "
+                    f"{buried} buried, {internal} greybox-internal, so "
+                    f"{visible} can be seen. Worst: {worst or 'not reported'}"),
+                "blocking": False, "raw_source_path": str(manifest)})
+
         # No themed modules resolved at all = the kit didn't feed the compose.
         if not man.get("walkable", True):
             issues.append({
