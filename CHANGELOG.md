@@ -1,3 +1,48 @@
+## [0.62.0] - the shipped briefs say how many people arrive
+
+Roadmap 129. `_STOCK_SCENARIO` ships `enemy_count` 6 and `player_count` 1;
+`player_count` comes from the brief's `crew_size`, which defaults to 1. Of the
+27 briefs on disk exactly one declared a crew size. Every evaluation this
+project has ever run was ONE crew member against SIX guards, and no brief asked
+for it -- two defaults disagreeing.
+
+### Fixed
+- `mission.brief.schema.json` documents `crew_size`. It was absent, while
+  `packages/core/models.py` and `apps/cli/commands/__init__.py:423` both read
+  it -- which is very likely why nobody set it. A field the schema does not
+  mention is a field nobody knows exists.
+
+- The four shipped example briefs declare `crew_size: 4`, the size the one
+  brief that already stated one uses, and the size measured to survive against
+  the shipped six.
+
+### Measured end to end, on the map that provoked it
+  `warehouse_yard_001`, whose cold run 9004 wiped 75 runs out of 75. The brief
+  now drives both the scenario and Lot's markers -- `player_count = 4` in the
+  generated `.tres` and four `LT_PlayerSpawn` nodes in the site:
+
+        seed    crew 1 (before)              crew 4 (after)
+        9004    25 wipes, progress 0.00      0 wipes,  progress 0.33
+        9105    25 wipes, progress 0.00      2 wipes,  progress 0.65, score 65 -> 73
+        9206    25 wipes, progress 0.00     19 wipes,  progress 0.47
+
+  Seed 9105 now has nine runs that reach the full clock. This is the first
+  time a Laser Tag score has moved on a change from this session.
+
+### Why the examples and not the default
+  Raising `crew_size`'s default would change every historical comparison in
+  one line, which is the objection that kept `advance_while_engaging` opt-in.
+  Fixing the corpus a newcomer copies is narrower and leaves the default
+  honest -- the same remedy roadmap 118 reached for the `lot_library`
+  laggards, for the same reason.
+
+### Added
+- `tests/unit/test_shipped_briefs_declare_a_crew.py` -- the schema documents
+  the field, every shipped brief declares it, and no shipped brief is
+  outnumbered worse than two to one. That last is not a rule about the right
+  crew size; it is a rule against the pairing that read as three unplayable
+  maps in a row.
+
 ## [0.61.0] - the theme pre-flight counts what Zoo resolves, not what it spells
 
 ### Fixed

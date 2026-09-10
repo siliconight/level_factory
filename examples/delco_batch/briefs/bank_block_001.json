@@ -4,9 +4,16 @@
   "display_name": "Bank Block",
   "archetype": "urban_bank",
   "building_count": 3,
+  "crew_size": 4,
   "site_shape": "street_block",
   "route_shape": "push_then_backtrack",
-  "objective_hypotheses": ["enter_bank", "reach_vault", "hold_vault", "carry_loot", "return_to_vehicle"],
+  "objective_hypotheses": [
+    "enter_bank",
+    "reach_vault",
+    "hold_vault",
+    "carry_loot",
+    "return_to_vehicle"
+  ],
   "extraction_relationship": "crew_start_backtrack",
   "verticality": "medium",
   "landmark": "bank_clock",
@@ -14,5 +21,8 @@
   "weather": "clear",
   "theme": "delco_1997",
   "candidate_count": 3,
-  "target_minutes": [25, 35]
+  "target_minutes": [
+    25,
+    35
+  ]
 }

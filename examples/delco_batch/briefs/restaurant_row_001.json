@@ -4,6 +4,7 @@
   "display_name": "Restaurant Row",
   "archetype": "corner_deli",
   "building_count": 3,
+  "crew_size": 4,
   "site_shape": "strip",
   "route_shape": "linear_push",
   "objective_hypotheses": [
