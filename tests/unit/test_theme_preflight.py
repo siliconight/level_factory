@@ -52,7 +52,13 @@ def test_the_report_names_the_path_and_what_is_installed(tmp_path):
 
 
 def test_partial_zoo_coverage_is_a_fraction_not_a_boolean(tmp_path):
-    """`3 of 48 species carry it` and `48 of 48` are different answers."""
+    """`3 of 48 species` and `48 of 48` are different answers.
+
+    The verb moved from CARRY to RESOLVE when Zoo 0.57.0 taught its theme path
+    a fallback: a species reaches `delco_1997` through the `delco` or `1990s`
+    style it already has, so counting the ones that spell the name reported a
+    closed gap as open. The fraction is the point either way.
+    """
     repos = _factory(tmp_path, styles=("default", "delco"))
     sp = Path(repos["zoo"]) / "zoo_keeper" / "genome" / "species"
     (sp / "sp0.json").write_text(
@@ -60,7 +66,7 @@ def test_partial_zoo_coverage_is_a_fraction_not_a_boolean(tmp_path):
                                                  "rockay": {}}}), encoding="utf-8")
     counts, scanned = themes.zoo_styles(repos["zoo"])
     assert (counts["delco"], counts["rockay"], scanned) == (4, 1, 4)
-    assert "1 of 4 species carry 'rockay'" in " ".join(
+    assert "1 of 4 species resolve 'rockay'" in " ".join(
         themes.summary_lines(themes.resolve("rockay", repos)))
 
 

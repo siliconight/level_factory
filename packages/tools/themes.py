@@ -73,6 +73,7 @@ def zoo_styles(repo: str | Path | None) -> tuple[dict[str, int], int]:
     if not d.is_dir():
         return counts, 0
     scanned = 0
+    per_species: list[set[str]] = []
     for p in sorted(d.glob("*.json")):
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
@@ -81,9 +82,80 @@ def zoo_styles(repo: str | Path | None) -> tuple[dict[str, int], int]:
         scanned += 1
         styles = data.get("styles")
         if isinstance(styles, dict):
+            per_species.append({str(name) for name in styles})
             for name in styles:
                 counts[str(name)] = counts.get(str(name), 0) + 1
     return counts, scanned
+
+
+def zoo_species_styles(repo: str | Path | None) -> list[set[str]]:
+    """One set of style names per species, for asking resolution PER SPECIES.
+
+    `zoo_styles` aggregates, and aggregating loses the answer here: on the
+    shipped genome 42 of 56 species carry `delco`, 14 carry `1990s` and NONE
+    carries both, so `delco_1997` resolves for all 56 while any single
+    map-level style name accounts for at most 42. Zoo asks the question of one
+    species at a time and so does this.
+    """
+    out: list[set[str]] = []
+    if not repo:
+        return out
+    d = Path(repo) / "zoo_keeper" / "genome" / "species"
+    if not d.is_dir():
+        return out
+    for p in sorted(d.glob("*.json")):
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        styles = data.get("styles")
+        if isinstance(styles, dict):
+            out.append({str(name) for name in styles})
+    return out
+
+
+def zoo_style_for(theme: str, styles: dict[str, int]) -> str | None:
+    """The style name Zoo will actually use for `theme`, or None.
+
+    MIRRORS `zoo_keeper/core/dna.py::theme_style`, and mirroring is a cost paid
+    on purpose. Level Factory cannot import Zoo -- it reads tool checkouts, it
+    does not run them -- and the alternative was to keep reporting a gap that
+    had been closed.
+
+    THAT IS NOT HYPOTHETICAL. Zoo 0.57.0 taught the theme path the fallback its
+    prompt path always had, taking `delco_1997` from 0 of 56 species to 56 of
+    56 without a single new style being authored for it. This module went on
+    reading the raw KEYS, so cold run 9004's pre-flight said "no species carry
+    a 'delco_1997' style (56 scanned) -- the kit falls back to flat colour" of
+    a kit that resolves it everywhere. Under-reporting a closed gap is how one
+    gets closed twice.
+
+    The rule, widest first, exactly as Zoo applies it:
+
+      1. the exact name;
+      2. the name minus a trailing qualifier -- `delco_1997` -> `delco`;
+      3. that qualifier read as a DECADE -- `_1997` -> `1990s`.
+
+    `species_with_style` beside this stays the LITERAL count, so a reader can
+    still see that nothing carries the name itself. `test_theme_zoo_resolution`
+    runs this against Zoo's own implementation over the shipped species corpus
+    and fails when the two disagree, which is the only thing that keeps a
+    mirrored rule honest.
+    """
+    name = (theme or "").strip()
+    if not name or not styles:
+        return None
+    if name in styles:
+        return name
+    head, _, tail = name.rpartition("_")
+    if head:
+        if head in styles:
+            return head
+        if tail.isdigit() and len(tail) == 4:
+            decade = f"{int(tail) // 10 * 10}s"
+            if decade in styles:
+                return decade
+    return None
 
 
 def resolve(theme: str, repositories: dict) -> dict:
@@ -101,6 +173,11 @@ def resolve(theme: str, repositories: dict) -> dict:
 
     styles, species = zoo_styles(zoo_repo)
     carried = styles.get(theme, 0)
+    # ASKED PER SPECIES, the way Zoo asks it -- see `zoo_species_styles`.
+    per_species = zoo_species_styles(zoo_repo)
+    carried_resolved = sum(
+        1 for names in per_species
+        if zoo_style_for(theme, {n: 1 for n in names}) is not None)
 
     return {
         "theme": theme,
@@ -116,6 +193,8 @@ def resolve(theme: str, repositories: dict) -> dict:
             "species_with_style": carried,
             "species_scanned": species,
             "available": sorted(styles),
+            # What Zoo will ACTUALLY use, which is not the same question.
+            "species_with_resolved_style": carried_resolved,
         },
     }
 
@@ -142,12 +221,23 @@ def summary_lines(res: dict) -> list[str]:
                    + (", ".join(avail) if avail else "(none)"))
 
     if zoo.get("configured"):
-        n, total = zoo.get("species_with_style", 0), zoo.get("species_scanned", 0)
-        if n == 0:
-            out.append(f"            zoo: no species carry a '{theme}' style "
+        n = zoo.get("species_with_style", 0)
+        total = zoo.get("species_scanned", 0)
+        # WHAT ZOO WILL USE, not what it spells. Zoo resolves a theme name to
+        # the style a species carries, so the literal count answers a question
+        # nobody asked -- it read "no species carry a 'delco_1997' style
+        # (56 scanned) — the kit falls back to flat colour" of a kit that
+        # resolves it on all 56.
+        resolved = zoo.get("species_with_resolved_style", n)
+        if resolved == 0:
+            out.append(f"            zoo: no species resolve a '{theme}' style "
                        f"({total} scanned) — the kit falls back to flat colour")
-        elif total and n < total:
-            out.append(f"            zoo: {n} of {total} species carry '{theme}'")
+        elif total and resolved < total:
+            out.append(f"            zoo: {resolved} of {total} species resolve "
+                       f"'{theme}'")
         else:
-            out.append(f"            zoo: all {total} species carry '{theme}'")
+            out.append(f"            zoo: all {total} species resolve '{theme}'")
+        if resolved and n != resolved:
+            out.append(f"            zoo: {n} carry the name itself; the rest "
+                       f"reach it through Zoo's own fallback")
     return out

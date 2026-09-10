@@ -1,3 +1,41 @@
+## [0.61.0] - the theme pre-flight counts what Zoo resolves, not what it spells
+
+### Fixed
+- `themes.resolve` reports `species_with_resolved_style` beside the literal
+  `species_with_style`, and `summary_lines` leads with it. Zoo 0.57.0 taught
+  its theme path the fallback its prompt path always had -- a species reaches
+  `delco_1997` through the `delco` or `1990s` style it already carries -- and
+  this module went on counting raw style KEYS.
+
+  COLD RUN 9004 PRINTED THE RESULT: "zoo: no species carry a 'delco_1997'
+  style (56 scanned) — the kit falls back to flat colour", about a kit that
+  resolves it on all 56. Under-reporting a closed gap is how one gets closed
+  twice. It now reads "all 56 species resolve 'delco_1997'" with a second line
+  saying 0 carry the name itself and the rest reach it through Zoo's fallback.
+
+- ASKED PER SPECIES, because aggregating loses the answer. 42 of 56 species
+  carry `delco`, 14 carry `1990s`, and none carries both -- so `delco_1997`
+  resolves for all 56 while any single map-level style name accounts for at
+  most 42. `zoo_species_styles` returns one set per species and the question
+  is asked of each, the way Zoo asks it.
+
+### Added
+- `tests/unit/test_theme_zoo_resolution.py`. `zoo_style_for` MIRRORS
+  `zoo_keeper/core/dna.py::theme_style`, because Level Factory reads tool
+  checkouts and does not run them -- and a mirrored rule is a number typed
+  twice. The test runs both implementations over the shipped species corpus
+  across thirteen theme names and fails when they disagree. Verified to catch
+  drift: deleting the decade branch from the mirror makes 14 species disagree.
+
+  It also asserts the corpus EXERCISES the fallback (50+ species reaching
+  `delco_1997` by a name they do not carry), because a comparison where both
+  sides always answer None proves nothing.
+
+### Changed
+- `test_partial_zoo_coverage_is_a_fraction_not_a_boolean` asserts "resolve"
+  rather than "carry". Same fraction, same intent; the verb moved with the
+  meaning.
+
 ## [0.60.0] - a scenario override that cannot land is an error
 
 Found while trying to A/B Laser Tag's traversal-under-fire flag and discovering
