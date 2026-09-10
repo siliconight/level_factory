@@ -41,11 +41,20 @@ from typing import Mapping
 #: margin folded in. The pill had been built at 0.40, so every door-width test
 #: ran against a proxy 14% fatter than the character it stood for, and the
 #: margin was being spent twice.
+#: `aim_height_m` IS A BODY DIMENSION and was the last one not to cross this
+#: seam (roadmap 131). Laser Tag aims every shot at a flat height above the
+#: target's feet, and until the contract carried `chest_height_m` that height
+#: followed nothing: a studio stating a 2.05 m character got an eye that moved
+#: and an aim point that stayed at ours. It is not cosmetic -- LOS is granted
+#: only when the ray cast AT that height hits the target body first, so an aim
+#: point outside the target's capsule misses, nothing ever sees anything, and
+#: the report fills with zeroes that read like a map problem.
 _FIELDS = {
     "player_radius_m": "radius_m",
     "player_height_m": "height_m",
     "player_eye_height_m": "eye_height_m",
     "player_walk_speed_mps": "walk_speed_mps",
+    "aim_height_m": "chest_height_m",
 }
 
 CONTRACT_REL = "agent_contract.json"

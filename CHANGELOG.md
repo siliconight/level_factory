@@ -1,3 +1,17 @@
+## [0.63.1] - the aim height crosses the seam
+
+Roadmap 131's residue. `aim_height_m` is a BODY dimension and was the last one
+not to reach the evaluator from the contract: `_FIELDS` carried the radius, the
+height, the eye and the walk speed, and Laser Tag went on aiming every shot at
+a flat 1.0 m however tall the character was.
+
+### Added
+- `_FIELDS` gains `aim_height_m <- chest_height_m`, so a studio states its body
+  once and the shot goes where that body's chest is. Not cosmetic: LOS is
+  granted only when the ray cast AT that height hits the target first, so an
+  aim point outside the target's capsule misses and every sightline on the map
+  reads blocked.
+
 ## [0.63.0] - the drift check covers the constants its docstring is about
 
 Roadmap 131. `lot/site_cover.py` and `lot/site_spawns.py` both say, in the
