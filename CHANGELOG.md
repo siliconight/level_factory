@@ -1,3 +1,25 @@
+## [0.70.0] - the windows light
+
+Roadmap 96, decided: window anchors become area lights. Deli Counter derived
+one per opening, Lot merged them into `site.site.lights.json`, the manifest
+shipped them, and no built level ever turned one into light -- the marker
+path skips daylight by design (no hardware, no marker) and the manifest
+path's only caller was the dock button. Measured on cold run 9005's site
+before this: 18 window anchors of 35, 0 lights.
+
+### Added
+- `run_lux_apply.gd --lights <site.site.lights.json>`: after the fixture
+  spawn, `LuxLightLoader.bake_daylight` (Lux 0.30.0) under `LuxDaylight`,
+  re-owned so `pack()` keeps it. `lux.quality.json` gains `daylight_lights`,
+  `daylight_anchors_in_manifest` and `daylight_msg`; `LUX_NO_DAYLIGHT`
+  (moderate) when the manifest asked for daylight and none was made, or the
+  file could not be read.
+- The Lux adapter passes `--lights` when the job spec carries `lights_json`
+  -- the key `fingerprint_inputs` has hashed since it was written and the
+  command never took: the unused parameter the item named, finished. The
+  spec builder points it at the assembly job's merged manifest.
+- `tests/unit/test_lux_daylight.py`, four cases.
+
 ## [0.69.0] - four people arrive by default
 
 Roadmap 129, the half 0.62.0 left as a decision. `crew_size` defaults to 4

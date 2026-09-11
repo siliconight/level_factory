@@ -745,10 +745,20 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
             lux_repo = Path(str(repos.get("lux", "")))
             lot_repo = Path(str(repos.get("lot", "")))
             driver = Path(__file__).resolve().parents[3] / "assets" / "godot" / "run_lux_apply.gd"
+            # The site's merged light manifest sits beside the site scene in
+            # the job that assembled it (Lot writes `<stem>.site.lights.json`
+            # for the themed and the greybox assembly alike); the composed
+            # BUILDING has none. Window anchors in it become area lights
+            # (roadmap 96); without it the level ships with none, and says so.
+            lights_job = themed_job or lot_job
+            lights_json = (str(_latest_output(jobs_dir / lights_job,
+                                              "site.site.lights.json"))
+                           if lights_job else "")
             specs[job.job_id] = {
                 "preset": _preset_for(model),
                 "quality_tier": "standard",
                 "composed_scene": str(composed_scene),
+                "lights_json": lights_json,
                 "addon_dir": str(lux_repo / "addons" / "lux"),
                 "extra_addon_dirs": [str(lot_repo / "godot" / "addons" / "lot")],
                 "driver_src": str(driver),

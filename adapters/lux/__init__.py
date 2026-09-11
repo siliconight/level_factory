@@ -160,6 +160,12 @@ class LuxAdapter(BaseAdapter):
                 "--scene", scene_res,
                 "--preset", str(job_spec.get("preset", "")),
                 "--out", str(work)]
+        # The merged site light manifest, for the window anchors (roadmap
+        # 96). `fingerprint_inputs` has hashed this key since it was written
+        # and this is the first time the command takes it -- the unused
+        # parameter the item named, finished.
+        if job_spec.get("lights_json"):
+            args += ["--lights", str(job_spec["lights_json"])]
 
         return [PlannedCommand(
             executable=godot, arguments=tuple(args),

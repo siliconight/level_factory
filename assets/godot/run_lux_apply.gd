@@ -10,6 +10,7 @@ extends SceneTree
 ## Usage:
 ##   godot --headless --path <project> -s res://run_lux_apply.gd -- \
 ##     --scene res://level.tscn --preset <preset_name> [--out <abs_dir>]
+##     [--lights <abs path to site.site.lights.json>]   (window anchors -> area lights)
 ##
 ## NOTE: preview PNG capture (calm/alarm/extraction) needs a rendering context,
 ## which --headless does not provide. This driver writes the applied scene +
@@ -142,6 +143,36 @@ func _initialize() -> void:
 		push_warning("run_lux_apply: %s" % fixture_msg)
 	await process_frame
 
+	# Light the windows (roadmap 96). Deli Counter derives one `window`
+	# anchor per opening, Lot merges them into `site.site.lights.json`, and
+	# until Lux 0.30.0 / this driver nothing in a built level ever made one
+	# a light: the spawner above skips daylight by design (no hardware, no
+	# marker) and the manifest path's only caller was the dock button.
+	# Measured on cold run 9005's site before this: 18 window anchors of 35,
+	# 0 lights. Same ownership rule as the fixtures -- re-own or pack() drops
+	# them silently.
+	var lights_path: String = String(args.get("lights", ""))
+	var daylight_count := 0
+	var daylight_in_manifest := 0
+	var daylight_msg := "no --lights given"
+	var daylight_ok := true
+	if not lights_path.is_empty():
+		var loader_script: GDScript = load("res://addons/lux/runtime/lux_light_loader.gd")
+		if loader_script != null and loader_script.has_method("bake_daylight"):
+			var dres: Dictionary = loader_script.bake_daylight(lights_path, scene)
+			daylight_ok = bool(dres.get("ok", false))
+			daylight_count = int(dres.get("count", 0))
+			daylight_in_manifest = int(dres.get("in_manifest", 0))
+			daylight_msg = String(dres.get("msg", ""))
+			var dcontainer: Node = scene.get_node_or_null(NodePath("LuxDaylight"))
+			if dcontainer != null:
+				_own_recursive(dcontainer, scene)
+		else:
+			daylight_ok = false
+			daylight_msg = "lux addon has no bake_daylight (Lux < 0.30.0)"
+		print("[lux] %s" % daylight_msg)
+		await process_frame
+
 	# Save the applied presentation scene.
 	var applied := PackedScene.new()
 	if applied.pack(scene) != OK:
@@ -160,9 +191,18 @@ func _initialize() -> void:
 	var quality := {"preset": preset_name, "preset_applied": reported,
 		"applied": applied_ok,
 		"driver": "run_lux_apply", "note": "previews need a render context",
-		"fixture_lights": fixture_count, "fixture_msg": fixture_msg}
+		"fixture_lights": fixture_count, "fixture_msg": fixture_msg,
+		"daylight_lights": daylight_count,
+		"daylight_anchors_in_manifest": daylight_in_manifest,
+		"daylight_msg": daylight_msg}
 	_write_json(out_dir + "/lux.quality.json", quality)
 	var issues := []
+	# The manifest asked for daylight and none was made -- or could not be
+	# read at all. Moderate: the level ships, darker than it was specified.
+	if not lights_path.is_empty() and (not daylight_ok or (daylight_in_manifest > 0 and daylight_count == 0)):
+		issues.append({"code": "LUX_NO_DAYLIGHT", "severity": "moderate",
+			"category": "presentation",
+			"message": "window anchors did not become light: %s" % daylight_msg})
 	if not preset_known:
 		issues.append({"code": "LUX_PRESET_UNKNOWN", "severity": "moderate",
 			"category": "presentation",
