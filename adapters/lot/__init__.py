@@ -59,6 +59,17 @@ class LotAdapter(BaseAdapter):
             problems.append("lot job requires a site_spec_path (site_spec.json)")
         elif not Path(str(spec)).exists():
             problems.append(f"lot site spec missing: {spec}")
+        if job_spec.get("mode") == "surfaces":
+            # `site_surfaces` merges each building's gameplay.json off
+            # `base_dir` to dress the wall bases; without it the seams go
+            # undressed and the tool says so only as a warning.
+            base = job_spec.get("base_dir")
+            if not base:
+                problems.append("lot surfaces job requires base_dir: the "
+                                "assembled site's out dir, where the "
+                                "buildings' gameplay.json files sit")
+            elif not Path(str(base)).is_dir():
+                problems.append(f"lot surfaces base_dir missing: {base}")
         return problems
 
     def fingerprint_inputs(
@@ -68,6 +79,19 @@ class LotAdapter(BaseAdapter):
             "walkable": bool(job_spec.get("walkable", True)),
             "navqa": bool(job_spec.get("navqa", False)),
         }
+        # Only the surfaces mode adds to the fingerprint. A key on every lot
+        # fingerprint would retire every cached assembly -- and with it every
+        # walktest and Laser Tag evaluation downstream -- in every workspace.
+        if job_spec.get("mode") == "surfaces":
+            fp["mode"] = "surfaces"
+            base = job_spec.get("base_dir")
+            if base and Path(str(base)).is_dir():
+                # The footprints `site_surfaces` merges in. Constructed paths
+                # may not exist at fingerprint time; then the spec hash
+                # alone stands, as it does for the assembly itself.
+                fp["footprints"] = {
+                    p.name: hash_file(p) for p in
+                    sorted(Path(str(base)).rglob("*.gameplay.json"))}
         spec = job_spec.get("site_spec_path")
         if spec and Path(str(spec)).exists():
             fp["site_spec_hash"] = hash_file(Path(str(spec)))
@@ -148,6 +172,9 @@ class LotAdapter(BaseAdapter):
         spec = str(job_spec.get("site_spec_path", ""))
         stem = self._stem(job_spec)
 
+        if job_spec.get("mode") == "surfaces":
+            return self._surfaces_commands(job_spec, context, repo, work, py)
+
         args = [str(repo / "lot.py"), spec, str(work)]
         if job_spec.get("walkable", True):
             args.append("--walkable")
@@ -204,6 +231,38 @@ class LotAdapter(BaseAdapter):
             timeout_seconds=600,
         ))
         return commands
+
+    #: The one file the surfaces mode writes. Named here so the planner's
+    #: expected output and the Patina job that consumes it cannot drift.
+    SURFACES_FILE = "surfaces.json"
+
+    def _surfaces_commands(self, job_spec, context, repo, work, py):
+        """Layer 3, stage one: the dressable zones of an assembled site.
+
+        `lot/site_surfaces.py` reads the SAME site spec the assembly was run
+        from and merges each building's footprint off `base_dir` (the
+        assembly's out dir) via `merge_gameplay`, so the wall seams it returns
+        are the walls Lot actually placed. Proven by hand on cold run 9005's
+        spec before it was wired (roadmap 110): 6 zones, 3 exclusions,
+        footprints read for 1 of 1 buildings. `--strict` so an unreadable
+        footprint fails the JOB -- in a pipeline it means the seams silently
+        went undressed, which the tool's own help text says is the reason the
+        flag exists.
+        """
+        out = work / self.SURFACES_FILE
+        args = [str(repo / "site_surfaces.py"),
+                str(job_spec.get("site_spec_path", "")),
+                "--out", str(out),
+                "--base-dir", str(job_spec.get("base_dir", "")),
+                "--strict"]
+        if job_spec.get("nav_bake_path"):
+            args += ["--nav-bake", str(job_spec["nav_bake_path"])]
+        return [PlannedCommand(
+            executable=Path(str(py)), arguments=tuple(args),
+            working_directory=repo,
+            expected_outputs=(self.SURFACES_FILE,),
+            resource_class="python_cpu", timeout_seconds=300,
+        )]
 
     @staticmethod
     def _staged_outputs(manifest_path: str) -> list[str]:

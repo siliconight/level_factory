@@ -1,3 +1,44 @@
+## [0.68.0] - Layer 3 surface dressing is planned, built, and shipped
+
+Roadmap 110. Every stage of Patina's Layer 3 -- Lot's `site_surfaces`, Zoo's
+clutter species and `measure_shapes`, Patina's `surface_dressing`, the
+export's `dressing_scene` -- was built and tested by 2026-08-19, and the
+planner referenced none of it. Run once by hand into `_dress/`, untracked,
+and never again. This wires it, in the order the design doc gives.
+
+### Added
+- Three art-layer jobs after `themed_site_assemble`: `zoo_clutter_build`
+  (Zoo `--habitat` over the species Patina's asset-set file names, no
+  collision, then `shape_metrics` on the result), `lot_site_surfaces`
+  (`site_surfaces.py --strict` over the locked candidate's own site spec and
+  assembly), and `patina_surface_dressing` (the 0.4.0 adapter mode, planned
+  against the THEMED assembly as its `source`). Clutter and surfaces need
+  only the locked assembly and run beside the art chain; Patina joins them.
+- `ZooAdapter` mode `habitat`; `LotAdapter` mode `surfaces`. Neither adds to
+  the other modes' fingerprints, so no cached kit, assembly, walktest or
+  Laser Tag evaluation is retired by this release.
+- The spec builder reads the clutter species off
+  `<patina>/patina/asset_sets/ground_clutter.json` (Patina 0.21.1), so one
+  file decides what the layer is built from and what it is planned with. A
+  checkout without the file plans a clutter job that refuses at pre-flight
+  and says why; the rest of the art chain runs.
+- `packages/exporting/dressing_layer.py` + `assets/godot/extract_meshes.gd`:
+  the mesh question `dressing_scene` refused to guess, answered once. A
+  scratch Godot project imports the clutter GLBs, merges each specimen's
+  MeshInstance3D nodes into one ArrayMesh with placement baked in, and saves
+  a self-contained `.res` (FLAG_BUNDLE_RESOURCES). The export puts them in
+  `dressing/`, writes `<site>_dressing.tscn` as MultiMeshes over them, and
+  the entry scene instances it BESIDE the level -- the locked shell is never
+  edited. `dressing_layer.json` in the package records what shipped or,
+  without Godot, exactly why nothing did.
+- `tests/unit/test_layer3_wiring.py`, seventeen cases.
+
+### Fixed
+- `ZooAdapter.normalize_validation` reads `.habitat.json` indexes: a clutter
+  species that failed to build is a `ZOO_PARTIAL_BUILD` finding naming it.
+- The Patina adapter's header said "bound to the REAL Patina 0.18.0 CLI"
+  three releases after the mode it plans was written against 0.21.0.
+
 ## [0.67.1] - a DRIFT line names the runbook, and the smoke says what it ran
 
 Roadmap 66. `verify-manifest` ended every DRIFT line with "re-run the

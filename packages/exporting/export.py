@@ -599,6 +599,13 @@ def export_mission(
     #: the unit suite, which has no Godot -- keeps working; the package is
     #: then exactly what it was before, and HANDOFF.md still says what to do.
     godot_executable: str | None = None,
+    #: Layer 3 surface dressing (roadmap 110): Patina's
+    #: `<site>.surface_dressing.json` and the Zoo clutter build's out dir.
+    #: Both default to None so a mission that never planned the layer
+    #: exports exactly as before; a mission that did ships
+    #: `<site>_dressing.tscn` and `dressing/<asset>.res`.
+    dressing_manifest: Path | None = None,
+    clutter_dir: Path | None = None,
 ) -> ExportResult:
     # ONE INSTANT, used by the archive name and the manifest both. Two
     # calls to the clock would put two different times on one build.
@@ -838,6 +845,27 @@ def export_mission(
         themed_scene = Path(themed_site_dir) / "site.tscn"
         if themed_scene.is_file():
             shutil.copy2(str(themed_scene), str(export_dir / "site.tscn"))
+
+    # 2.7 LAYER 3 SURFACE DRESSING (roadmap 110). Before 3.5 on purpose:
+    # the entry scene written there instances `<site>_dressing.tscn` beside
+    # the level, and the closure verdict at 3.6 walks from that entry, so
+    # the scene and the `.res` meshes it names have to be in the package
+    # first. Needs Godot for the mesh extraction; without one the report
+    # says so and the package ships undressed and says that too.
+    dressing_report = None
+    if profile.mode != MODE_PURE_SHELL and dressing_manifest:
+        from packages.exporting.dressing_layer import ship_dressing
+        dressing_report = ship_dressing(
+            export_dir, dressing_manifest, clutter_dir, godot_executable,
+            scratch_root=out_root)
+        if dressing_report.get("shipped"):
+            print("[export] surface dressing: %s -- %d instances of %d "
+                  "meshes, %d draw calls"
+                  % (dressing_report["scene"], dressing_report["instances"],
+                     dressing_report["meshes"], dressing_report["draw_calls"]))
+        else:
+            print("[export] surface dressing NOT shipped: "
+                  + "; ".join(dressing_report.get("reasons") or ["?"]))
 
     # 3. Source authoring (only in source mode).
     if profile.mode == MODE_SOURCE and source_dir and source_dir.exists():

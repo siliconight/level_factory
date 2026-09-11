@@ -313,6 +313,23 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                 # the DC repo's specs/ dir (DC writes specs there, not to work).
                 "level_name": f"lf_{model.mission_id}",
             }
+        elif job.adapter_id == "lot" and job.stage_id == "lot_site_surfaces":
+            # Layer 3, stage one. The SAME spec the greybox assembly ran
+            # from -- taken from that job's own spec, which topological
+            # order has already built -- and the assembly's out dir as
+            # `base_dir`, where `merge_gameplay` finds each building's
+            # footprint. Constructed, not probed: the out dir may not exist
+            # yet and the adapter validates it at execution.
+            lot_job = _dep(job, "lot_assemble")
+            if not lot_job or lot_job not in specs:
+                raise RuntimeError(
+                    f"{job.job_id}: no lot_assemble spec to take the site "
+                    f"spec from (depends_on={job.depends_on})")
+            specs[job.job_id] = {
+                "mode": "surfaces",
+                "site_spec_path": specs[lot_job]["site_spec_path"],
+                "base_dir": str(jobs_dir / lot_job / "out"),
+            }
         elif job.adapter_id == "lot":
             seed = int(str(job.candidate_id).rsplit("_", 1)[-1])
             themed_scene = None
@@ -453,7 +470,25 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
             # Kit build depends on Lot(+Pixelcoat); dressing build depends on
             # Patina dressing(+Zoo kit); fixtures build consumes the locked
             # shell's lights manifest. Distinguish by stage id.
-            if job.stage_id == "zoo_fixtures_build":
+            if job.stage_id == "zoo_clutter_build":
+                # WHICH SPECIES is the asset-set file's decision, not this
+                # function's: Patina's `asset_sets/ground_clutter.json` maps
+                # each Zoo species to the surface family it dresses, and the
+                # clutter build makes exactly the species that file names.
+                # One file drives both ends, so the build and the plan cannot
+                # disagree about what the layer is made of.
+                repos = ws.load_tools_local().get("repositories", {})
+                sets_path = _clutter_asset_sets(repos)
+                species = _clutter_species(sets_path)
+                specs[job.job_id] = {
+                    "mode": "habitat",
+                    "habitat": ",".join(species),
+                    "theme": model.theme or batch.get("theme_family", "") or "delco",
+                    "seed": int(job.candidate_id.rsplit("_", 1)[-1]),
+                    "measure_shapes": True,
+                    "metrics_name": "shapes.metrics.json",
+                }
+            elif job.stage_id == "zoo_fixtures_build":
                 # An archetype's lights manifest comes from the LIBRARY, where
                 # it already exists; the mission's own shell reads the one its
                 # Deli Counter job wrote. `building_library.index` carries the
@@ -546,7 +581,33 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
             deli_glb = (str(entry["glb"]) if entry else
                         str(_latest_output(jobs_dir / _deli_for(plan, job),
                                            "shell.glb")))
-            if job.stage_id == "patina_dressing":
+            if job.stage_id == "patina_surface_dressing":
+                # Layer 3, stage three. Every input is another job's
+                # declared output, constructed from that job's id (paths are
+                # constructed, not probed -- the producers have not run when
+                # this is built). `source` is the THEMED assembly, the scene
+                # the plan is made against and the one the export ships.
+                repos = ws.load_tools_local().get("repositories", {})
+                clutter_job = _dep(job, "zoo_clutter_build")
+                surfaces_job = _dep(job, "lot_site_surfaces")
+                themed_job = _dep(job, "themed_site_assemble")
+                if not (clutter_job and surfaces_job and themed_job):
+                    raise RuntimeError(
+                        f"{job.job_id}: needs zoo_clutter_build, "
+                        f"lot_site_surfaces and themed_site_assemble "
+                        f"upstream (depends_on={job.depends_on})")
+                specs[job.job_id] = {
+                    "mode": "surface_dressing",
+                    "surfaces_path": str(jobs_dir / surfaces_job / "out"
+                                         / "surfaces.json"),
+                    "metrics_path": str(jobs_dir / clutter_job / "out"
+                                        / "shapes.metrics.json"),
+                    "asset_sets_path": str(_clutter_asset_sets(repos)),
+                    "site_id": model.mission_id,
+                    "source": str(jobs_dir / themed_job / "out" / "site.tscn"),
+                    "seed": int(job.candidate_id.rsplit("_", 1)[-1]),
+                }
+            elif job.stage_id == "patina_dressing":
                 specs[job.job_id] = {
                     "input_glb": deli_glb,
                     "art_mode": "vertex-color",
@@ -708,6 +769,47 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                 "mode": "shell-handoff",
             }
     return specs
+
+
+def _clutter_asset_sets(repos: dict) -> Path:
+    """Patina's tracked asset-set file for the Layer 3 clutter layer.
+
+    Lives in the Patina repo because Patina owns which family dresses which
+    zone; the Zoo build reads the species off it (see `_clutter_species`) so
+    one file decides both what is built and what is planned. Roadmap 110
+    found this mapping as untracked scratch in `_dress/` -- four entries,
+    dated 2026-08-19 -- which is where a curation goes to be lost.
+    """
+    return (Path(str(repos.get("patina", ""))) / "patina" / "asset_sets"
+            / "ground_clutter.json")
+
+
+def _clutter_species(sets_path: Path) -> list[str]:
+    """The species the clutter build makes: every asset_id the set names.
+
+    EMPTY when the file cannot be read, and said on stderr -- not raised.
+    Raising here would take every job in the run down for a layer that is
+    new; an empty list instead plans a clutter job whose `habitat` is empty,
+    which the Zoo adapter refuses at validation, so the LAYER fails loudly
+    and the rest of the art chain runs. A Patina checkout older than
+    `asset_sets/ground_clutter.json` is the case this is written for.
+    """
+    try:
+        doc = json.loads(Path(sets_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        print(f"[plan] the Layer 3 asset-set file is not readable at "
+              f"{sets_path}: {exc}. The clutter build and the surface "
+              f"dressing will fail their pre-flight; tools.local.json must "
+              f"point `patina` at a checkout that carries "
+              f"patina/asset_sets/ground_clutter.json", file=sys.stderr)
+        return []
+    sets = doc.get("asset_sets") if isinstance(doc, dict) else None
+    species = sorted(str(k) for k in (sets or {}))
+    if not species:
+        print(f"[plan] {sets_path} names no asset_sets; the clutter build "
+              f"would make nothing, so it is planned to refuse",
+              file=sys.stderr)
+    return species
 
 
 def _dep(job, stage: str, archetype: str | None = None) -> str | None:
@@ -2503,6 +2605,12 @@ def cmd_export(args) -> int:
     # The assembled themed SITE. Not the same thing as the composed
     # building above it, and until 0.37.0 it reached no package.
     themed_site_dir = jobs_dir / f"{mission_id}.themed_site_assemble" / "out"
+    # Layer 3 surface dressing (roadmap 110): Patina's manifest and the Zoo
+    # clutter build it was planned from. Same string pattern; a mission that
+    # never planned the layer has neither and exports as before.
+    dressing_manifest = (jobs_dir / f"{mission_id}.patina_surface_dressing"
+                         / "out" / f"{mission_id}.surface_dressing.json")
+    clutter_dir = jobs_dir / f"{mission_id}.zoo_clutter_build" / "out"
     lot_out = _selected_lot_out(ws, mission_id)
 
     # Resolve which layers were actually produced, and the functional base.
@@ -2645,6 +2753,9 @@ def cmd_export(args) -> int:
         pinned_tools=pinned_tools,
         factory_version=factory_version, factory_tag=factory_tag,
         godot_executable=ws.load_tools_local().get("godot_executable"),
+        dressing_manifest=(dressing_manifest if dressing_manifest.is_file()
+                           else None),
+        clutter_dir=clutter_dir if clutter_dir.is_dir() else None,
     )
     if args.format == "zip":
         zip_export(result)

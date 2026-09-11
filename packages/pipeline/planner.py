@@ -132,6 +132,12 @@ _STAGE_LUX = "lux_apply"
 _STAGE_ZOO_FIXTURES = "zoo_fixtures_build"
 _STAGE_LUX_FIXTURE_GATE = "lux_fixture_gate"
 _STAGE_REGRESSION = "regression"
+# Layer 3 surface dressing (docs/SURFACE_DRESSING.md, roadmap 110): three
+# tools, three jobs, each producing what the next consumes. Every stage was
+# built and tested by 2026-08-19 and planned by nothing until 2026-09-11.
+_STAGE_ZOO_CLUTTER = "zoo_clutter_build"
+_STAGE_LOT_SURFACES = "lot_site_surfaces"
+_STAGE_PATINA_SURFACE = "patina_surface_dressing"
 
 
 def derive_seeds(seed_base: int, count: int) -> list[int]:
@@ -466,6 +472,47 @@ def plan_mission(
             candidate_id=selected_candidate, resource_class="python_cpu",
             depends_on=[compose_jid],
             expected_outputs=["site.tscn"],
+        ))
+        # LAYER 3: the ground and the seams of the whole place. Three jobs
+        # (`docs/SURFACE_DRESSING.md` section 2), and the ORDER is the
+        # contract: Zoo builds the clutter species and measures them, Lot
+        # says where dressing may go on the assembled site, Patina decides
+        # what goes where -- refusing, at production, any placement in
+        # traversed space taller than the step limit. The export turns the
+        # manifest into `<site>_dressing.tscn`, which the entry scene
+        # instances beside the level and never inside it: the shell stays
+        # locked.
+        #
+        # The clutter build and the surfaces pass need only the locked
+        # candidate's assembly, so they run beside the art chain rather
+        # than after it; the planner joins them at Patina. Dressing is
+        # planned against the THEMED assembly (`source`), because a plan
+        # made for one assembly and applied to another is a different plan.
+        clutter_jid = job_id(brief.mission_id, _STAGE_ZOO_CLUTTER)
+        plan.graph.add(Job(
+            job_id=clutter_jid, mission_id=brief.mission_id,
+            stage_id=_STAGE_ZOO_CLUTTER, adapter_id="zoo",
+            candidate_id=selected_candidate, resource_class="blender",
+            depends_on=[lot_jid],
+            # The habitat index is named by a hash Zoo derives at build time;
+            # the measurement sidecar is the declared output.
+            expected_outputs=["shapes.metrics.json"],
+        ))
+        surfaces_jid = job_id(brief.mission_id, _STAGE_LOT_SURFACES)
+        plan.graph.add(Job(
+            job_id=surfaces_jid, mission_id=brief.mission_id,
+            stage_id=_STAGE_LOT_SURFACES, adapter_id="lot",
+            candidate_id=selected_candidate, resource_class="python_cpu",
+            depends_on=[lot_jid],
+            expected_outputs=["surfaces.json"],
+        ))
+        surface_dress_jid = job_id(brief.mission_id, _STAGE_PATINA_SURFACE)
+        plan.graph.add(Job(
+            job_id=surface_dress_jid, mission_id=brief.mission_id,
+            stage_id=_STAGE_PATINA_SURFACE, adapter_id="patina",
+            candidate_id=selected_candidate, resource_class="python_cpu",
+            depends_on=[clutter_jid, surfaces_jid, themed_jid],
+            expected_outputs=[f"{brief.mission_id}.surface_dressing.json"],
         ))
         # Lux apply (final PS2 look) over the themed SITE — not the greybox
         # site, and not the single composed building it used to light.

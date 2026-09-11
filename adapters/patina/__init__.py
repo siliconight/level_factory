@@ -1,4 +1,6 @@
-"""Patina adapter (TDD 24.6) — bound to the REAL Patina 0.18.0 CLI.
+"""Patina adapter (TDD 24.6) — bound to the REAL Patina CLI (0.21.0 at the
+last grounding, 2026-09-11; the header said 0.18.0 for three releases while
+`surface_dressing` below was written against 0.21.0's command line).
 
 Real invocation (verified against the uploaded repo):
 

@@ -72,6 +72,15 @@ class ZooAdapter(BaseAdapter):
                 problems.append("zoo dressing build requires a Patina dressing manifest")
             elif not Path(str(man)).exists():
                 problems.append(f"dressing manifest missing: {man}")
+        elif mode == "habitat":
+            # A SET of standalone species -- the Layer 3 clutter (roadmap
+            # 110): pebble, rubble_frag, weed_tuft, litter_scrap. Named
+            # outright, comma-separated, exactly as `zoo_cli --habitat`
+            # takes them; Zoo refuses an unknown species by name, so a typo
+            # fails the job rather than building three of four.
+            if not str(job_spec.get("habitat") or "").strip():
+                problems.append("zoo habitat build requires `habitat`: a "
+                                "comma-separated species list")
         else:
             problems.append(f"unknown zoo mode: {mode}")
         if job_spec.get("measure_shapes") and not SHAPE_METRICS.is_file():
@@ -91,6 +100,13 @@ class ZooAdapter(BaseAdapter):
             "theme": job_spec.get("theme"),
             "measure_shapes": bool(job_spec.get("measure_shapes")),
         }
+        # The species list IS the habitat job's input: two clutter sets with
+        # the same theme and seed are two different builds. Folded in ONLY for
+        # that mode: a new key on every zoo fingerprint would retire every
+        # cached kit, dressing and fixture bake in every workspace for a
+        # layer none of them contains.
+        if job_spec.get("mode") == "habitat":
+            fp["habitat"] = str(job_spec.get("habitat") or "")
         # The measuring tool's own source is an input: a change to how a
         # footprint or a height is computed changes the catalogue the dressing
         # planner is built from, with every other input byte-identical.
@@ -152,6 +168,30 @@ class ZooAdapter(BaseAdapter):
                 return ""
 
         zoo_args: list[str]
+        if mode == "habitat":
+            # Standalone species, one specimen each, named outright. Built
+            # WITHOUT collision on purpose: these are Layer 3 surface
+            # dressing, and the manifest that places them carries
+            # `collision_policy: none` -- a pebble a body can trip on is the
+            # "believable but false traversal promise" the layer forbids.
+            # `--prompt` is the shared theme; Zoo's `species_prompt` folds it
+            # into each species' intent. The habitat id is a hash Zoo derives
+            # at build time, so no output name can be declared here; the
+            # measuring command that follows declares its own.
+            zoo_args = ["--habitat", str(job_spec.get("habitat", "")),
+                        "--out", str(work), "--no-collision", "--no-blend"]
+            if job_spec.get("theme"):
+                zoo_args += ["--prompt", str(job_spec["theme"])]
+            if job_spec.get("seed") is not None:
+                zoo_args += ["--seed", str(job_spec["seed"])]
+            args = ["--background", "--python", cli, "--", *zoo_args]
+            commands = [PlannedCommand(
+                executable=Path(blender), arguments=tuple(args),
+                working_directory=repo, expected_outputs=(),
+                resource_class="blender", timeout_seconds=1200,
+            )]
+            commands += self._measure_commands(job_spec, context)
+            return commands
         if mode == "fixtures":
             zoo_args = ["--fixtures", str(job_spec.get("lights_path", "")),
                         "--out", str(work)]
@@ -253,7 +293,10 @@ class ZooAdapter(BaseAdapter):
         import json
         issues: list[dict] = []
         for p in output_paths:
-            if not p.name.endswith(".built.json"):
+            # `.built.json` are the kit, dressing and fixture indexes;
+            # `.habitat.json` is the clutter build's (roadmap 110).
+            if not (p.name.endswith(".built.json")
+                    or p.name.endswith(".habitat.json")):
                 continue
             try:
                 man = json.loads(p.read_text(encoding="utf-8"))
@@ -352,6 +395,25 @@ class ZooAdapter(BaseAdapter):
                                           "recipe); owner=zoo"),
                         "blocking": False, "raw_source_path": str(p),
                     })
+            # A habitat index (the Layer 3 clutter build) lists one member per
+            # species with a status. A member that failed is a species the
+            # dressing layer will silently lack -- Patina skips an asset the
+            # metrics do not carry rather than guessing -- so it is said here.
+            if p.name.endswith(".habitat.json"):
+                failed = sorted(str(m.get("species")) for m in
+                                (man.get("members") or [])
+                                if isinstance(m, dict)
+                                and m.get("status") == "fail")
+                if failed:
+                    issues.append({
+                        "code": "ZOO_PARTIAL_BUILD",
+                        "severity": "moderate", "category": "art_coverage",
+                        "message": (f"{len(failed)} clutter species failed to "
+                                    f"build: {', '.join(failed)}; the surface "
+                                    f"dressing will not carry them"),
+                        "blocking": False, "raw_source_path": str(p),
+                    })
+                continue
             # Some modules can fail to build (Zoo exits 2, resolver falls back to
             # base for the rest). The kit is still usable — surface the miss as a
             # non-blocking quality finding for review, not a blocker.

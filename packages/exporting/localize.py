@@ -514,6 +514,17 @@ def write_entry_scene(export_dir: Path, report: LocalizeReport) -> str:
         candidates.append("presentation/lux.applied.tscn")
     elif site.exists():
         candidates.append("site.tscn")
+    # THE DRESSING LAYER IS ADDITIVE, so the either/or above does not apply
+    # to it. `<site>_dressing.tscn` (packages/exporting/dressing_layer.py) is
+    # Layer 3 surface dressing: MultiMeshes of clutter the locked shell does
+    # not contain, planned against the assembly and written as its own scene
+    # precisely so the shell is never edited. Instancing it beside the level
+    # puts geometry on the ground that was not there, not a second copy of
+    # geometry that was -- the z-fighting the comment above is about cannot
+    # arise from it. Sorted, so two dressing scenes (there is one today)
+    # would instance in a stable order.
+    for dressing in sorted(export_dir.glob("*_dressing.tscn")):
+        candidates.append(dressing.name)
     # AN ENTRY THAT INSTANCES NOTHING IS NOT AN ENTRY.
     #
     # Measured 2026-08-15 on lot_demo_001. An art-unlit export held 180
