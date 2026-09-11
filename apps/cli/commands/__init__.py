@@ -437,7 +437,7 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                 # would have fingerprinted the string while the file underneath
                 # it moved.
                 "scenario": {
-                    "player_count": int(getattr(model, "crew_size", 1)),
+                    "player_count": int(getattr(model, "crew_size", 4)),
                     "player_health": int(getattr(model, "crew_health", 5)),
                     "enemy_count": int(getattr(model, "enemy_count", 6)),
                     "enemy_health": int(getattr(model, "enemy_health", 2)),
@@ -1243,7 +1243,7 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         # capsules inside each other, which graded 10/BROKEN with zero shots
         # fired. The spec is the contract between the brief and Lot, so the
         # number travels here rather than as a new function parameter.
-        "crew_size": int(getattr(model, "crew_size", 1) or 1),
+        "crew_size": int(getattr(model, "crew_size", 4) or 4),
         # Building ids Lot resolves into the walkable scene's spawn_pos /
         # objective_pos / extraction_pos.
         "spawn": placed["spawn"],

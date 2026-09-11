@@ -13,12 +13,16 @@ MEASURED ON THE MAP THAT PROVOKED IT, `warehouse_yard_001`, whose cold run
     seed 9105   crew 1: 25 wipes, progress 0.00  ->  crew 4: 2 wipes, 0.65
     seed 9206   crew 1: 25 wipes, progress 0.00  ->  crew 4: 19 wipes, 0.47
 
-WHY THE EXAMPLES AND NOT THE DEFAULT. Raising `crew_size`'s default would
-change every historical comparison in one line -- the objection that kept
-`advance_while_engaging` opt-in. Fixing the corpus a newcomer copies is
-narrower and leaves the default honest. It is the same remedy roadmap 118
-reached for the `lot_library` laggards, and for the same reason: examples are
-what people copy.
+WHY THE EXAMPLES FIRST AND THE DEFAULT SECOND. Raising `crew_size`'s default
+changes every historical comparison in one line -- the objection that kept
+`advance_while_engaging` opt-in -- so 0.62.0 fixed the corpus a newcomer
+copies and left the default at 1. On 2026-09-11 the default was raised to 4
+as well (0.69.0), decided rather than drifted into: the 23 briefs still
+without a crew were all workspace copies and cold-run records, and the
+scenario values are in the Laser Tag fingerprint, so their next evaluation
+re-runs at 4 instead of replaying a grade taken at 1. The examples still
+declare the field, because a brief that says how many people arrive is
+better than one that inherits it.
 
 `crew_size` was also missing from `mission.brief.schema.json`, which is
 probably why nobody set it -- the model and the CLI both read a field the
@@ -57,6 +61,16 @@ def test_every_shipped_brief_declares_a_crew(path):
         f"{path.name} does not say how many people arrive, so it evaluates as "
         "1 against enemy_count's 6")
     assert isinstance(d["crew_size"], int) and d["crew_size"] >= 1, d["crew_size"]
+
+
+def test_the_default_crew_is_four():
+    """The decision of 2026-09-11 (roadmap 129), pinned in the one place the
+    brief model reads it and in the two CLI fallbacks that repeat it."""
+    from packages.core.models import MissionBrief
+    m = MissionBrief(mission_id="m", display_name="M", archetype="urban_bank")
+    assert m.crew_size == 4
+    src = (_ROOT / "apps" / "cli" / "commands" / "__init__.py").read_text(encoding="utf-8")
+    assert 'getattr(model, "crew_size", 1)' not in src, "a CLI fallback still says 1"
 
 
 def test_the_crew_is_not_outnumbered_six_to_one():

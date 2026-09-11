@@ -96,14 +96,24 @@ class MissionBrief:
     #: surviving the route, so traversal's 25 of 100 points were unreachable by
     #: any arrangement of geometry.
     #:
-    #: DEFAULTS ARE THE STOCK NUMBERS on purpose. An existing brief produces a
-    #: scenario identical to the one it was graded under, so no evaluated
-    #: mission changes underneath its grade.
+    #: DEFAULTS ARE THE STOCK NUMBERS on purpose -- with one exception, decided
+    #: on 2026-09-11. An existing brief produces a scenario identical to the
+    #: one it was graded under, so no evaluated mission changes underneath its
+    #: grade; that held `crew_size` at 1 through roadmap 129 while the four
+    #: shipped example briefs were raised to 4. The default is 4 now: 1 against
+    #: the stock six guards wiped every run on three maps (cold runs 9003-9005
+    #: under crew 1: 75 of 75 on warehouse_yard_001), and 26 of 27 briefs had
+    #: never set the field because the schema did not mention it -- so "1" was
+    #: never a choice anyone made, only two defaults disagreeing. The 23
+    #: briefs on disk without a crew are workspace copies and cold-run records;
+    #: their next evaluation runs at 4 and their stored grades stand as what
+    #: they were, graded at 1. Scenario values are in the Laser Tag
+    #: fingerprint, so the change re-runs rather than replays.
     #:
     #: Nothing here is derived from `building_count` or `target_minutes`. A crew
     #: size inferred from plate area would be a number nobody chose wearing the
-    #: clothes of a decision; if a mission wants four people it says four.
-    crew_size: int = 1
+    #: clothes of a decision; if a mission wants two people it says two.
+    crew_size: int = 4
     crew_health: int = 5
     #: Lot still places six enemy hooks regardless (`place_enemies`' own
     #: default), and the harness spawns this many over the points it finds. Set

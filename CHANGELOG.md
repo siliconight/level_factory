@@ -1,3 +1,16 @@
+## [0.69.0] - four people arrive by default
+
+Roadmap 129, the half 0.62.0 left as a decision. `crew_size` defaults to 4
+in `MissionBrief` and in the two CLI fallbacks that repeat it. One against
+the stock six guards wiped 75 of 75 runs on `warehouse_yard_001` and every
+run on two other maps, and 26 of 27 briefs had never set the field because
+the schema did not mention it -- 1 was two defaults disagreeing, not a
+choice. The 23 briefs on disk without a crew are workspace copies and
+cold-run records; scenario values are in the Laser Tag fingerprint, so their
+next evaluation re-runs at 4 rather than replaying a grade taken at 1, and
+the stored grades stand as what they were. A test pins the default and
+refuses a CLI fallback that still says 1.
+
 ## [0.68.0] - Layer 3 surface dressing is planned, built, and shipped
 
 Roadmap 110. Every stage of Patina's Layer 3 -- Lot's `site_surfaces`, Zoo's
