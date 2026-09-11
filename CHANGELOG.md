@@ -1,3 +1,18 @@
+## [0.70.1] - the export says there are two ways to run what it made
+
+The package has no player by contract -- the consumer's runtime brings its
+own -- so `mission.tscn` loads the content onto a static camera and stops,
+and a person who runs it to look at a level sees a grey window. The walkable
+build is `tools/walk_export.py`, which copies the package and drops Lot's
+body at its own spawn. Both existed; the export said only "exported ... ->
+<dir>", and the first person to walk today's package hit the grey window,
+then the missing import cache, then the missing player, one at a time.
+
+### Changed
+- `export` ends with the two paths spelled out: the import pass the package
+  needs before anything loads, and the walkable copy for a person. HANDOFF.md
+  carries the same two paragraphs.
+
 ## [0.70.0] - the windows light
 
 Roadmap 96, decided: window anchors become area lights. Deli Counter derived

@@ -2772,6 +2772,16 @@ def cmd_export(args) -> int:
         print(f"exported {mission_id} [{args.mode}] -> {result.zip_path}")
     else:
         print(f"exported {mission_id} [{args.mode}] -> {result.export_dir}")
+    # TWO WAYS TO RUN IT, said every time. The package has no player by
+    # contract and ships sidecars but no import cache, so the first person
+    # to run it cold saw a grey window, then 1141 load errors, then a static
+    # camera -- three separate discoveries of things HANDOFF.md already said.
+    # The deliverable is this folder; the walk is a copy of it with a body.
+    print("  to run the package as shipped:   godot --headless --path <dir> --import"
+          "   (once; it ships sidecars, not the cache)")
+    print("  to walk it yourself:             python tools/walk_export.py "
+          f"{ws.internal_dir} {mission_id} [--at x,y,z]   (a copy with Lot's "
+          "body at the spawn; the package stays untouched)")
     return EXIT_OK
 
 
