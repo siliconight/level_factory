@@ -1,3 +1,46 @@
+## [0.65.0] - a site shape says what it got, and --force does something
+
+Roadmap 100 and the residue of roadmap 93.
+
+### Fixed
+- **`site_shape` no longer falls back to a row in silence.** A census of every
+  brief on disk on 2026-09-11 found **seventeen of twenty-seven** asking for a
+  shape `_SHAPE_ALIASES` did not carry, and every one of them was laid out as a
+  row with nothing to say so -- including both of the two most recent cold
+  runs, `warehouse_yard_001` ("yard") and `county_hospital_001` ("campus"). A
+  wrong-but-plausible site is the archetype defect one level up: `_preset_for`
+  used to end in `return "bank"`.
+
+  The fallback itself is KEPT -- the comment defending it was right that
+  refusing a build over a label is the wrong trade. What changes is that it
+  leaves a trace: `site_variation.shape_known` distinguishes a spelling nobody
+  added from one that means row, the site spec records `site_shape_resolved`
+  as `{asked, got, known}`, and the spec writer announces an unknown spelling on
+  stderr in the voice `USING_THE_FACTORY.md` asks for -- what was asked, what
+  it got, and the spellings that exist.
+
+  The four spellings the briefs actually use are added deliberately and once,
+  each as a stated reading of the word: `street_block -> row` (7 briefs),
+  `boardwalk_crescent -> L` (4), `yard -> row` (3), `campus -> courtyard` (2).
+  `string` (1 brief) is left unknown on purpose -- it is a typo of something,
+  and guessing which would be the defect this fixes.
+
+- **`--force` does what its name promises.** Its help text read "accepted and
+  ignored" and the scheduler agreed; a flag whose name promises exactly what a
+  stuck user wants and whose body does nothing cost two full runs on
+  2026-08-30 before `cache forget <job_id>` was found by reading the CLI. It
+  now forgets every planned job's cached digest before the run -- read from
+  each job's own `fingerprint.last.json` receipt, the same way `cmd_cache`
+  reads it -- so each stage re-runs its tool once and caches the new answer as
+  normal. A job with no receipt has never been evaluated here and is counted,
+  not raised.
+
+### Tests
+`test_site_shape_says_so.py` (10, including one that fails the moment a second
+unknown spelling ships in a brief) and `test_force_forgets_the_plan.py` (4,
+including one pinned on the help text, because that is where the promise is
+made).
+
 ## [0.64.0] - two gates that were firing into nothing
 
 Roadmap 133 and 134, both found by attributing cold run 9005's output rather

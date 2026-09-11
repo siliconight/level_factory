@@ -247,12 +247,56 @@ _SHAPE_ALIASES = {
     "l": "L", "ell": "L", "corner": "L", "l_shape": "L",
     "courtyard": "courtyard", "court": "courtyard", "ring": "courtyard",
     "block": "courtyard", "quad": "courtyard",
+    # THE SPELLINGS THE BRIEFS ACTUALLY USE, added deliberately and once
+    # (roadmap 100). A census of every brief on disk on 2026-09-11 found 17 of
+    # 27 asking for a shape that was not in this table, and every one of them
+    # silently became a row -- including both of the two most recent cold
+    # runs, `warehouse_yard_001` ("yard") and `county_hospital_001` ("campus").
+    #
+    # Each mapping is a reading of the word, stated so it can be argued with:
+    #   street_block        7 briefs   buildings along a street -> row
+    #   boardwalk_crescent  4 briefs   a crescent bends once     -> L
+    #   yard                3 briefs   two buildings across a yard is a row
+    #                                  facing itself; courtyard needs three
+    #                                  sides and a 2-building yard has two
+    #   campus              2 briefs   buildings around a quad  -> courtyard
+    # "string" (1 brief) is left OUT on purpose: it is a typo of something and
+    # guessing which would be the defect this entry is fixing.
+    "street_block": "row", "yard": "row",
+    "boardwalk_crescent": "L",
+    "campus": "courtyard",
 }
 
 
+def _norm(site_shape) -> str:
+    return str(site_shape or "").strip().lower()
+
+
+def shape_known(site_shape) -> bool:
+    """Whether ``site_shape`` is a spelling this table has an opinion about.
+
+    The row fallback in `shape_of` is kept -- refusing a build over a label is
+    the wrong trade, and the comment there was right about that. What was
+    wrong was that a spelling nobody added and a spelling that means row were
+    indistinguishable afterwards. This is the distinction, so a caller can say
+    what was asked for and what it got.
+    """
+    return _norm(site_shape) in _SHAPE_ALIASES
+
+
+def known_spellings() -> list:
+    """Every spelling the table accepts, for a message that lists them."""
+    return sorted(k for k in _SHAPE_ALIASES if k)
+
+
 def shape_of(site_shape) -> str:
-    """The layout a brief's ``site_shape`` names. Unknown spellings are rows."""
-    return _SHAPE_ALIASES.get(str(site_shape or "").strip().lower(), "row")
+    """The layout a brief's ``site_shape`` names. Unknown spellings are rows.
+
+    Unknown means unknown, not row: `shape_known` says which, and the spec
+    writer records both so the fallback is on disk rather than only in the
+    geometry it produced.
+    """
+    return _SHAPE_ALIASES.get(_norm(site_shape), "row")
 
 
 def _steps(shape: str, count: int) -> list:

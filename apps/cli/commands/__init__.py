@@ -1152,9 +1152,33 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         "site_id": model.mission_id,
         "candidate_seed": int(seed),
         "site_shape": model.site_shape,
+        # WHAT THE SHAPE RESOLVED TO, ON DISK (roadmap 100). `shape_of` falls
+        # back to a row for a spelling it does not know, and it should -- the
+        # objection to stopping a build over a label is fair. But a fallback
+        # that leaves no trace is a wrong-but-plausible site, which is the
+        # archetype defect (`_preset_for` used to end in `return "bank"`) one
+        # level up. So the spec carries what was asked, what it got, and
+        # whether the table knew the word -- and the writer says so out loud.
+        "site_shape_resolved": {
+            "asked": str(model.site_shape or ""),
+            "got": site_variation.shape_of(model.site_shape),
+            "known": site_variation.shape_known(model.site_shape),
+        },
         "route_shape": model.route_shape,
         "target_minutes": list(model.target_minutes),
     }
+    if not site_variation.shape_known(model.site_shape):
+        # The capability-gap voice USING_THE_FACTORY.md asks every tool for:
+        # what was asked, what exists, who is short. Non-blocking, because a
+        # row is a real site and the brief still builds.
+        err = sys.stderr
+        print("  site_shape: %r is not a spelling site_variation knows -- "
+              "laid out as a ROW" % (model.site_shape,), file=err)
+        print("    known: " + ", ".join(site_variation.known_spellings()),
+              file=err)
+        print("    add the spelling to _SHAPE_ALIASES, or change the brief; "
+              "the fallback is recorded in the site spec as "
+              "site_shape_resolved", file=err)
     # Self-check before the spec leaves the building. This can only fire if the
     # placement and the plate in site_variation have drifted apart, which is
     # exactly what happened for the whole life of the module: a row marching out
@@ -1314,6 +1338,32 @@ def _candidate_diversity_issues(ws: Workspace, candidate_ids, jobs,
     return issues, summarize(by_candidate)
 
 
+def _forget_plan(ws: Workspace, plan) -> tuple:
+    """Drop every planned job's cached digest. Returns (forgotten, missing).
+
+    The digest comes from the job's own receipt, `fingerprint.last.json`,
+    exactly as `cache forget <job_id>` reads it -- naming the JOB rather than
+    computing a digest by hand. A job with no receipt has never been evaluated
+    in this workspace and has nothing to forget; it is counted rather than
+    treated as an error, because a fresh workspace has none of them.
+    """
+    cache = _cache(ws)
+    forgotten = missing = 0
+    for job in plan.graph.jobs():
+        receipt = ws.jobs_dir / job.job_id / "fingerprint.last.json"
+        if not receipt.is_file():
+            missing += 1
+            continue
+        try:
+            digest = json.loads(receipt.read_text(encoding="utf-8"))["digest"]
+        except (OSError, ValueError, KeyError):
+            missing += 1
+            continue
+        if cache.forget(digest):
+            forgotten += 1
+    return forgotten, missing
+
+
 def cmd_run(args) -> int:
     ws = _ws(args)
     index = _open_index(ws)
@@ -1338,6 +1388,18 @@ def cmd_run(args) -> int:
 
     specs = _job_specs_for_plan(ws, batch, model, plan)
     scheduler = _build_scheduler(ws, index)
+
+    # `--force` DOES SOMETHING NOW (roadmap 93). Its help text read "accepted
+    # and ignored" and the scheduler's docstring agreed, and a flag whose name
+    # promises exactly what a stuck user wants is a flag they will keep
+    # reaching for -- two full runs were spent on it before `cache forget`
+    # was found by reading the CLI. This is that command applied to the whole
+    # plan: every planned job's cached digest is dropped, so each stage
+    # re-runs its tool once and then caches the new answer as normal.
+    if bool(getattr(args, "force", False)):
+        forgotten, missing = _forget_plan(ws, plan)
+        print(f"  --force: forgot {forgotten} cached job(s); "
+              f"{missing} had never been evaluated here")
 
     summary = scheduler.run(plan.graph, job_specs=specs, mission_id=args.mission_id,
                             force=bool(getattr(args, "force", False)))

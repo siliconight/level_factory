@@ -102,12 +102,12 @@ def build_parser() -> argparse.ArgumentParser:
                     choices=["functional-lock", "dispatch-handoff", "presentation"],
                     help="legacy alias for a layer set; --art/--gameplay take precedence")
     sp.add_argument("--force", action="store_true",
-                    help="accepted and ignored: every stage is now always "
-                         "re-evaluated against the cache. Unchanged stages "
-                         "cache-hit without re-running their tool; only stages "
-                         "whose inputs changed rebuild. This used to be opt-in, "
-                         "and the default it opted out of reported findings it "
-                         "had never looked for")
+                    help="forget every planned job's cached answer before "
+                         "running, so each stage re-runs its tool once. "
+                         "Without it, unchanged stages cache-hit and replay "
+                         "their findings -- which is right, and is also why "
+                         "editing a tool that is not in a stage's fingerprint "
+                         "used to serve the old package and say 'cache'")
     sp.set_defaults(func=cmd_run)
 
     sp = sub.add_parser("status", help="show mission/job status")
