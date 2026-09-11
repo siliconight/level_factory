@@ -59,12 +59,19 @@ CODE_NOT_CONFIGURABLE = "LT_ENGAGEMENT_NOT_CONFIGURABLE"
 #: Severity and category per code. Every one of these is a design signal, so
 #: none of them is a blocker and the scheduler forces that regardless -- what
 #: the severity decides is reading order, not whether a level gets made.
+#: The advisory ran without a scene to read (roadmap 6). INFO, not a defect:
+#: the adapter's pre-flight owns "there is no scene here", and this is the
+#: other fact -- that the sightline, standoff and floating-marker halves of
+#: this pass did not run, so their silence is absence rather than a clean bill.
+CODE_SCENE_NOT_READ = "LT_SCENE_NOT_READ"
+
 _FILING = {
     CODE_STANDOFF: (model.MODERATE, "spawn"),
     CODE_FLOATING: (model.MINOR, "spawn"),
     CODE_SIGHTLINE: (model.MODERATE, "combat_structure"),
     CODE_DRIFT: (model.MODERATE, "configuration"),
     CODE_NOT_CONFIGURABLE: (model.MINOR, "configuration"),
+    CODE_SCENE_NOT_READ: (model.INFO, "configuration"),
 }
 
 #: What Lot states its placement is sized against. Read rather than assumed:
@@ -186,14 +193,27 @@ def scene_findings(text: str, reading: Reading, *,
 def advise_scene(scene, *, engagement=None, lot_repository=None) -> list[dict]:
     """Every advisory for the scene at ``scene``, engagement contract included.
 
-    A missing or unreadable scene is silence rather than a finding: the adapter's
-    pre-flight owns "there is no scene here", and saying it twice in two
-    different registers makes one defect read as two.
+    A missing or unreadable scene is not a DEFECT here: the adapter's pre-flight
+    owns "there is no scene here", and saying it twice in two different
+    registers makes one defect read as two. But it is not silence either
+    (roadmap 6). This advisory and the pre-flight do not necessarily run at the
+    same moment, and when the scene is absent at advisory time the sightline,
+    standoff and floating-marker halves simply do not run -- and an absent
+    finding reads exactly like a clean one. So the pass says, at INFO, that it
+    could not read a scene and which checks therefore did not happen.
     """
     engagement = engagement or lasertag_contract.MEASURED
     out = engagement_findings(engagement, lot_opening_range(lot_repository))
     scene = Path(scene) if scene else None
     if scene is None or not scene.is_file():
+        out.append(_finding(
+            CODE_SCENE_NOT_READ,
+            "the tactical advisory ran without a scene: %s. The sightline, "
+            "standoff and floating-marker checks did not run -- only the "
+            "engagement contract was checked. Their absence below is not a "
+            "clean result." % (f"{scene} was not on disk when it ran" if scene
+                               else "no scene path was given"),
+            location=str(scene) if scene else ""))
         return out
     text = scene.read_text(encoding="utf-8", errors="replace")
     reading = read_scene_text(text, resolve=resolver(scene.parent),

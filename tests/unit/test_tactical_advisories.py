@@ -247,11 +247,33 @@ def test_nothing_this_module_produces_is_a_blocker():
 
 
 def test_a_scene_that_is_not_there_yet_still_checks_the_contract(tmp_path):
-    """The pre-flight owns "there is no scene"; saying it twice reads as two bugs."""
+    """The pre-flight owns "there is no scene"; saying it twice reads as two
+    bugs -- so the absence is not a defect here. But it is not silence either
+    (roadmap 6): an advisory that did not read a scene says so at INFO, and
+    names the checks that therefore did not run, because an absent finding
+    reads exactly like a clean one."""
     findings = tactical.advise_scene(tmp_path / "absent.tscn",
                                      engagement=engagement())
-    assert codes(findings) == [tactical.CODE_NOT_CONFIGURABLE]
-    assert tactical.advise_scene(None, engagement=engagement()) == findings
+    assert codes(findings) == [tactical.CODE_NOT_CONFIGURABLE,
+                               tactical.CODE_SCENE_NOT_READ]
+    unread = next(f for f in findings if f["code"] == tactical.CODE_SCENE_NOT_READ)
+    assert unread["severity"] == "info", unread
+    assert unread["blocking"] is False
+    assert "absent.tscn" in unread["message"]
+    assert "did not run" in unread["message"]
+    # No path at all is the same fact with a different reason attached.
+    none = tactical.advise_scene(None, engagement=engagement())
+    assert codes(none) == codes(findings)
+    assert "no scene path was given" in \
+        next(f for f in none if f["code"] == tactical.CODE_SCENE_NOT_READ)["message"]
+
+
+def test_a_scene_that_is_there_files_no_unread_notice(tmp_path):
+    """The notice is about absence and only absence."""
+    (tmp_path / "level.tscn").write_text(empty_street_scene(), encoding="utf-8")
+    findings = tactical.advise_scene(tmp_path / "level.tscn",
+                                     engagement=engagement())
+    assert tactical.CODE_SCENE_NOT_READ not in codes(findings)
 
 
 def test_the_whole_pass_runs_off_one_scene_on_disk(tmp_path):

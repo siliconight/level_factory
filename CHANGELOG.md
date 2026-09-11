@@ -1,3 +1,19 @@
+## [0.66.1] - an advisory that did not read a scene says so
+
+Roadmap 6. `tactical.advise_scene` treated a missing scene as silence by
+design -- the adapter's pre-flight owns "there is no scene here", and saying
+it twice in two registers makes one defect read as two. That reasoning is kept.
+What it missed is that the advisory and the pre-flight do not necessarily run
+at the same moment, and when the scene is absent at advisory time the
+sightline, standoff and floating-marker halves simply do not run -- and an
+absent finding reads exactly like a clean one.
+
+### Added
+- `LT_SCENE_NOT_READ`, filed at INFO and non-blocking: the advisory ran without
+  a scene (the path, and whether it was absent or never given), and the checks
+  that therefore did not run are named, so their silence below is read as
+  absence rather than as a clean bill. Not a defect claim -- provenance.
+
 ## [0.66.0] - the package stops asserting bindings it does not carry
 
 Roadmap 101. The export overwrites Dispatch's `mission.tscn` with its own
