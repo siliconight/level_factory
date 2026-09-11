@@ -30,6 +30,55 @@ def _find_root(base: Path, marker_rel: str) -> Path | None:
     return None
 
 
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Say what the smoke ran and what it did not, by name.
+
+    Six of these tests skip themselves on a missing fixture, and a suite where
+    six tests can go quiet without the total changing is one where a real
+    absence reads the same as a benign one (roadmap 66). "Green" has to carry
+    its own coverage: every real-tool test is listed here as ran or skipped,
+    with the skip's reason, so the person stamping a certification can see
+    which tools the run actually touched.
+    """
+    stats = terminalreporter.stats
+    mine = {}
+    for outcome in ("passed", "failed", "skipped", "error"):
+        for rep in stats.get(outcome, []):
+            nodeid = getattr(rep, "nodeid", "")
+            if "real_tools" not in nodeid.replace("\\", "/"):
+                continue
+            # setup-phase skips (the session fixtures) and call-phase results
+            # both land here; the worst outcome per test wins.
+            name = nodeid.split("::")[-1]
+            reason = ""
+            if outcome == "skipped" and isinstance(rep.longrepr, tuple):
+                reason = str(rep.longrepr[-1])
+                if reason.startswith("Skipped: "):
+                    reason = reason[len("Skipped: "):]
+            prev = mine.get(name)
+            if prev is None or outcome in ("failed", "error"):
+                mine[name] = (outcome, reason)
+    if not mine:
+        return
+    ran = sorted(n for n, (o, _r) in mine.items() if o == "passed")
+    skipped = sorted((n, r) for n, (o, r) in mine.items() if o == "skipped")
+    bad = sorted(n for n, (o, _r) in mine.items() if o in ("failed", "error"))
+    tr = terminalreporter
+    tr.write_sep("-", "real-tool smoke coverage")
+    tr.write_line(f"ran {len(ran)} of {len(mine)} real-tool tests"
+                  + (f", {len(skipped)} skipped" if skipped else "")
+                  + (f", {len(bad)} FAILED" if bad else ""))
+    for n in ran:
+        tr.write_line(f"  ran      {n}")
+    for n, r in skipped:
+        tr.write_line(f"  skipped  {n} -- {r}")
+    for n in bad:
+        tr.write_line(f"  FAILED   {n}")
+    tr.write_line("this suite is adapter-and-contract depth in seconds; it "
+                  "builds no geometry. Re-certification is docs/CERTIFY.md, "
+                  "all legs.")
+
+
 @pytest.fixture(scope="session")
 def tools_base():
     if not TOOLS_DIR:

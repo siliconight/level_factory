@@ -143,8 +143,18 @@ class ContractResult:
                     f"entry is {self.documented} -- this release has no "
                     f"entry; write one")
         if self.status == DRIFT:
+            # The remedy names the runbook, not one suite. The real-tool
+            # smoke is ten tests in five seconds and builds no geometry; a
+            # green run of it after a deli_counter or lux bump has not
+            # touched the walls or the light those bumps changed (roadmap
+            # 66). CERTIFY.md's legs are what re-prove a drifted tool, and
+            # which legs depends on which tool moved.
             return (f"installed {self.installed} != certified {self.certified} "
-                    f"(same major) — re-run the real-tool smoke and re-certify")
+                    f"(same major) — re-certify per docs/CERTIFY.md: the "
+                    f"real-tool smoke (adapters and contracts, no geometry), "
+                    f"the zoo walkabout (Blender), the engine leg (Godot) and "
+                    f"the lux visual leg, as the changed tool requires; then "
+                    f"promote the manifest")
         if self.status == INCOMPATIBLE:
             return (f"installed {self.installed} is a major bump over certified "
                     f"{self.certified} — the adapter is likely broken; re-ground it")

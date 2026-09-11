@@ -1,3 +1,22 @@
+## [0.67.1] - a DRIFT line names the runbook, and the smoke says what it ran
+
+Roadmap 66. `verify-manifest` ended every DRIFT line with "re-run the
+real-tool smoke and re-certify" -- one suite, ten tests, five seconds, no
+geometry built by construction. A set could be stamped on a green run that
+never touched the walls or the light a deli_counter or lux bump changed.
+
+- The DRIFT remedy points at `docs/CERTIFY.md` and its legs -- the real-tool
+  smoke (adapters and contracts, no geometry), the zoo walkabout, the engine
+  leg, the lux visual leg -- "as the changed tool requires; then promote the
+  manifest". Three tests pin the wording.
+- `tests/real_tools/conftest.py` prints a coverage block after the run: every
+  real-tool test by name as ran or skipped, the skip's reason, and one line
+  saying what the suite is. Six of its ten tests self-skip on a missing
+  fixture and the total never changed when they did. Run on 2026-09-11
+  against the factory root: 9 of 10 ran, `test_real_dispatch` skipped for
+  the five bundled example inputs the dispatch repo does not ship -- the
+  benign skip item 66 described, now legible as such.
+
 ## [0.67.0] - Zoo's capability gaps reach the run summary, and a dead check wakes up
 
 Roadmap 62. Zoo has reported what it cannot build for a long time -- a kit
