@@ -1,3 +1,30 @@
+## [0.67.0] - Zoo's capability gaps reach the run summary, and a dead check wakes up
+
+Roadmap 62. Zoo has reported what it cannot build for a long time -- a kit
+module whose species is not in the genome library under `missing_modules`
+(since 0.32.0), a light anchor whose type has no fixture species under
+`skipped` with a reason -- and nothing here read either. A gap surfaced as a
+greybox box or a dark room in a walk instead of as a line in the run.
+
+- `ZooAdapter.normalize_validation` files `ZOO_CAPABILITY_GAP` (moderate,
+  `art_coverage`, non-blocking) from a kit index's `missing_modules`, naming
+  the species, the nearest ones Zoo does carry and the owner, and from a
+  fixture index's skips whose reason starts `no fixture species`. Daylight
+  skips and `--fixture-types` filtering are by design and stay quiet.
+  Measured before wiring: 37 kit indexes, 0 missing modules; 82 fixture
+  indexes, 430 skips, all `window` daylight. The signal is wired against a
+  library that is currently whole, which is the right time to wire it.
+- `ZOO_PARTIAL_BUILD` read `n_fail` off the index and Zoo never wrote it
+  there (it was returned in-process only), so the check was dead from the
+  day it shipped: 98 modules with status `fail` across the 37 indexes on
+  disk, zero findings. Its own test passed because the fixture was written
+  to the schema the reader guessed rather than the one the producer writes
+  -- CLAUDE.md's third verification rule, exactly. The count is derived from
+  the per-module `status` when the key is absent, so the check is live on
+  every index Zoo has ever written; Zoo 0.58.0 writes the key as well.
+- `tests/unit/test_zoo_capability_gap.py`, six cases; the derived-count case
+  is written against an index shaped as every pre-0.58.0 one is.
+
 ## [0.66.1] - an advisory that did not read a scene says so
 
 Roadmap 6. `tactical.advise_scene` treated a missing scene as silence by

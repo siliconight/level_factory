@@ -274,6 +274,31 @@ class ZooAdapter(BaseAdapter):
             if p.name.endswith("_fixtures.built.json"):
                 built = man.get("fixtures_built")
                 markers = man.get("emitter_markers")
+                # An anchor type Zoo has no fixture species for is a
+                # capability gap (roadmap 62): the manifest asked for light
+                # there and nothing will be built. Daylight skips and
+                # `--fixture-types` filtering are by design and stay quiet.
+                # Measured 2026-09-11 over 82 shipped fixture indexes: 430
+                # skips, every one `window` daylight, none of this kind --
+                # the `pendant` silence that raised the item is closed.
+                unserved = [s for s in man.get("skipped", []) or []
+                            if str(s.get("reason", "")).startswith(
+                                "no fixture species")]
+                if unserved:
+                    types = sorted({str(s.get("type")) for s in unserved})
+                    issues.append({
+                        "code": "ZOO_CAPABILITY_GAP",
+                        "severity": "moderate", "category": "art_coverage",
+                        "message": (f"CAPABILITY_GAP: {len(unserved)} light "
+                                    f"anchor(s) of type {', '.join(types)} "
+                                    f"have no fixture species in Zoo; no "
+                                    f"fixture and no marker will be built "
+                                    f"there, so the room stays dark"),
+                        "suggested_fix": ("grow the species in Zoo "
+                                          "(FIXTURES row + genome + recipe); "
+                                          "owner=zoo"),
+                        "blocking": False, "raw_source_path": str(p),
+                    })
                 if markers is None:
                     issues.append({
                         "code": "ZOO_FIXTURES_NO_MARKER_CONTRACT",
@@ -304,10 +329,46 @@ class ZooAdapter(BaseAdapter):
             # check needs nothing that could drift from the thing it checks.
             if p.name.endswith("_kit.built.json"):
                 issues.extend(kit_dimension_findings(p))
+                # A module the genome library cannot build. Zoo plans it,
+                # reports it under `missing_modules` with the nearest species
+                # it does have, and builds nothing; Deli Counter's resolver
+                # keeps the greybox box there. That is the capability-gap
+                # signal (roadmap 62) reaching a run summary.
+                missing = man.get("missing_modules") or []
+                if missing:
+                    species = sorted({str(m.get("species")) for m in missing})
+                    near = sorted({n for m in missing
+                                   for n in (m.get("nearest") or [])})
+                    issues.append({
+                        "code": "ZOO_CAPABILITY_GAP",
+                        "severity": "moderate", "category": "art_coverage",
+                        "message": (f"CAPABILITY_GAP: {len(missing)} module(s) "
+                                    f"need species Zoo does not carry: "
+                                    f"{', '.join(species)}"
+                                    + (f" (nearest: {', '.join(near)})"
+                                       if near else "")
+                                    + "; the greybox box stands in"),
+                        "suggested_fix": ("grow the species in Zoo (genome + "
+                                          "recipe); owner=zoo"),
+                        "blocking": False, "raw_source_path": str(p),
+                    })
             # Some modules can fail to build (Zoo exits 2, resolver falls back to
             # base for the rest). The kit is still usable — surface the miss as a
             # non-blocking quality finding for review, not a blocker.
+            #
+            # `n_fail` is read from the index, and until Zoo 0.58.0 the index
+            # never carried it -- it was returned to the in-process caller
+            # only. This check therefore never fired: 37 shipped indexes on
+            # 2026-09-11, 98 modules with status "fail", zero findings. The
+            # per-module `status` was in every one of those files, so the
+            # count is derived from it when the key is absent, and the
+            # check is live on every index Zoo has ever written.
             n_fail = man.get("n_fail")
+            if not isinstance(n_fail, int):
+                mods = man.get("modules")
+                n_fail = (sum(1 for m in mods if isinstance(m, dict)
+                              and m.get("status") == "fail")
+                          if isinstance(mods, list) else None)
             if isinstance(n_fail, int) and n_fail > 0:
                 issues.append({
                     "code": "ZOO_PARTIAL_BUILD",
