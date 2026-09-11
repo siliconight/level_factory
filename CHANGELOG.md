@@ -1,3 +1,42 @@
+## [0.66.0] - the package stops asserting bindings it does not carry
+
+Roadmap 101. The export overwrites Dispatch's `mission.tscn` with its own
+portable entry -- correctly; a package that needs an addon is not portable --
+and Dispatch's `gameplay_anchors.json` and `runtime_ownership_requirements.json`
+went on addressing every anchor into the tree that was replaced:
+`Functional/GameplayAnchors/Triggers/deli_counter:01`,
+`Presentation/Lights/...`. On `LF_bank_block_001` (cold 8001) that is **50 node
+paths, and zero of the node names they use exist in any scene the package
+ships.** They are the first files an integrating team opens, and every address
+in them was dead on arrival.
+
+### Fixed
+- `strip_dead_node_paths` runs as the export's last pass, once every scene is
+  in place: a `node` that names nothing in the shipped scenes is renamed
+  `node_dispatch`. This is the item's third shape done REVERSIBLY -- position
+  and stable id are untouched (the pattern `interactives.json` used and the
+  reason it survived), nothing is deleted, and the original address is one
+  rename away for the day LF's entry grows the tree that would make it true
+  (the item's first shape).
+
+  Resolution is by node NAME anywhere in any shipped scene, not by full path,
+  because a re-parent is exactly the failure being handled: a path whose leaf
+  exists somewhere is a binding a reader could recover, one whose leaf exists
+  nowhere is not. On cold 8001 that kept 8 of 46 in `gameplay_anchors.json`.
+
+  Only the two Dispatch files are touched, by name. `site.site.gameplay.json`
+  carries 473 `node` fields on cold 9005 and every one of them resolves; a
+  pattern that reached it would strip bindings that are true.
+
+- The count is recorded in the package as `handoff_bindings.json`, per file
+  with the paths moved, rather than only on a log line. A package built with
+  `--art` and no `--gameplay` ships no Dispatch files and gets no record.
+
+### Measured
+Re-export of cold 8001: `gameplay_anchors.json` 38 moved, 8 kept;
+`runtime_ownership_requirements.json` 12 moved. Seven unit tests, including
+one that a pattern-based version would fail.
+
 ## [0.65.0] - a site shape says what it got, and --force does something
 
 Roadmap 100 and the residue of roadmap 93.

@@ -14,6 +14,7 @@ vertex/lightmap data so no Lux runtime is required. The default is 'localized'.
 from __future__ import annotations
 
 import datetime as _dt
+import json
 import re
 import shutil
 import zipfile
@@ -445,6 +446,101 @@ def _write_project_godot(export_dir: Path, entry_scene: str, mission_id: str,
     )
 
 
+#: Dispatch's handoff files that address anchors by NODE PATH into the
+#: `mission.tscn` tree the export replaces (roadmap 101). Listed by name, not
+#: by pattern, because a pattern that matched a file LF itself writes would
+#: strip bindings that are true.
+_DISPATCH_NODE_PATH_FILES = ("gameplay_anchors.json",
+                             "runtime_ownership_requirements.json")
+
+_TSCN_NODE_NAME = re.compile(r'\[node name="([^"]+)"')
+
+
+def strip_dead_node_paths(export_dir: Path) -> dict:
+    """Move every `node` field that names nothing in the package aside.
+
+    Roadmap 101. The export overwrites Dispatch's `mission.tscn` with its own
+    portable entry -- correctly; a package that needs an addon is not
+    portable -- and Dispatch's `gameplay_anchors.json` and
+    `runtime_ownership_requirements.json` go on addressing anchors into the
+    tree that was replaced: `Functional/GameplayAnchors/Triggers/...`,
+    `Presentation/...`. Measured on `LF_precinct_yard_001`: 17 such paths,
+    and ZERO of the node names they use exist in any scene the package ships.
+    These are the first files an integrating team opens, and every address in
+    them is dead on arrival.
+
+    The DATA survives -- every anchor still carries its position and its
+    stable id, which is the pattern `interactives.json` uses and the reason it
+    was unaffected. So the fix is the item's third shape, done reversibly: a
+    `node` that resolves to nothing is renamed `node_dispatch`, the package
+    stops asserting a binding it does not carry, and the original address is
+    still there for the day LF's entry grows the tree that would make it true
+    (the item's first shape). Nothing is deleted.
+
+    Resolution is by NODE NAME anywhere in any shipped scene, not by full
+    path, because a re-parent is exactly the failure being handled -- a path
+    whose leaf exists somewhere is a binding a reader could recover; one whose
+    leaf exists nowhere is not.
+
+    Returns a summary and writes it beside the files as
+    `handoff_bindings.json`, so the count is in the package rather than only
+    in a log line.
+    """
+    names: set[str] = set()
+    for tscn in export_dir.rglob("*.tscn"):
+        try:
+            names.update(_TSCN_NODE_NAME.findall(
+                tscn.read_text(encoding="utf-8", errors="replace")))
+        except OSError:
+            continue
+
+    def leaf(path: str) -> str:
+        return path.rstrip("/").split("/")[-1]
+
+    def walk(obj, moved: list) -> object:
+        if isinstance(obj, dict):
+            out = {}
+            for k, v in obj.items():
+                if k == "node" and isinstance(v, str) and v:
+                    if leaf(v) in names or v in names:
+                        out[k] = v
+                    else:
+                        out["node_dispatch"] = v
+                        moved.append(v)
+                else:
+                    out[k] = walk(v, moved)
+            return out
+        if isinstance(obj, list):
+            return [walk(x, moved) for x in obj]
+        return obj
+
+    summary: dict = {"schema": "level_factory.handoff_bindings.v1",
+                     "reason": ("node paths that name nothing in the shipped "
+                                "scenes are moved to node_dispatch; the anchor "
+                                "keeps its position and id (roadmap 101)"),
+                     "files": {}}
+    total = 0
+    for name in _DISPATCH_NODE_PATH_FILES:
+        p = export_dir / name
+        if not p.is_file():
+            continue
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        moved: list = []
+        rewritten = walk(data, moved)
+        if moved:
+            p.write_text(pretty_dumps(rewritten), encoding="utf-8")
+        summary["files"][name] = {"moved": len(moved), "paths": moved}
+        total += len(moved)
+    summary["moved_total"] = total
+    if summary["files"]:
+        (export_dir / "handoff_bindings.json").write_text(
+            pretty_dumps(summary), encoding="utf-8")
+    return summary
+
+
 def build_resource_manifest(export_dir: Path) -> dict:
     files = sorted(p for p in export_dir.rglob("*") if p.is_file())
     return {
@@ -819,6 +915,14 @@ def export_mission(
                          profile.godot_version)
     (export_dir / "HANDOFF.md").write_text(HANDOFF_LANGUAGE, encoding="utf-8")
     _write_import_sidecars(export_dir, godot_executable)
+
+    # Dispatch's node addresses, checked against what actually shipped, now
+    # that every scene is in place (roadmap 101).
+    bindings = strip_dead_node_paths(export_dir)
+    if bindings.get("moved_total"):
+        print("[export] %d handoff node path(s) named nothing in the package "
+              "and were moved to node_dispatch -- see handoff_bindings.json"
+              % bindings["moved_total"])
 
     resource_manifest = build_resource_manifest(export_dir)
     (export_dir / "portable_resource_manifest.json").write_text(
