@@ -374,6 +374,7 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
             # the greybox site is the one the candidate is judged on and stays
             # the grey it always was.
             ground_skins = None
+            cover_modules = None
             if themed_scene:
                 pix_job = next(
                     (j.job_id for j in plan.graph.topological_order()
@@ -383,9 +384,23 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                 if pix_job:
                     ground_skins = _ground_skins_for(
                         _latest_output(jobs_dir / pix_job, "."), theme)
+                # The site's cover modules (roadmap 22): the kit job the
+                # planner fanned out for archetype "site", found by
+                # candidate the way the pixelcoat job is. Lot resolves each
+                # piece to `prop_<species>_<theme>_01_w_d_h.glb` in that
+                # directory at assemble time and keeps the box otherwise.
+                site_kit = next(
+                    (j.job_id for j in plan.graph.topological_order()
+                     if j.adapter_id == "zoo"
+                     and getattr(j, "archetype_id", None) == "site"
+                     and j.candidate_id == job.candidate_id), None)
+                if site_kit:
+                    cover_modules = {
+                        "dir": str(_latest_output(jobs_dir / site_kit, ".")),
+                        "theme": theme, "style": 1}
             site_spec = _write_site_spec(
                 ws, model, deli_out, seed=seed, themed_scene=themed_scene,
-                ground_skins=ground_skins)
+                ground_skins=ground_skins, cover_modules=cover_modules)
             specs[job.job_id] = {
                 "site_spec_path": str(site_spec),
                 # Written beside the spec by _write_site_spec. The adapter
@@ -578,12 +593,25 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                 # slots asking 3.1 to 5.2. An archetype's slots come from the
                 # LIBRARY row, the same lookup the fixtures branch above makes
                 # for its lights manifest.
-                entry = _art_entry(job)
+                #
+                # THE SITE'S KIT (roadmap 22) is the same job over Lot's own
+                # manifest: the greybox assembly's `site.slots.json`, its
+                # cover pieces as prop slots. Constructed from the lot job's
+                # id, not probed.
+                if getattr(job, "archetype_id", None) == "site":
+                    lot_job = _dep(job, "lot_assemble")
+                    entry = None
+                    site_slots = str(_latest_output(jobs_dir / lot_job,
+                                                    "site.slots.json"))
+                else:
+                    entry = _art_entry(job)
+                    site_slots = None
                 specs[job.job_id] = {
                     "mode": "kit",
                     "seed": int(str(job.candidate_id).rsplit("_", 1)[-1]),
                     "theme": model.theme or batch.get("theme_family", ""),
-                    "slots_path": (str(entry["slots"]) if entry
+                    "slots_path": (site_slots if site_slots
+                                   else str(entry["slots"]) if entry
                                    else str(_lot_slots(ws, jobs_dir, job))),
                     "skins_dir": (str(_latest_output(jobs_dir / pix_job, "."))
                                   if pix_job else ""),
@@ -1007,7 +1035,8 @@ def _ground_skins_for(pixelcoat_out: Path, theme: str) -> dict[str, str]:
 
 def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
                      *, seed: int, themed_scene: str | None = None,
-                     ground_skins: dict[str, str] | None = None) -> Path:
+                     ground_skins: dict[str, str] | None = None,
+                     cover_modules: dict[str, object] | None = None) -> Path:
     """Write ONE candidate's Lot site spec (named 'site.json' so Lot's stem-based
     outputs are canonical: site.tscn / site_walk.tscn / site.site.gameplay.json).
 
@@ -1364,6 +1393,8 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
     # than the run that used it is the provenance trap roadmap 33 is about.
     if ground_skins:
         spec["ground_skins"] = dict(ground_skins)
+    if cover_modules:
+        spec["cover_modules"] = dict(cover_modules)
     dest = (ws.internal_dir / "temp" / model.mission_id
             / f"candidate_seed_{int(seed)}"
             / ("themed" if themed_scene else "")

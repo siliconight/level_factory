@@ -69,6 +69,14 @@ def main():
             rows.append(f'\n[node name="{role}_{spec[role]}" parent="." type="Marker3D"]')
     (out / f"{stem}.tscn").write_text("\n".join(rows) + "\n")
     (out / f"{stem}.site.lights.json").write_text(json.dumps({"lights": []}, sort_keys=True))
+    # Lot 0.59.0 writes the site's own slot manifest beside the scene (roadmap
+    # 22): its cover pieces as prop slots. The stub plans no cover, so the
+    # manifest is empty -- and present, which is what the site kit job checks.
+    (out / f"{stem}.slots.json").write_text(json.dumps({
+        "slot_manifest_version": "1.2.0", "building_id": "site",
+        "theme": "greybox", "module_library": "art/zoo", "module_size": 2.0,
+        "space": "spec/Blender Z-up raw coords; rot_y = degrees about up",
+        "coverage": {"prop/site_cover": 0}, "slots": []}, sort_keys=True))
     if walkable:
         # Real Lot's walk scene carries the mission's three positions as root
         # properties. Laser Tag reads NODES, not properties, so a stub that

@@ -471,12 +471,31 @@ def plan_mission(
         # same way — so this asks it to, using the SAME placement the greybox
         # candidate was judged on. Cheap, because every building in the spec
         # points at one shell: there is a single themed scene to instance.
+        # THE SITE'S OWN KIT (roadmap 22). Lot's greybox assembly writes
+        # `site.slots.json`: its cover pieces as prop slots with a species
+        # and exact dims (a box truck, a container, a car, turned across the
+        # sightline each breaks). The same Zoo kit build that dresses a
+        # building builds them, and the themed site stands the modules where
+        # the boxes stood -- with the module's own collision, at the box's
+        # exact footprint, so what Laser Tag graded is what ships. Archetype
+        # "site" so the job id, the output dir and the spec branch all say
+        # what it is.
+        site_kit_jid = job_id(brief.mission_id, _STAGE_ZOO_KIT,
+                              archetype="site")
+        plan.graph.add(Job(
+            job_id=site_kit_jid, mission_id=brief.mission_id,
+            stage_id=_STAGE_ZOO_KIT, adapter_id="zoo",
+            candidate_id=selected_candidate, archetype_id="site",
+            resource_class="blender",
+            depends_on=[lot_jid, pixelcoat_jid],
+            expected_outputs=[],
+        ))
         themed_jid = job_id(brief.mission_id, _STAGE_THEMED_SITE)
         plan.graph.add(Job(
             job_id=themed_jid, mission_id=brief.mission_id,
             stage_id=_STAGE_THEMED_SITE, adapter_id="lot",
             candidate_id=selected_candidate, resource_class="python_cpu",
-            depends_on=[compose_jid],
+            depends_on=[compose_jid, site_kit_jid],
             expected_outputs=["site.tscn"],
         ))
         # LAYER 3: the ground and the seams of the whole place. Three jobs

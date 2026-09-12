@@ -253,7 +253,9 @@ def test_placement_stages_fan_out_and_libraries_do_not(tmp_path):
     # Blender build per building. That is what it costs.
     for stage in ("patina_apply", "patina_dressing", "zoo_dressing_build",
                   "zoo_fixtures_build", "zoo_kit_build"):
-        jobs = _stages(plan, stage)
+        # the site's own kit (roadmap 22) is the one zoo_kit_build that is
+        # not a building's; it is counted apart, by its name
+        jobs = [j for j in _stages(plan, stage) if j.archetype_id != "site"]
         assert len(jobs) == LOT, f"{stage}: {len(jobs)} job(s)"
         assert len({j.archetype_id for j in jobs}) == LOT, stage
     # Pixelcoat's skin packs really are mission-wide: a skin is a material, not
@@ -322,8 +324,12 @@ def test_the_single_shell_plan_did_not_move(tmp_path):
         f"{MISSION}.zoo_dressing_build",
         f"{MISSION}.zoo_fixtures_build"]
     # A mission-wide job carries no archetype, and no plan that has ever been
-    # written grows a null on every line.
-    assert not any("archetype_id" in j for j in jobs.values())
+    # written grows a null on every line. The one exception is named: the
+    # SITE's own kit (roadmap 22, 0.77.0) is archetype "site" on purpose.
+    site_kit = f"{MISSION}.zoo_kit_build.site"
+    assert site_kit in jobs and jobs[site_kit]["archetype_id"] == "site"
+    assert not any("archetype_id" in j for jid, j in jobs.items()
+                   if jid != site_kit)
 
 
 def test_a_fanned_job_reports_its_building_in_the_plan_json(tmp_path):
@@ -588,7 +594,12 @@ def test_each_kit_is_built_from_its_own_buildings_slots(tmp_path, monkeypatch):
     brief = _brief(_library(tmp_path / "build"))
     plan = _plan(brief)
     specs = _specs(tmp_path, plan, brief, monkeypatch)
-    kits = _stages(plan, "zoo_kit_build")
+    all_kits = _stages(plan, "zoo_kit_build")
+    # The SITE's own kit (roadmap 22) rides beside the buildings': one job,
+    # archetype "site", over Lot's site.slots.json.
+    site = [j for j in all_kits if j.archetype_id == "site"]
+    assert len(site) == 1 and Path(specs[site[0].job_id]["slots_path"]).name == "site.slots.json"
+    kits = [j for j in all_kits if j.archetype_id != "site"]
     assert len(kits) == LOT, f"{len(kits)} kit job(s), expected {LOT}"
     paths = {j.archetype_id: specs[j.job_id]["slots_path"] for j in kits}
     assert len(set(paths.values())) == LOT, (

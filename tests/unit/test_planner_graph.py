@@ -160,7 +160,11 @@ def test_art_layer_composes_before_lux():
     assert "themed_site_assemble" in jobs
     themed = jobs["themed_site_assemble"]
     assert themed.adapter_id == "lot", "Lot owns site assembly, themed or not"
-    assert themed.depends_on == [compose.job_id]
+    # ... and, since 0.77.0, on the SITE's own kit (roadmap 22): the cover
+    # modules Lot stands in for its boxes are built by a zoo_kit_build
+    # fanned out for archetype "site".
+    assert themed.depends_on[0] == compose.job_id
+    assert themed.depends_on == [compose.job_id, f"{compose.mission_id}.zoo_kit_build.site"]
     # Lux lights that site -- not the greybox, and not one building.
     lux = jobs["lux_apply"]
     assert lux.depends_on == [themed.job_id]

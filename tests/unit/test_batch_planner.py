@@ -26,7 +26,10 @@ def test_shared_pixelcoat_is_deduplicated():
     assert not any(j.stage_id == "pixelcoat_build" for j in jobs)
     # Every mission's Zoo kit depends on the shared node.
     kits = [j for j in jobs if j.stage_id == "zoo_kit_build"]
-    assert len(kits) == 3
+    # three buildings' kits and, since 0.77.0, three SITE kits (roadmap 22)
+    # -- the rewiring must reach both, so both are counted
+    assert len(kits) == 6
+    assert sum(1 for k in kits if k.archetype_id == "site") == 3
     assert all(shared_pixelcoat_id("b1") in k.depends_on for k in kits)
 
 

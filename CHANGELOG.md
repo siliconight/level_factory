@@ -1,3 +1,22 @@
+## [0.77.0] - the site has a kit: cover is a species slot Zoo builds
+
+Roadmap 22, open since August: outdoor props had no swap contract, so the
+cover Lot places to break sightlines stayed 3 m green cubes in every
+package. The walker, 2026-09-12: "the green boxes should be larger props
+with collision to offer cover between buildings to force creative
+traversal."
+
+Lot 0.59.0 places cover as species-shaped pieces, largest first -- a box
+truck, a container, a car -- turned across the sightline each breaks, and
+writes them as prop slots in `site.slots.json`, Deli Counter's manifest
+shape. The planner fans out one more `zoo_kit_build`, archetype `site`,
+over that manifest (depends on the greybox assembly and the Pixelcoat
+build); the themed site assembly depends on it, and its spec names the
+build directory as `cover_modules` so Lot stands each module where its
+box stood, centre for centre, with the module's own collision -- exact
+fit, so what Laser Tag graded is what ships. A piece whose module did not
+build keeps its box and Lot says which stem it looked for.
+
 ## [0.76.1] - the Lot adapter publishes the skins it was handed
 
 Cold run 9016: Lot 0.58.0 wrote `skins/*.png` beside its scene in the
