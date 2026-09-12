@@ -1,3 +1,18 @@
+## [0.79.0] - the generated site has a corner, and its paint is a decal
+
+Roadmap 153. `_street_for` adds a CROSS STREET: a second road from the
+through road's centre line north to the plate's edge, through the widest
+gap between two neighbouring buildings that holds a full 20 m band, else
+past the west end of the row with the plate widened (symmetrically, so
+the row stays centred) to hold it. Lot 0.65.0 cuts the through road's
+kerb for its mouth, begins its slab at the band edge, and paints the
+junction -- crosswalks either side of the mouth, a stop bar on the leg
+that ends. On cold run 9021's row the gaps are 31 m and 21 m and the
+street takes the wider, at x = -20.5. `_street_for` now returns the plate
+width too. `GROUND_SKIN_KINDS` gains `paint: road_paint`, so the themed
+spec names the road-paint pack Lot's markings wear as a scissor decal
+(Pixelcoat 0.31.0).
+
 ## [0.78.1] - a storey the preflight cannot see is reported, not refused
 
 Cold run 9026. The Laser Tag preflight (`spawn_placement`) builds ONE
