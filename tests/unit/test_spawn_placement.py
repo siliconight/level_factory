@@ -360,3 +360,28 @@ def test_two_genuinely_distinct_waypoints_both_survive():
         "LT_PlayerRoutePoints/Route_1": (10.0, 0.0, 0.0),
     })
     assert len(destinations) == 2
+
+
+def test_a_destination_on_a_storey_the_field_does_not_hold_is_reported_not_refused():
+    """Cold run 9026: the deli's basement vault objective, 3 m under the
+    ground floor, sat below a cell the stockroom's shelving blocked, and the
+    one-storey field said "inside solid geometry" of a wall three metres
+    above the marker -- while the walktest, which bakes every storey, walked
+    to it. The field cannot see that storey; it says so instead."""
+    boxes = [slab("street", 0.0, 0.0, 40.0, 20.0),
+             slab("basement", 15.0, 0.0, 10.0, 10.0, top=-3.3),
+             wall("shelving_over_the_vault", 15.0, 0.0, 4.0, 4.0)]
+    text = scene_text({"player": (-15.0, 1.0, 0.0),
+                       "enemies": [(-10.0, 1.0, 0.0)],
+                       "objective": (15.0, -3.0, 0.0)})
+    problems = check_spawn_placement_text(text, reading(boxes))
+    assert not any("mission destination" in p for p in problems), problems
+    advice = advise_spawn_placement_text(text, reading(boxes))
+    hit = [a for a in advice if "storey" in a and "LT_ObjectivePoint" in a]
+    assert hit and "y = -3.0" in hit[0] and "at 0.0" in hit[0], advice
+    # a marker on the storey the field holds, inside a solid, still refuses
+    text = scene_text({"player": (-15.0, 1.0, 0.0),
+                       "enemies": [(-10.0, 1.0, 0.0)],
+                       "objective": (15.0, 1.0, 0.0)})
+    problems = check_spawn_placement_text(text, reading(boxes))
+    assert any("inside solid geometry" in p for p in problems), problems

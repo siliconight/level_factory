@@ -1,3 +1,24 @@
+## [0.78.1] - a storey the preflight cannot see is reported, not refused
+
+Cold run 9026. The Laser Tag preflight (`spawn_placement`) builds ONE
+heightfield around the crew spawn's floor and judged every marker by the
+cell under it on that storey. The deli's basement vault objective, 3.0 m
+under the ground floor, sat below a stockroom cell the shelving blocked,
+and the field refused the candidate with "LT_ObjectivePoint is inside
+solid geometry" -- of a wall three metres above the marker -- while the
+walktest on the same candidate, which bakes every storey, walked all
+twelve anchors including that one (proxy_10, snapped 1.0 m). Two
+instruments disagreed and the field was the wrong one: it measured the
+storey above. Basement objectives had passed it on 9019, 9020, 9022 and
+9024 only because the cell above happened to be open floor.
+
+`_placement` now compares the marker's OWN height with the surface the
+field holds at its cell; a marker under it by more than a climb or over
+it by more than a body is "on a storey this field does not see", which
+`_split_seals` keeps out of the refusal and `advise_spawn_placement_coded`
+files as `LT_STOREY_UNSEEN` -- reported, with both heights, never a
+blocker. A marker on the held storey inside a solid still refuses.
+
 ## [0.78.0] - the generated site has a street
 
 Roadmap 153. Measured 2026-09-13: every cold package's site spec carried

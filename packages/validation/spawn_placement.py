@@ -119,6 +119,18 @@ CODE_UNVERIFIED_SEAL = "LT_SEAL_UNVERIFIED"
 #: across two call sites is a sentence that drifts.
 _SEAL = "sealed off from the crew spawn"
 
+#: `_placement`'s verdict for a point whose own height is not on the storey
+#: the field holds at its cell: the field is one storey, built around the
+#: crew spawn's floor, and a marker 3 m under that floor is on a storey the
+#: field never saw. Measured on cold run 9026: the deli's basement vault
+#: objective at y = -3.0 sat under a ground-floor cell the stockroom's
+#: shelving blocked, and the field said "inside solid geometry" of a wall
+#: three metres above the marker -- while the walktest, which bakes every
+#: storey, walked to it. A storey the field cannot see is reported, never
+#: refused.
+_UNSEEN = "on a storey this field does not see"
+CODE_UNSEEN_STOREY = "LT_STOREY_UNSEEN"
+
 _PLAYER = "LT_PlayerSpawn"
 _ENEMY_GROUP = "LT_EnemySpawnPoints"
 _ROUTE_GROUP = "LT_PlayerRoutePoints"
@@ -446,6 +458,10 @@ def advise_spawn_placement_coded(
         _strand(field, reach, enemies), enemies, loose)
     _v, unverified_dests = _split_seals(
         _strand(field, reach, destinations), destinations, loose)
+    unseen_enemies = {n: w for n, w in unverified_enemies.items() if w.startswith(_UNSEEN)}
+    unseen_dests = {n: w for n, w in unverified_dests.items() if w.startswith(_UNSEEN)}
+    unverified_enemies = {n: w for n, w in unverified_enemies.items() if n not in unseen_enemies}
+    unverified_dests = {n: w for n, w in unverified_dests.items() if n not in unseen_dests}
     return ([(CODE_STANDOFF, m)
              for m in _standoff(field, reach, enemies, opening_range)]
             + [(CODE_FLOATING, m)
@@ -456,7 +472,12 @@ def advise_spawn_placement_coded(
             + [(CODE_UNVERIFIED_SEAL, m)
                for m in _unverified_findings("mission destination",
                                              unverified_dests,
-                                             len(destinations))])
+                                             len(destinations))]
+            + [(CODE_UNSEEN_STOREY, m)
+               for m in _unseen_findings("enemy spawn", unseen_enemies, len(enemies))]
+            + [(CODE_UNSEEN_STOREY, m)
+               for m in _unseen_findings("mission destination", unseen_dests,
+                                         len(destinations))])
 
 
 def _from_file(scene: Path, pure) -> list[str]:
@@ -481,6 +502,15 @@ def _placement(field: Field, point: Vec3, reach: dict):
         return i, "over a gap in the storey the mission starts on"
     if abs(field.floor[i] - field.reference) > FIELD_BAND:
         return i, "on a different storey than the crew spawn"
+    surface = field.floor[i]
+    # The point's OWN height against the surface the field holds at its
+    # cell. A marker under that surface by more than a climb, or above it
+    # by more than a body, is on a storey the field does not hold -- a
+    # basement under the ground floor, a mezzanine over it -- and every
+    # verdict below would be about the wrong storey.
+    if point[1] < surface - AGENT_CLIMB or point[1] > surface + AGENT_HEIGHT:
+        return i, (f"{_UNSEEN} (the marker is at y = {point[1]:.1f}, the "
+                   f"surface the field holds there is at {surface:.1f})")
     if field.blocked[i]:
         return i, "inside solid geometry"
     if i not in reach:
@@ -550,10 +580,18 @@ def _split_seals(stranded: dict, points: dict, loose) -> tuple[dict, dict]:
     or inside solid geometry is refused on evidence a doorway could not change,
     and those keep gating exactly as before.
     """
-    if loose is None:
-        return stranded, {}
-    lfield, lreach = loose
     verified, unverified = {}, {}
+    for name, why in stranded.items():
+        # a storey the field never held is unverified whatever the walls
+        # say: no field built here can see it
+        if why.startswith(_UNSEEN):
+            unverified[name] = why
+        else:
+            verified[name] = why
+    if loose is None:
+        return verified, unverified
+    lfield, lreach = loose
+    stranded, verified = verified, {}
     for name, why in stranded.items():
         if why == _SEAL:
             _i, still = _placement(lfield, points[name], lreach)
@@ -575,6 +613,19 @@ def _unverified_findings(kind: str, stranded: dict, total: int) -> list[str]:
         f"reachable, so the seal is this reader's blind spot rather than a "
         f"fact about the level, and it is reported instead of refused. If "
         f"Laser Tag comes back with TRAVERSAL at 0%, the seal was real"
+    ]
+
+
+def _unseen_findings(kind: str, unseen: dict, total: int) -> list[str]:
+    if not unseen:
+        return []
+    return [
+        f"{len(unseen)} of {total} {kind} sit(s) on a storey this reader's "
+        f"one-storey field does not hold ({_detail(unseen)}): the field is "
+        f"built around the crew spawn's floor, and a marker under or over "
+        f"that floor by more than a body is judged by the wrong storey. It "
+        f"is reported, not refused; the walktest, which bakes every storey, "
+        f"is the instrument for it"
     ]
 
 
