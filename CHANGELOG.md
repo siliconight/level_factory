@@ -1,3 +1,27 @@
+## [0.71.0] - the worldskin script is declared where the package carries it
+
+Roadmap 141, walked on cold run 9005 as texel scale jumping at the wall
+remainders and the doorways. `tools/texel_density.gd` over the walked copy:
+537 kit surfaces, the concrete skin at 0.152 to 10.0 texels per metre --
+a 66.0x mismatch -- which is box projection, the defect roadmap 88 fixed
+with `zoo_worldskin.gd`. The package carried the script and ran it on
+nothing, for the second time: 0.5x's fix put `[importer_defaults]` into
+the exporter but tested for the script at the export ROOT, and
+`run_presentation_compose` installs it at the root of the COMPOSED package,
+which the export copies in as `lot/shell/`. So `lot/shell/zoo_worldskin.gd`
+shipped, the test found nothing, no declaration was written, and
+`_write_import_sidecars` baked an empty `import_script/path` into all 48
+kit sidecars.
+
+### Changed
+- `_worldskin_in_package` finds the script at the root or anywhere below it
+  (never under `.godot/`), and `_importer_defaults_block` declares the path
+  it is found at. Measured on the same walked copy with the declaration
+  added and the kit sidecars regenerated: 46 of 48 sidecars bound, every
+  skin world-triplanar, worst mismatch 1.0x.
+- `tests/unit/test_worldskin_declared.py` holds the shipped shape
+  (`lot/shell/`) and the root shape, and that a cached copy does not count.
+
 ## [0.70.1] - the export says there are two ways to run what it made
 
 The package has no player by contract -- the consumer's runtime brings its

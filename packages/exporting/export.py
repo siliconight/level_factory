@@ -390,18 +390,51 @@ def _write_import_sidecars(export_dir: Path, godot_executable) -> int:
 _WORLDSKIN = "zoo_worldskin.gd"
 
 
+def _worldskin_in_package(export_dir: Path) -> Path | None:
+    """Where the package actually carries `zoo_worldskin.gd`, relative to
+    its root, or None.
+
+    THE ROOT WAS THE WRONG PLACE TO LOOK, and every package since 0.5x has
+    paid for it. `run_presentation_compose` installs the script at the root
+    of the COMPOSED package, and the export copies that package in as
+    `lot/shell/` -- so the script ships at `lot/shell/zoo_worldskin.gd`,
+    the old `export_dir / _WORLDSKIN` test found nothing, no
+    `[importer_defaults]` was written, and `_write_import_sidecars` baked
+    an empty `import_script/path` into every kit sidecar. Measured on cold
+    run 9005's `LF_county_hospital_001.portable-godot` (2026-09-11, roadmap
+    141): the script at `lot/shell/`, 0 of 48 kit sidecars bound,
+    `tools/texel_density.gd` reporting a 66.0x world-density mismatch on
+    the concrete skin (0.152 to 10.0 texels/m over 278 surfaces) -- the
+    texel-scale jumps at remainders and doorways a person walked that
+    morning. The same package with the script declared where it sits and
+    the sidecars regenerated: 1.0x on all four skins, world-triplanar.
+
+    Root first, so a package that does put it there keeps its declaration;
+    then the first copy anywhere below. One script, one declaration.
+    """
+    if (export_dir / _WORLDSKIN).is_file():
+        return Path(_WORLDSKIN)
+    hits = sorted(p for p in export_dir.rglob(_WORLDSKIN)
+                  if p.is_file() and ".godot" not in p.parts)
+    if not hits:
+        return None
+    return hits[0].relative_to(export_dir)
+
+
 def _importer_defaults_block(export_dir: Path) -> str:
     """Declare the kit's post-import script, if the package actually ships it.
 
     `zoo_worldskin.gd` scopes itself by asset name (`wall_`, `wallEnd_`,
     `window_`, `doorway_`, `breach_`) and leaves everything else alone, so
     declaring it project-wide is safe: props and dressing import unchanged.
+    Declared at the path the package carries it (`_worldskin_in_package`).
     """
-    if not (export_dir / _WORLDSKIN).is_file():
+    rel = _worldskin_in_package(export_dir)
+    if rel is None:
         return ""
     return ("[importer_defaults]\n\n"
             "scene={\n"
-            f'"import_script/path": "res://{_WORLDSKIN}"\n'
+            f'"import_script/path": "res://{rel.as_posix()}"\n'
             "}\n\n")
 
 
