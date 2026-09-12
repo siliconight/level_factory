@@ -1,3 +1,22 @@
+## [0.72.1] - the stair skin comes from the wall's imported material, not a file
+
+0.72.0 was measured on a walk copy that happened to carry loose PNGs beside
+its kit GLBs. The cold-run export of the same day (cold 9006, the first
+package built by 0.71.0) embeds every texture in its GLB and ships no PNG
+at all -- `_write_import_sidecars` mode 3 -- so on a real package the
+file-name lookup found nothing and the import log said "no concrete albedo
+under art/zoo, stairs left alone". REFUTED, kept: "76 of 76 stair surfaces
+skinned" was true of the copy and false of the export.
+
+### Changed
+- `zoo_worldskin.gd._skin_stairs` loads a `wall_*` kit module's imported
+  scene and duplicates the concrete material the wall wears -- textures
+  embedded or loose, at the tile period the kit pass already resolved --
+  and world-projects it if that module's own pass has not run yet.
+  Measured on the 9006 export's walk copy, base sidecar regenerated:
+  76 stair surfaces on 76 meshes, `M_Skin_concrete_stairs` from
+  `wall_delco_1997_01_w200.glb`, `uv1_scale` 0.49999, world triplanar.
+
 ## [0.72.0] - the greybox stairs wear the building's concrete
 
 Roadmap 144, walked on cold run 9005: every stair in the level in Deli

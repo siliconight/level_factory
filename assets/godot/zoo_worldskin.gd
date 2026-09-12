@@ -165,95 +165,89 @@ func _uv_density(mesh: Mesh, surface: int) -> float:
 	ratios.sort()
 	return float(ratios[ratios.size() / 2])
 
-## Skin the greybox base's stairs with the building's concrete pack, as
+## Skin the greybox base's stairs with the building's concrete, as
 ## world-projected as the walls beside them (roadmap 144).
 ##
 ## The stairs are boxes with NORMAL and POSITION only -- no UVs, so the kit
 ## pass above has no density to read and would skip them -- in Deli Counter's
 ## flat `gb_stair`. World triplanar needs no UVs at all: the texture is
 ## projected from world position, which is the whole reason it is the right
-## tool for a surface nobody unwrapped. The tile period comes from the kit
-## module the albedo was copied beside, so a stair's texel density equals the
-## wall's (measured on the kit at `uv1_scale` 0.5 for a 2.0 m pack); when
-## that module cannot be read the period is assumed 2.0 m and the report
-## says so. Visual meshes only: `stair<n>col_*` and `*ramp*` are collision.
+## tool for a surface nobody unwrapped.
+##
+## THE MATERIAL COMES FROM A KIT MODULE'S IMPORTED SCENE, NOT FROM A FILE.
+## The first version looked for `*_concrete_*_albedo.png` under `art/zoo/`
+## and worked on a walk copy that happened to carry loose PNGs; the cold-run
+## export (LF 0.71.0, `_write_import_sidecars` mode 3) EMBEDS every texture
+## in its GLB and ships no PNG at all, so on a real package that version
+## skinned nothing and said so. A `wall_*` module's imported material is
+## the concrete the walls wear, textures included, at the tile period the
+## kit pass already resolved -- so the stair's texel density equals the
+## wall's by construction. Visual meshes only: `stair<n>col_*` and `*ramp*`
+## are collision.
 ##
 ## Returns [surfaces, meshes, note].
 func _skin_stairs(scene: Node, base_dir: String) -> Array:
 	var art: String = base_dir.path_join("art").path_join("zoo")
-	var albedo: String = ""
 	var dir := DirAccess.open(art)
 	if dir == null:
 		return [0, 0, "; no art/zoo beside the base, stairs left alone"]
 	var files: PackedStringArray = dir.get_files()
 	files.sort()
-	# A plain wall's concrete before anything else's: sorted, `breach_*`
-	# comes first and its albedo is the BREACHED variant of the pack (the
-	# first run of this skinned every stair in rubble-edged concrete).
-	var candidates: Array = []
+	# A plain wall's module first; `breach_*` sorts earlier and wears the
+	# BREACHED variant of the pack (the first run of the file-name version
+	# put rubble edges on every stair).
+	var modules: Array = []
 	for f in files:
-		if f.ends_with("_albedo.png") and f.contains("_" + STAIR_KIND + "_"):
-			candidates.append(f)
-	for f in candidates:
-		if f.begins_with("wall_") and not f.contains("breached"):
-			albedo = f
+		if f.ends_with(".glb") and f.begins_with("wall_"):
+			modules.append(f)
+	for f in files:
+		if f.ends_with(".glb") and not f.begins_with("wall_"):
+			for p in KIT_PREFIXES:
+				if f.begins_with(p) and not f.begins_with("breach_"):
+					modules.append(f)
+	var found: Array = []   # [material, module file]
+	for f in modules:
+		var ps: PackedScene = load(art.path_join(f)) as PackedScene
+		if ps == null:
+			continue
+		var inst: Node = ps.instantiate()
+		var m: BaseMaterial3D = _kit_material(inst, STAIR_KIND)
+		if m != null:
+			found = [m.duplicate(), f]
+		inst.free()
+		if not found.is_empty():
 			break
-	if albedo == "":
-		for f in candidates:
-			if not f.contains("breached"):
-				albedo = f
-				break
-	if albedo == "" and not candidates.is_empty():
-		albedo = candidates[0]
-	if albedo == "":
-		return [0, 0, "; no %s albedo under art/zoo, stairs left alone" % STAIR_KIND]
-	var rough: String = albedo.replace("_albedo.png", "_roughness.png")
-	var mat := StandardMaterial3D.new()
+	if found.is_empty():
+		return [0, 0, "; no imported kit module wearing %s under art/zoo (import order?), stairs left alone" % STAIR_KIND]
+	var mat: BaseMaterial3D = found[0]
 	mat.resource_name = "M_Skin_%s_stairs" % STAIR_KIND
-	mat.albedo_texture = load(art.path_join(albedo))
-	if mat.albedo_texture == null:
-		return [0, 0, "; %s not loadable yet (import order), stairs left alone" % albedo]
-	if files.has(rough):
-		mat.roughness_texture = load(art.path_join(rough))
-	mat.roughness = 1.0
-	mat.uv1_triplanar = true
-	mat.uv1_world_triplanar = true
-	# the kit module this albedo was copied beside: `<module>_<profile>_albedo`
-	var period_note: String = ""
-	var scale: float = 0.5
-	var stem: String = albedo.get_slice("_" + STAIR_KIND + "_", 0)
-	var module: PackedScene = load(art.path_join(stem + ".glb")) as PackedScene
-	var got: float = _kit_uv_scale(module)
-	if got > 0.0:
-		scale = got
-	else:
-		period_note = "; tile period assumed 2.0 m (kit module %s.glb unreadable)" % stem
-	mat.uv1_scale = Vector3(scale, scale, scale)
+	var note: String = "; material from %s" % String(found[1])
+	if not mat.uv1_world_triplanar:
+		# The module imported before the kit pass touched it: its uv1_scale
+		# is still the authored tile period. World-project it the way
+		# `_apply` does, at that period (the kit's meshes measure a UV
+		# density of ~1.0, so world == authored to four decimals).
+		mat.uv1_triplanar = true
+		mat.uv1_world_triplanar = true
+		note += " (world-projected here; the module's own pass had not run)"
 	var counts: Array = _assign_stairs(scene, mat)
-	return [counts[0], counts[1], period_note]
+	return [counts[0], counts[1], note]
 
 
-func _kit_uv_scale(module: PackedScene) -> float:
-	if module == null:
-		return 0.0
-	var n: Node = module.instantiate()
-	var s: float = _first_uv_scale(n)
-	n.free()
-	return s
-
-
-func _first_uv_scale(n: Node) -> float:
+## The first textured material of `kind` in an instanced kit module.
+func _kit_material(n: Node, kind: String) -> BaseMaterial3D:
 	var mi: MeshInstance3D = n as MeshInstance3D
 	if mi != null and mi.mesh != null:
 		for i in range(mi.mesh.get_surface_count()):
 			var bm: BaseMaterial3D = mi.mesh.surface_get_material(i) as BaseMaterial3D
-			if bm != null and bm.albedo_texture != null and bm.uv1_scale.x > 0.0:
-				return bm.uv1_scale.x
+			if bm != null and bm.albedo_texture != null \
+					and String(bm.resource_name).contains("_" + kind):
+				return bm
 	for c in n.get_children():
-		var s: float = _first_uv_scale(c)
-		if s > 0.0:
-			return s
-	return 0.0
+		var m: BaseMaterial3D = _kit_material(c, kind)
+		if m != null:
+			return m
+	return null
 
 
 func _assign_stairs(n: Node, mat: Material) -> Array:
