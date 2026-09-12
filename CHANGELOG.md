@@ -1,3 +1,28 @@
+## [0.72.0] - the greybox stairs wear the building's concrete
+
+Roadmap 144, walked on cold run 9005: every stair in the level in Deli
+Counter's fallback yellow between skinned walls. Correctly so until now --
+the composer keeps the whole greybox base (floors, collision, stairs) and
+swaps only the slotted modules, Zoo has no stair species, and
+`zoo_worldskin.gd` scoped itself to the five kit families and never saw
+the base GLB.
+
+### Changed
+- `zoo_worldskin.gd` runs a second pass on `site_base*.glb`: every visual
+  `stair<n>_*` mesh (not the `*col*` / `*ramp*` collision) gets one
+  `M_Skin_concrete_stairs` material -- the concrete albedo and roughness
+  Zoo copied beside a plain `wall_*` kit module under `art/zoo/`, world
+  triplanar at that module's own imported `uv1_scale` (0.5 for the 2.0 m
+  pack), so a stair's texel density equals the wall beside it. World
+  projection needs no UVs, which is why it works on boxes nobody unwrapped.
+  Preference is a plain wall's concrete over a breach module's: the first
+  run took the first file in sort order and skinned every stair in the
+  breached variant. Measured on the walked copy after LF 0.71.0's
+  declaration reached the base sidecar: 76 stair surfaces on 76 meshes
+  skinned, 0 left flat, `uv1_scale` 0.49999 read from
+  `wall_delco_1997_01_w200.glb`. When the pack or the module is not there
+  the base is left alone and the import log says which.
+
 ## [0.71.0] - the worldskin script is declared where the package carries it
 
 Roadmap 141, walked on cold run 9005 as texel scale jumping at the wall
