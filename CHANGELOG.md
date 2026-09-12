@@ -1,3 +1,13 @@
+## [0.76.1] - the Lot adapter publishes the skins it was handed
+
+Cold run 9016: Lot 0.58.0 wrote `skins/*.png` beside its scene in the
+job's work dir and the adapter published `.tscn/.json/.csv/.glb/.gd` only,
+so `out/` carried a scene whose textures were not there. The Lux stage
+could not load it ("Resource file not found: res://skins/..."), filed the
+blocker, and 0.76.0's export gate refused the mission -- the first time
+that gate closed on a real run, one stage after the cause. `.png` joins
+the published suffixes.
+
 ## [0.76.0] - the skins ship beside the scene, and an open blocker blocks the export
 
 Cold run 9015, the first package on 0.75.0, and two findings from one

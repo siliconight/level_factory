@@ -55,3 +55,18 @@ def test_the_themed_spec_carries_the_skins_and_the_greybox_spec_does_not(tmp_pat
     doc = json.loads(themed.read_text(encoding="utf-8"))
     assert doc["ground_skins"] == skins
     assert themed != grey
+
+
+def test_the_lot_adapter_publishes_the_skins_beside_the_scene(tmp_path):
+    """Cold run 9016: Lot wrote skins/*.png beside site.tscn and the adapter
+    published only .tscn/.json/.csv/.glb/.gd, so the Lux stage loaded a
+    scene whose textures were not there."""
+    from adapters.lot import LotAdapter
+    work = tmp_path / "work"
+    (work / "skins").mkdir(parents=True)
+    (work / "site.tscn").write_text("[gd_scene]", encoding="utf-8")
+    (work / "skins" / "asphalt_delco_albedo.png").write_bytes(b"\x89PNG")
+    (work / "notes.txt").write_text("not published", encoding="utf-8")
+    got = {p.relative_to(work).as_posix()
+           for p in LotAdapter().collect_outputs({}, {"work_dir": str(work)})}
+    assert got == {"site.tscn", "skins/asphalt_delco_albedo.png"}

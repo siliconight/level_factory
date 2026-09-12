@@ -312,7 +312,13 @@ class LotAdapter(BaseAdapter):
         # written to the build cache: the attempt dir would look correct and a
         # cache hit would restore a site scene referencing files that are not
         # there. A published artifact has to be the whole artifact.
-        wanted = (".tscn", ".json", ".csv", ".glb", ".gd")
+        # .png joined on 2026-09-12: Lot 0.58.0 copies the ground's Pixelcoat
+        # maps to `skins/` beside its scene and the scene references them as
+        # siblings. Cold run 9016 published the scene without them, the Lux
+        # stage could not load it ("Resource file not found:
+        # res://skins/asphalt_delco_albedo.png"), and the export refused the
+        # mission on that blocker -- correctly, and one stage late.
+        wanted = (".tscn", ".json", ".csv", ".glb", ".gd", ".png")
         return sorted(p for p in work.rglob("*") if p.is_file() and p.suffix in wanted)
 
     def normalize_validation(
