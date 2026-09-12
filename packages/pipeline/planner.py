@@ -349,11 +349,20 @@ def plan_mission(
         #
         # `grep lot_for` over the package names all three call sites in one
         # command. Changing what a shared rule selects obliges you to run it.
+        # ANCHORED on the brief's archetype (roadmap 44, cold run 9007): the
+        # first building of a bank block is a bank. When the library has no
+        # family for it the draw is what it always was, and that is said.
+        _anchor = getattr(brief, "archetype", "") or ""
         art_lot, _art_excluded = building_library.lot_for(
             getattr(brief, "lot_library", None),
             getattr(brief, "building_count", 1),
             selected_candidate,
-            themed=True)
+            themed=True, anchor=_anchor)
+        if art_lot and _anchor and not building_library.anchor_families(
+                art_lot, _anchor):
+            print(f"[planner] lot has no '{_anchor}' building: the library "
+                  f"offers no family for it, so the lot is "
+                  f"{', '.join(e['id'] for e in art_lot)}")
         # RAISES rather than filtering. A building whose light manifest is
         # missing dropping quietly out here would turn a five building brief
         # into a four building site with every stage reporting success -- the

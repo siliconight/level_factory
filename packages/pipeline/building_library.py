@@ -500,8 +500,46 @@ def require_themed_shells(entries: list[dict], count: int) -> list[dict]:
         f"this mission without --art.")
 
 
-def pick_lot(entries: list[dict], seed: int, count: int) -> list[dict]:
+def anchor_families(entries: list[dict], archetype: str) -> list[str]:
+    """The library families that ARE the brief's archetype, sorted.
+
+    A bank brief's lot must contain a bank. Cold run 9007 (2026-09-12) set
+    `archetype: urban_bank`, `building_count: 3`, `lot_library` -- and
+    `pick_lot` drew `arena_a03`, `clinic_a01`, `landmark_hall_a01`, because it
+    took a seed and a count and nothing about the brief. Every stage passed;
+    the deliverable was a bank block with no bank in it, which is the
+    `_preset_for` failure ("a wrong-but-plausible building") one level up.
+
+    Matching is by NAME PARTS, the way `_preset_for` strips a qualifier:
+    the family equal to the archetype (`bank`), a family that begins with it
+    (`bank_branch`, `bank_tower`, `bank_job` for `bank`), or one whose first
+    token is the archetype's last (`urban_bank` -> `bank_*`). Empty when the
+    library has no such family, and the caller says so rather than
+    guessing -- a `hospital` brief against this library gets no anchor
+    today, and that is a true fact about the library.
+    """
+    a = str(archetype or "").strip().lower()
+    if not a:
+        return []
+    fams = sorted({e.get("family", "") for e in entries if e.get("family")})
+    last = a.rsplit("_", 1)[-1]
+    out = []
+    for f in fams:
+        fl = f.lower()
+        if fl == a or fl.startswith(a + "_") or fl.split("_", 1)[0] == last:
+            out.append(f)
+    return out
+
+
+def pick_lot(entries: list[dict], seed: int, count: int,
+             anchor: str = None) -> list[dict]:
     """``count`` archetypes for one candidate, no two from the same family.
+
+    ``anchor`` (roadmap 44 / cold run 9007): the brief's archetype. When a
+    family answers to it (`anchor_families`), the FIRST place is a variant of
+    one of those families -- drawn by the same stream, so five candidates
+    still get five lots -- and the rest are drawn as before without it. No
+    anchor, or none in the library, is the draw that always was.
 
     Keyed on the CANDIDATE seed, which is the seed that already diverges
     placement — so five candidates of a mission get five different lots rather
@@ -526,6 +564,12 @@ def pick_lot(entries: list[dict], seed: int, count: int) -> list[dict]:
 
     out: list[dict] = []
     pool = list(families)
+    anchors = anchor_families(entries, anchor) if anchor else []
+    if anchors:
+        fam = anchors[next(rng) % len(anchors)]
+        pool.remove(fam)
+        variants = by_family[fam]
+        out.append(variants[next(rng) % len(variants)])
     while len(out) < count and pool:
         fam = pool.pop(next(rng) % len(pool))
         variants = by_family[fam]
@@ -542,7 +586,7 @@ def pick_lot(entries: list[dict], seed: int, count: int) -> list[dict]:
 
 
 def lot_for(library, building_count, candidate_id, *,
-            themed: bool = False) -> tuple[list[dict], list[dict]]:
+            themed: bool = False, anchor: str = None) -> tuple[list[dict], list[dict]]:
     """``(lot, incomplete)`` -- which buildings this candidate places.
 
     THE one rule, so that the planner (which must fan art jobs out per
@@ -581,7 +625,7 @@ def lot_for(library, building_count, candidate_id, *,
         # finds no composed scene for the ones it placed.
         complete = require_themed_shells(complete, count)
     seed = int(str(candidate_id).rsplit("_", 1)[-1])
-    return pick_lot(complete, seed, count), incomplete
+    return pick_lot(complete, seed, count, anchor=anchor), incomplete
 
 
 def footprints_for(lot: list[dict], measure) -> list:

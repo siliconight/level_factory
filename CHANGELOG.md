@@ -1,3 +1,23 @@
+## [0.73.0] - a bank block contains a bank
+
+Cold run 9007 (2026-09-12): brief `urban_bank`, three buildings, a lot
+library -- and the lot was `arena_a03`, `clinic_a01`, `landmark_hall_a01`.
+Every stage green, zero interventions, and the deliverable was a bank block
+with no bank in it: `pick_lot` took a seed and a count and nothing about
+the brief. The same failure `_preset_for` refuses one level down ("a
+wrong-but-plausible building"), reached from the lot instead of the shell.
+
+### Changed
+- `building_library.anchor_families(entries, archetype)`: the families that
+  ARE the brief's archetype, by name parts the way `_preset_for` strips a
+  qualifier (`bank`, `bank_*`, `urban_bank` -> `bank_*`). `pick_lot` and
+  `lot_for` take `anchor`; the first place of an anchored lot is a variant
+  of an anchor family, drawn by the same stream so candidates stay distinct
+  and seeds stable, and the rest are drawn as before. No anchor, or none in
+  the library, is the draw that always was, byte for byte -- and the
+  planner prints which when the library has no family for the brief.
+- `tests/unit/test_lot_anchor.py`.
+
 ## [0.72.1] - the stair skin comes from the wall's imported material, not a file
 
 0.72.0 was measured on a walk copy that happened to carry loose PNGs beside
