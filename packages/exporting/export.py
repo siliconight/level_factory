@@ -891,10 +891,13 @@ def export_mission(
         # the way the staged buildings are referenced -- `skins/<map>` from
         # the assembly, `res://skins/<map>` from Lux's applied scene, both
         # of which resolve to this one directory at the package root.
-        skins = Path(themed_site_dir) / "skins"
-        if skins.is_dir():
-            shutil.copytree(str(skins), str(export_dir / "skins"),
-                            dirs_exist_ok=True)
+        # ... and the cover modules Lot 0.59.2 copies to `cover/` (roadmap
+        # 22), for the same reason and by the same rule.
+        for sib in ("skins", "cover"):
+            src = Path(themed_site_dir) / sib
+            if src.is_dir():
+                shutil.copytree(str(src), str(export_dir / sib),
+                                dirs_exist_ok=True)
 
     # 2.7 LAYER 3 SURFACE DRESSING (roadmap 110). Before 3.5 on purpose:
     # the entry scene written there instances `<site>_dressing.tscn` beside

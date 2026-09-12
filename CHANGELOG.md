@@ -1,3 +1,9 @@
+## [0.77.1] - the export carries the cover modules beside the scene
+
+Lot 0.59.2 copies the site's cover modules to `cover/` beside its scene
+(cold run 9019 shipped none of them by absolute path); the export copies
+`cover/` to the package root the way it copies `skins/`.
+
 ## [0.77.0] - the site has a kit: cover is a species slot Zoo builds
 
 Roadmap 22, open since August: outdoor props had no swap contract, so the
