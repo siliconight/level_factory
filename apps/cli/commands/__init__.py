@@ -889,11 +889,12 @@ def _lot_for_compose(model, candidate_id) -> list:
     # library too small for the brief refuses HERE rather than composing a
     # short row that every stage then reports as a success. The greybox site
     # spec does not come through this function.
-    lot, incomplete = building_library.lot_for(
-        getattr(model, "lot_library", None),
-        getattr(model, "building_count", 1),
-        candidate_id,
-        themed=True)
+    # THE ONE RULE (`lot_for_brief`): the planner, this compose spec and the
+    # site spec read library, count and archetype off the same brief, so a
+    # bank block gets its bank in all three -- cold run 9008 fired the
+    # planner's disagreement guard when only the planner was anchored.
+    lot, incomplete = building_library.lot_for_brief(
+        model, candidate_id, themed=True)
     if incomplete:
         # Same voice as the site builder: a silently shorter library is how a
         # lot quietly stops being varied.
@@ -1136,7 +1137,11 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         print(f"[site] {which}: {len(complete)} of {before} shell(s) "
               f"can carry a theme -- keyed on the brief, so this is the same "
               f"pool in every invocation")
-        lot = building_library.pick_lot(complete, seed, count)
+        # Anchored on the brief's archetype, the same draw `lot_for_brief`
+        # makes for the planner and the compose spec (roadmap 149).
+        lot = building_library.pick_lot(
+            complete, seed, count,
+            anchor=getattr(model, "archetype", "") or "")
         if len(lot) < count:
             # Loud, not silent. A short lot means the library is smaller than
             # the brief asked for, and a site quietly missing buildings is the

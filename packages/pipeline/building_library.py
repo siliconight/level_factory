@@ -628,6 +628,25 @@ def lot_for(library, building_count, candidate_id, *,
     return pick_lot(complete, seed, count, anchor=anchor), incomplete
 
 
+def lot_for_brief(model, candidate_id, *, themed: bool = False):
+    """`lot_for` read off a brief: library, count and ARCHETYPE from one
+    object, so the three callers cannot disagree by construction.
+
+    0.73.0 threaded the anchor through the planner alone, and cold run 9008
+    fired the guard written for exactly that: "zoo_fixtures_build.
+    bank_branch_a02 is planned for archetype 'bank_branch_a02', which is not
+    in this candidate's lot -- the planner and the spec builder disagree".
+    The compose spec and the site spec had drawn unanchored lots
+    (marina / pawn_shop / strip_club for `urban_bank`). Three call sites
+    reading three subsets of one brief is how that happens; this is the
+    subset.
+    """
+    return lot_for(getattr(model, "lot_library", None),
+                   getattr(model, "building_count", 1),
+                   candidate_id, themed=themed,
+                   anchor=getattr(model, "archetype", "") or "")
+
+
 def footprints_for(lot: list[dict], measure) -> list:
     """Each picked building's footprint, via ``site_variation.shell_footprint``.
 

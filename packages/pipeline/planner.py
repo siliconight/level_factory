@@ -353,11 +353,8 @@ def plan_mission(
         # first building of a bank block is a bank. When the library has no
         # family for it the draw is what it always was, and that is said.
         _anchor = getattr(brief, "archetype", "") or ""
-        art_lot, _art_excluded = building_library.lot_for(
-            getattr(brief, "lot_library", None),
-            getattr(brief, "building_count", 1),
-            selected_candidate,
-            themed=True, anchor=_anchor)
+        art_lot, _art_excluded = building_library.lot_for_brief(
+            brief, selected_candidate, themed=True)
         if art_lot and _anchor and not building_library.anchor_families(
                 art_lot, _anchor):
             print(f"[planner] lot has no '{_anchor}' building: the library "

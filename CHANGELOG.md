@@ -1,3 +1,21 @@
+## [0.73.1] - the lot is one rule, read off the brief
+
+0.73.0 anchored the planner's draw and left the compose spec's and the site
+spec's unanchored -- three call sites, and `grep` had found one. Cold run
+9008 fired the guard the planner carries for exactly this ("planned for
+archetype 'bank_branch_a02', which is not in this candidate's lot -- the
+planner and the spec builder disagree"), the art layer exited 5 in a
+second, and the greybox lots were marina / pawn_shop / strip_club for
+`urban_bank`. The guard did its job; the fix is to stop having three
+derivations.
+
+### Changed
+- `building_library.lot_for_brief(model, candidate_id, themed=)` reads
+  library, count and archetype off one brief; the planner and
+  `_lot_for_compose` call it, and `_write_site_spec`'s `pick_lot` takes
+  the same anchor. `tests/unit/test_lot_for_brief.py` holds that the three
+  are one draw.
+
 ## [0.73.0] - a bank block contains a bank
 
 Cold run 9007 (2026-09-12): brief `urban_bank`, three buildings, a lot
