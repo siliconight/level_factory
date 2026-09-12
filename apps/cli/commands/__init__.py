@@ -367,8 +367,25 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
             else:
                 deli_job = job.depends_on[0]
             deli_out = jobs_dir / deli_job
+            # The outdoor ground wears the theme's skins (roadmap 152): a
+            # Pixelcoat pack directory per outdoor family, named the way the
+            # kit branch names them (`<kind>_<theme>`), CONSTRUCTED here before
+            # any job runs and read by Lot when it does. Only the themed site:
+            # the greybox site is the one the candidate is judged on and stays
+            # the grey it always was.
+            ground_skins = None
+            if themed_scene:
+                pix_job = next(
+                    (j.job_id for j in plan.graph.topological_order()
+                     if j.adapter_id == "pixelcoat"
+                     and j.candidate_id == job.candidate_id), None)
+                theme = model.theme or batch.get("theme_family", "") or "delco"
+                if pix_job:
+                    ground_skins = _ground_skins_for(
+                        _latest_output(jobs_dir / pix_job, "."), theme)
             site_spec = _write_site_spec(
-                ws, model, deli_out, seed=seed, themed_scene=themed_scene)
+                ws, model, deli_out, seed=seed, themed_scene=themed_scene,
+                ground_skins=ground_skins)
             specs[job.job_id] = {
                 "site_spec_path": str(site_spec),
                 # Written beside the spec by _write_site_spec. The adapter
@@ -968,8 +985,29 @@ def _write_dispatch_spec(ws: Workspace, model: MissionBrief,
     return dest
 
 
+#: Which Pixelcoat material kind each outdoor family wears. Lot's ground
+#: plate is the lot itself -- in a Delco strip that is asphalt; its paths are
+#: the sidewalks between doors; a courtyard is poured concrete. The kinds are
+#: theme slots (`pixelcoat/profiles/themes/<theme>.json`), so a theme that
+#: maps `asphalt` to something else changes the ground without touching this.
+GROUND_SKIN_KINDS = {"ground": "asphalt", "path": "sidewalk", "courtyard": "concrete"}
+
+
+def _ground_skins_for(pixelcoat_out: Path, theme: str) -> dict[str, str]:
+    """Pack directory per outdoor family under a Pixelcoat theme build.
+
+    `theme-library` writes one `<kind>_<theme>/` per kind the theme names.
+    Constructed, not probed: the pixelcoat job may not have run when this is
+    planned, and Lot reports a pack it cannot read (`LOT_GROUND_SKIN_MISSING`)
+    rather than shipping a grey plate in silence.
+    """
+    return {fam: str(Path(pixelcoat_out) / f"{kind}_{theme}")
+            for fam, kind in GROUND_SKIN_KINDS.items()}
+
+
 def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
-                     *, seed: int, themed_scene: str | None = None) -> Path:
+                     *, seed: int, themed_scene: str | None = None,
+                     ground_skins: dict[str, str] | None = None) -> Path:
     """Write ONE candidate's Lot site spec (named 'site.json' so Lot's stem-based
     outputs are canonical: site.tscn / site_walk.tscn / site.site.gameplay.json).
 
@@ -1324,6 +1362,8 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
     # Separate at all because overwriting the greybox spec would leave that job
     # unable to re-run from its own inputs -- a spec describing a different site
     # than the run that used it is the provenance trap roadmap 33 is about.
+    if ground_skins:
+        spec["ground_skins"] = dict(ground_skins)
     dest = (ws.internal_dir / "temp" / model.mission_id
             / f"candidate_seed_{int(seed)}"
             / ("themed" if themed_scene else "")

@@ -138,6 +138,24 @@ class LotAdapter(BaseAdapter):
                     stem = src.with_suffix("")
                     for sibling in (".lights.json", ".gameplay.json"):
                         _fold(Path(str(stem) + sibling))
+            # The outdoor skins the spec names (roadmap 152): Lot reads a
+            # pack per family and writes its maps into the scene, so a
+            # re-themed ground is a different site. Fold the pack manifest
+            # and every map it names; a pack that is not there yet folds
+            # nothing, as a building's GLB does.
+            for pack_dir in (doc.get("ground_skins") or {}).values():
+                pd = Path(str(pack_dir))
+                if not pd.is_dir():
+                    continue
+                for pack in sorted(pd.glob("*.pack.json")):
+                    _fold(pack)
+                    try:
+                        maps = (json.loads(pack.read_text(encoding="utf-8"))
+                                .get("maps") or {})
+                    except (OSError, ValueError):
+                        maps = {}
+                    for fname in maps.values():
+                        _fold(pd / str(fname))
         # The staged sources, by their ABSOLUTE build-time paths.
         #
         # The loop above reads the spec rather than trusting the caller's list,

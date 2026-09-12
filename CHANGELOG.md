@@ -1,3 +1,18 @@
+## [0.75.0] - the themed site names its ground skins
+
+Roadmap 152, the first step of the build order: the exterior ground plate
+in every cold package to date was untextured. The themed `site.json` now
+carries `ground_skins` -- a Pixelcoat pack directory per outdoor family,
+`ground -> asphalt`, `path -> sidewalk`, `courtyard -> concrete`
+(`GROUND_SKIN_KINDS`), constructed from the theme build's `<kind>_<theme>`
+layout before any job runs, the way the kit branch names its packs. Lot
+0.57.0 reads the pack and writes the maps; Pixelcoat 0.30.0 builds the two
+new kinds. The greybox site carries nothing, because it is the site the
+candidate is judged on. The Lot adapter folds each named pack and its maps
+into the job fingerprint, so a re-themed ground is a different site and
+not a cache hit. `test_ground_skins_in_site_spec.py` pins the layout and
+the split.
+
 ## [0.74.0] - the placement gate is a gate
 
 The walker, on cold run 9012's bank: "this rotation looks wrong? (opening
