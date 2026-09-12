@@ -1,3 +1,24 @@
+## [0.76.0] - the skins ship beside the scene, and an open blocker blocks the export
+
+Cold run 9015, the first package on 0.75.0, and two findings from one
+black frame. (1) Lot 0.57.0 referenced its ground maps by absolute path;
+Godot has no importer for a png outside a project, so the Lux stage --
+which stages the assembly into a throwaway project and loads it -- failed
+to parse the scene and exited 2. Lot 0.58.0 copies the maps to `skins/`
+beside the scene and references them as siblings; the export now copies
+`skins/` to the package root, where both the assembly's `skins/<map>` and
+Lux's applied `res://skins/<map>` resolve. (2) The Lux failure was filed
+as a blocking `JOB_TOOL_EXIT` in the validation file, and `export`
+shipped the mission anyway: a package with no lighting, walked black,
+counted a zero. `export` now reads the mission's open blockers
+(`_open_blockers`, the same file `validate` reads) and refuses with them
+named, before the functional-lock check -- except blockers from the Layer
+3 chain (`lot_site_surfaces`, `zoo_clutter_build`,
+`patina_surface_dressing`), whose absence the package already reports in
+`dressing_layer.json`; a package without its lighting reports nothing.
+Item 18's third shape -- a red nothing reads -- for the third time in a
+day, and the last place it could hide was the export.
+
 ## [0.75.0] - the themed site names its ground skins
 
 Roadmap 152, the first step of the build order: the exterior ground plate

@@ -1859,6 +1859,47 @@ def cmd_status(args) -> int:
     return EXIT_OK
 
 
+#: Stages whose failure the package REPORTS rather than hides: the Layer 3
+#: chain ships `dressing_layer.json` saying the layer was not planned or not
+#: extracted, and the entry scene instances nothing for it. A blocker there
+#: is a finding about a layer the export already says is absent. Every other
+#: stage's output is something the package presents as present -- Lux's
+#: lighting, the composed buildings, the assembly -- and a blocker there is a
+#: package that lies.
+EXPORT_SELF_REPORTING_STAGES = frozenset({
+    "lot_site_surfaces", "zoo_clutter_build", "patina_surface_dressing"})
+
+
+def _open_blockers(ws: Workspace, mission_id: str) -> list[str]:
+    """The mission's blocking findings, one line each, from the validation
+    file the scheduler writes -- the same file `validate` reads -- minus
+    those from stages whose absence the package reports itself
+    (`EXPORT_SELF_REPORTING_STAGES`). A mission with no validation recorded
+    has no blockers to report (it also has nothing to export, which
+    `cmd_export` says next)."""
+    vfile = ws.internal_dir / "validation" / f"{mission_id}.json"
+    if not vfile.exists():
+        return []
+    try:
+        data = json.loads(vfile.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    out = []
+    for i in data.get("issues", []) or []:
+        if not i.get("blocking"):
+            continue
+        where = i.get("location") or i.get("stage_id") or ""
+        stage = str(i.get("stage_id") or "")
+        if not stage and "." in str(where):
+            stage = str(where).rsplit(".", 1)[-1]
+        if stage in EXPORT_SELF_REPORTING_STAGES:
+            continue
+        msg = str(i.get("message") or "")[:120]
+        out.append(f"{i.get('code', '?')}" + (f" at {where}" if where else "")
+                   + (f": {msg}" if msg else ""))
+    return out
+
+
 def cmd_validate(args) -> int:
     ws = _ws(args)
     vfile = ws.internal_dir / "validation" / f"{args.mission_id}.json"
@@ -2694,6 +2735,19 @@ def cmd_export(args) -> int:
         return EXIT_BLOCKED
     profile = ExportProfile(mode=args.mode,
                             include_walk=bool(getattr(args, "include_walk", False)))
+
+    # OPEN BLOCKERS BLOCK THE EXPORT. Cold run 9015 (2026-09-12): the Lux
+    # stage exited 2 on a scene it could not parse, the scheduler filed
+    # `JOB_TOOL_EXIT` as a blocking finding, and this command exported the
+    # mission anyway -- a package with no lighting, walked black, counted
+    # a zero. A blocker the export does not read is a number in a file.
+    blockers = _open_blockers(ws, mission_id)
+    if blockers:
+        print(f"[export] refused: {mission_id} has {len(blockers)} open "
+              f"blocker(s) -- " + "; ".join(blockers[:6])
+              + (f"; and {len(blockers) - 6} more" if len(blockers) > 6 else "")
+              + f". See `validate {mission_id}`.", file=sys.stderr)
+        return EXIT_BLOCKED
 
     # Post-art regression: a functional drift after the art pass blocks export.
     lock_file = _lock_path(ws, mission_id)

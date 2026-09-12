@@ -886,6 +886,15 @@ def export_mission(
         themed_scene = Path(themed_site_dir) / "site.tscn"
         if themed_scene.is_file():
             shutil.copy2(str(themed_scene), str(export_dir / "site.tscn"))
+        # The ground's skins (roadmap 152): Lot 0.58.0 copies the Pixelcoat
+        # maps to `skins/` beside its scene and references them as siblings,
+        # the way the staged buildings are referenced -- `skins/<map>` from
+        # the assembly, `res://skins/<map>` from Lux's applied scene, both
+        # of which resolve to this one directory at the package root.
+        skins = Path(themed_site_dir) / "skins"
+        if skins.is_dir():
+            shutil.copytree(str(skins), str(export_dir / "skins"),
+                            dirs_exist_ok=True)
 
     # 2.7 LAYER 3 SURFACE DRESSING (roadmap 110). Before 3.5 on purpose:
     # the entry scene written there instances `<site>_dressing.tscn` beside
