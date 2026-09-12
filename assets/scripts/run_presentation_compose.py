@@ -93,6 +93,40 @@ def _install_worldskin(out: Path) -> None:
         print(f"[compose] worldskin NOT installed: {exc}", file=sys.stderr)
 
 
+def placement_gate(pc: dict) -> tuple[str, str | None]:
+    """The placement gate's log line, and the error that fails the job when
+    the gate did not pass -- `None` when it did.
+
+    Deli Counter's `verify_placement` fits every themed module to its greybox
+    slot and reports the ones whose footprint does not land. This driver
+    printed its verdict as `[MISMATCH]` and returned 0 in every cold run from
+    9001 to 9012 (9005: 400 of 430; 9012's bank: 224 of 242), the adapter
+    filed it as an advisory finding, and the runs were counted as zeros. The
+    eighteen modules the gate named on 9012's bank were wall remainders
+    standing across their walls; the walker found one beside a doorway. A
+    gate whose red changes nothing is not a gate. It now fails the compose,
+    naming the slots, so the pipeline records what the tool already knew.
+    """
+    ok = bool(pc.get("ok"))
+    tag = "OK" if ok else "MISMATCH"
+    line = (f"[compose] placement gate [{tag}]: "
+            f"{pc.get('matched')}/{pc.get('checked')} modules sit on the "
+            f"greybox collision")
+    if ok:
+        return line, None
+    named = []
+    for m in (pc.get("mismatches") or [])[:8]:
+        named.append(f"{m.get('slot')} ({m.get('stem')}) fit {m.get('fit_rot')} deg: "
+                     f"placed {m.get('placed_extent')} on greybox "
+                     f"{m.get('greybox_extent')}")
+    more = int(pc.get("mismatched") or 0) - len(named)
+    err = ("[compose] ERROR: themed module(s) do not sit on their greybox "
+           "slot -- see placement_check in the manifest. "
+           + "; ".join(named)
+           + (f"; and {more} more" if more > 0 else ""))
+    return line, err
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--deli-repo", required=True,
@@ -211,11 +245,10 @@ def main() -> int:
           f"{man.get('markers_baked')} markers baked, "
           f"walkable={man.get('walkable')}")
     pc = man.get("placement_check")
+    placement_error = None
     if pc:
-        tag = "OK" if pc.get("ok") else "MISMATCH"
-        print(f"[compose] placement gate [{tag}]: "
-              f"{pc.get('matched')}/{pc.get('checked')} modules sit on the "
-              f"greybox collision")
+        line, placement_error = placement_gate(pc)
+        print(line)
     c = man.get("closure") or {}
     print(f"[compose] closure: portable={c.get('portable')} "
           f"(absolute_paths={c.get('absolute_path_count')}, "
@@ -242,6 +275,11 @@ def main() -> int:
               "would flicker. See zfight_check in the manifest.",
               file=sys.stderr)
         return 3
+    # A module that does not sit on its greybox slot is art standing in the
+    # wrong place, and the walker sees it. Same standing as the z-fight gate.
+    if placement_error:
+        print(placement_error, file=sys.stderr)
+        return 7
     # LADDER GATE: every ladder in the gameplay export must have baked a
     # climb volume (the climb contract) -- a level whose ladders regressed
     # to inert geometry must not ship as "composed".

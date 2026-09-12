@@ -204,7 +204,8 @@
               "interactable",
               "door",
               "cover_edge",
-              "readability"
+              "readability",
+              "building"
             ]
           },
           "declared_by": {

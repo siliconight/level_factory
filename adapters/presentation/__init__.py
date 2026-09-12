@@ -491,17 +491,28 @@ class PresentationAdapter(BaseAdapter):
                 "blocking": True, "raw_source_path": str(manifest)})
 
         # Ground-truth placement gate: themed visuals must sit on DC's collision.
-        # Advisory (non-blocking) for now — a partial kit legitimately leaves some
-        # slots greybox — but surfaced loudly so a real alignment regression shows.
+        # A partial kit leaves slots greybox, and those are not counted -- the
+        # gate checks only the modules the composer placed. This was advisory
+        # from the day it was written, and every cold run from 9001 to 9012
+        # carried it as a moderate finding nobody read (9005: 30 mismatched;
+        # 9012's bank: 18) while the packages shipped wall remainders standing
+        # across their walls. The walker found one beside a doorway. The
+        # driver's exit is advisory by design (`exit_advisory`), so this
+        # finding is where the red has to live: it blocks, and names the slots.
         pc = man.get("placement_check")
         if pc and pc.get("mismatched"):
+            named = ", ".join(
+                f"{m.get('slot')} ({m.get('stem')}: placed "
+                f"{m.get('placed_extent')} on greybox {m.get('greybox_extent')})"
+                for m in (pc.get("mismatches") or [])[:5] if isinstance(m, Mapping))
             issues.append({
                 "code": "PRESENTATION_PLACEMENT_MISMATCH",
-                "severity": "moderate", "category": "collision",
+                "severity": "blocker", "category": "collision",
                 "message": (f"{pc.get('mismatched')} themed module(s) do not match "
                             f"the greybox footprint (visual off the collision); "
-                            f"{pc.get('matched')}/{pc.get('checked')} aligned"),
-                "blocking": False, "raw_source_path": str(manifest)})
+                            f"{pc.get('matched')}/{pc.get('checked')} aligned. "
+                            f"Worst: {named or 'not reported'}"),
+                "blocking": True, "raw_source_path": str(manifest)})
 
         # Z-FIGHTING: the composer computes it, prints "the package would
         # flicker", exits 3 -- and nothing read it. `presentation_compose`'s

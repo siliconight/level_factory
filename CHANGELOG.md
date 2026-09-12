@@ -1,3 +1,33 @@
+## [0.74.0] - the placement gate is a gate
+
+The walker, on cold run 9012's bank: "this rotation looks wrong? (opening
+in the building)". It was: a wall remainder standing across its wall
+beside a doorway, fixed at the source in Deli Counter 0.120.0 (237 of 777
+such pieces across the cold packages on disk). What belongs here is that
+the pipeline already knew. Deli Counter's `verify_placement` named those
+eighteen slots on the bank, `run_presentation_compose.py` printed
+`placement gate [MISMATCH]: 224/242` and returned 0 -- as it had on every
+cold run since 9001 (9005: 400 of 430) -- the presentation adapter filed
+`PRESENTATION_PLACEMENT_MISMATCH` as an advisory in the validation file,
+and the run was counted a zero. A gate whose red changes nothing is not a
+gate.
+
+Two places, because the compose job's exit code is advisory by design
+(`exit_advisory`, so a red driver still records SUCCEEDED). The driver
+now returns 7 on a placement mismatch (distinct from the z-fight 3, ladder
+4 and circulation 6 reds) and names the slots, their fitted rotation and
+the placed-against-greybox extents on stderr; `placement_gate()` is that
+verdict as a function, pinned by `test_placement_gate_fails_the_compose.py`
+against the bank's real numbers. And the presentation adapter's
+`PRESENTATION_PLACEMENT_MISMATCH` is a blocker now, not a moderate
+advisory, with the worst five slots in its message -- that finding is
+what the pipeline reads. On DC 0.120.0 the three 9012 shells pass the gate
+242/242, 212/212, 158/158.
+
+Also: `schemas/surface_dressing.v1.json` gains the `building` exclusion tag
+Lot 0.56.0 emits (a building's floor plan is not ground -- 185 pieces of
+outdoor clutter stood on the bank's carpet).
+
 ## [0.73.1] - the lot is one rule, read off the brief
 
 0.73.0 anchored the planner's draw and left the compose spec's and the site

@@ -110,7 +110,8 @@ def test_it_names_the_worst_offenders_rather_than_only_counting(tmp_path):
 
 
 def test_it_does_not_block(tmp_path):
-    """Advisory, like the placement gate beside it. Coplanar faces are an art
+    """Advisory -- unlike the placement gate beside it, a blocker since
+    0.74.0. Coplanar faces are an art
     defect, and refusing to build the level over one stops it existing long
     enough to be looked at -- the rule `Scheduler._advise` enforces."""
     issues = PresentationAdapter().normalize_validation(
@@ -138,6 +139,11 @@ def test_the_placement_gate_still_reports(tmp_path):
         _manifest(tmp_path, placement_check={"checked": 430, "matched": 400,
                                              "mismatched": 30}))
     assert "PRESENTATION_PLACEMENT_MISMATCH" in _codes(issues)
+    # a blocker since 0.74.0: every cold run from 9001 to 9012 carried it as
+    # a moderate advisory while the packages shipped wall remainders
+    # standing across their walls
+    pm = _one(issues, "PRESENTATION_PLACEMENT_MISMATCH")
+    assert pm["blocking"] is True and pm["severity"] == "blocker"
 
 
 def test_the_cold_run_manifest_on_disk_produces_both(tmp_path):
