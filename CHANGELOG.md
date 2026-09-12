@@ -1,3 +1,23 @@
+## [0.78.0] - the generated site has a street
+
+Roadmap 153. Measured 2026-09-13: every cold package's site spec carried
+`paths` and no `roads` -- `_write_site_spec` wrote the connections between
+doors as walkways (its comment called them roads; the key was `paths`), so
+Lot's road, sidewalk, kerb and crossing machinery, all built for
+hand-authored specs, had never run on a cold package. The walker stood on
+a plate with paths across it.
+
+`_street_for` puts one road along the plate's south edge, the full plate
+width, 10 m with 3 m sidewalks (Lot's own hand-authored dimensions), in
+the band between the southernmost footprint face and the perimeter -- and
+deepens the plate, symmetrically, when the row as sized leaves no room
+for the band, rather than squeezing the road. A 4 m spur path runs from a
+metre clear of each building's south face to the road's centre line, so
+`_kerb_crossings` drops the kerb where the crew crosses and keeps it a
+wall everywhere else. The themed spec names `road` and `sidewalk` skin
+packs beside the others (Lot 0.60.0 wears them). Tests pin the band, the
+spurs and the written spec against cold run 9021's row.
+
 ## [0.77.1] - the export carries the cover modules beside the scene
 
 Lot 0.59.2 copies the site's cover modules to `cover/` beside its scene

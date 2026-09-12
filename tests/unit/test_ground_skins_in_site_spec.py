@@ -40,8 +40,10 @@ def test_the_pack_directories_are_constructed_from_the_theme_layout():
         "ground": str(Path("/px/out") / "asphalt_delco_1997"),
         "path": str(Path("/px/out") / "sidewalk_delco_1997"),
         "courtyard": str(Path("/px/out") / "concrete_delco_1997"),
+        "road": str(Path("/px/out") / "asphalt_delco_1997"),
+        "sidewalk": str(Path("/px/out") / "sidewalk_delco_1997"),
     }
-    assert set(cmds.GROUND_SKIN_KINDS) == {"ground", "path", "courtyard"}
+    assert set(cmds.GROUND_SKIN_KINDS) == {"ground", "path", "courtyard", "road", "sidewalk"}
 
 
 def test_the_themed_spec_carries_the_skins_and_the_greybox_spec_does_not(tmp_path):

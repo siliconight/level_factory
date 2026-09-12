@@ -1018,7 +1018,52 @@ def _write_dispatch_spec(ws: Workspace, model: MissionBrief,
 #: the sidewalks between doors; a courtyard is poured concrete. The kinds are
 #: theme slots (`pixelcoat/profiles/themes/<theme>.json`), so a theme that
 #: maps `asphalt` to something else changes the ground without touching this.
-GROUND_SKIN_KINDS = {"ground": "asphalt", "path": "sidewalk", "courtyard": "concrete"}
+GROUND_SKIN_KINDS = {"ground": "asphalt", "path": "sidewalk", "courtyard": "concrete",
+                     "road": "asphalt", "sidewalk": "sidewalk"}
+
+
+#: The street's dimensions, from Lot's own hand-authored specs (`gs_heist`,
+#: `coldrun_kerb_probe`): a 10 m road, 3 m sidewalks, and 2 m of plate
+#: between a sidewalk and anything else. A spur is a crossing's width.
+ROAD_WIDTH = 10.0
+SIDEWALK_WIDTH = 3.0
+ROAD_MARGIN = 2.0
+SPUR_WIDTH = 4.0
+ROAD_BAND = ROAD_MARGIN + SIDEWALK_WIDTH + ROAD_WIDTH + SIDEWALK_WIDTH + ROAD_MARGIN
+
+
+def _street_for(buildings, footprints, span_x, span_y):
+    """One road along the plate's south edge, a spur path from every building
+    to it, and the plate depth that holds them. Returns (roads, spurs, span_y).
+
+    The road runs the full plate width in the band between the southernmost
+    footprint edge and the south perimeter; when the plate as sized for the
+    row is too shallow for the band, it is deepened (symmetrically -- the
+    plate stays centred on the row) rather than the road squeezed. Each spur
+    starts a metre clear of its building's south face, so no path runs under
+    a floor, and ends on the road's centre line, so `_kerb_crossings` drops
+    the kerb there and nowhere else.
+    """
+    from packages.pipeline.site_variation import DEFAULT_FOOTPRINT
+    import math as _m
+    if not buildings:
+        return [], [], span_y
+    south, faces = None, []
+    for b, fp in zip(buildings, footprints):
+        w, d = tuple(fp) if fp else DEFAULT_FOOTPRINT
+        ext_y = w if int(round(float(b.get("rot", 0)))) % 180 == 90 else d
+        face = float(b["at"][1]) - float(ext_y) / 2.0
+        faces.append((float(b["at"][0]), face))
+        south = face if south is None else min(south, face)
+    need_half = -south + ROAD_BAND
+    if span_y / 2.0 < need_half:
+        span_y = int(_m.ceil(2.0 * need_half))
+    y_road = -span_y / 2.0 + ROAD_MARGIN + SIDEWALK_WIDTH + ROAD_WIDTH / 2.0
+    road = {"a": [-span_x / 2.0, y_road], "b": [span_x / 2.0, y_road],
+            "width": ROAD_WIDTH, "sidewalk": SIDEWALK_WIDTH}
+    spurs = [{"a": [x, face - 1.0], "b": [x, y_road], "width": SPUR_WIDTH}
+             for x, face in faces if face - 1.0 - y_road > 1.0]
+    return [road], spurs, span_y
 
 
 def _ground_skins_for(pixelcoat_out: Path, theme: str) -> dict[str, str]:
@@ -1246,6 +1291,7 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         ]
         span_x, span_y = ground_size(len(lot), footprints=footprints,
                                      shape=model.site_shape)
+        fp_list = list(footprints)
         footprint = None            # the row is measured per building now
     else:
         # Measure the shell once: the spacing between origins and the size of
@@ -1279,7 +1325,16 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         ]
         # Size the plate from the shell that is going to stand on it.
         span_x, span_y = ground_size(count, spacing=spacing, footprint=footprint)
+        fp_list = [footprint] * len(buildings)
     count = len(buildings)
+    # THE STREET (roadmap 153). Every cold package to date carried `paths`
+    # and no `roads`, so Lot's road, sidewalk, kerb and crossing machinery
+    # never ran on one: the walker stood on a plate with walkways across
+    # it. One road runs the length of the plate along its south edge, with
+    # sidewalks, and a spur path from each building's south face to it, so
+    # the kerb is cut where the crew crosses and a wall everywhere else --
+    # which is what a street is.
+    roads, spurs, span_y = _street_for(buildings, fp_list, span_x, span_y)
     spec = {
         # Lot names its outputs from this field (site.tscn / site_walk.tscn /
         # site.site.gameplay.json), so it must be the canonical LF stem "site",
@@ -1307,7 +1362,8 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         # one contract asking for the same thing, the way CLEARANCE and
         # Lot's own CLEARANCE already do.
         "paths": [{"from": f"b{i}", "to": f"b{i + 1}", "width": STREET}
-                  for i in range(count - 1)],
+                  for i in range(count - 1)] + spurs,
+        "roads": roads,
         # Closes the site. Lot lays four perim_ walls around the ground
         # rect; without them a walker can leave the plate entirely. Three
         # metres clears the 1.8 m standing body from agent_contract.json
