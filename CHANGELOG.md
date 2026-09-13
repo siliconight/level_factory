@@ -1,3 +1,25 @@
+## [0.80.0] - every shop gets a sign
+
+Roadmap 153, the piece between Pixelcoat and Lot. The pixelcoat job now
+builds the theme's BUSINESSES beside its materials -- a second command,
+`theme-signs`, writing one pack per shop into `<out>/signs/` -- and the
+themed site spec says which business each building is.
+
+`sign_family` reads an archetype's id for the kind of place it is
+(`bank_branch_a02` is a bank, `deli_a01` a deli, `warehouse_a02` a
+warehouse) and `_signs_for` gives each building a shop of that family,
+picked by a stable hash of its archetype and its place in the row, with no
+two buildings on one street taking the same one while the family has
+another to give -- a strip with two GOOSE MARTs reads as a mistake,
+because it is. A family the theme has nothing for takes a `default`.
+
+The profile is read from the Pixelcoat checkout the workspace is pinned
+to, which is SOURCE and not output: it is there whether or not the
+pixelcoat job has run, so the themed spec can name a building's sign at
+plan time exactly the way it names a ground skin. A theme with no signs
+profile gives nobody one, and says so rather than shipping blank facades
+in silence.
+
 ## [0.79.0] - the generated site has a corner, and its paint is a decal
 
 Roadmap 153. `_street_for` adds a CROSS STREET: a second road from the

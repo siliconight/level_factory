@@ -375,6 +375,7 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
             # the grey it always was.
             ground_skins = None
             cover_modules = None
+            pixelcoat_out = None
             if themed_scene:
                 pix_job = next(
                     (j.job_id for j in plan.graph.topological_order()
@@ -382,8 +383,9 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                      and j.candidate_id == job.candidate_id), None)
                 theme = model.theme or batch.get("theme_family", "") or "delco"
                 if pix_job:
-                    ground_skins = _ground_skins_for(
-                        _latest_output(jobs_dir / pix_job, "."), theme)
+                    # the same job directory carries the skins and the signs
+                    pixelcoat_out = _latest_output(jobs_dir / pix_job, ".")
+                    ground_skins = _ground_skins_for(pixelcoat_out, theme)
                 # The site's cover modules (roadmap 22): the kit job the
                 # planner fanned out for archetype "site", found by
                 # candidate the way the pixelcoat job is. Lot resolves each
@@ -400,7 +402,8 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                         "theme": theme, "style": 1}
             site_spec = _write_site_spec(
                 ws, model, deli_out, seed=seed, themed_scene=themed_scene,
-                ground_skins=ground_skins, cover_modules=cover_modules)
+                ground_skins=ground_skins, cover_modules=cover_modules,
+                pixelcoat_out=pixelcoat_out)
             specs[job.job_id] = {
                 "site_spec_path": str(site_spec),
                 # Written beside the spec by _write_site_spec. The adapter
@@ -1094,6 +1097,102 @@ def _street_for(buildings, footprints, span_x, span_y):
     return [road, cross], spurs, span_x, span_y
 
 
+#: Which family of business an archetype belongs to, by the first keyword
+#: its id contains. A street of shells named `bank_branch_a02`,
+#: `deli_a01`, `warehouse_a02` is a street of a bank, a deli and a
+#: warehouse, and the theme's sign profile says what each of those is
+#: called (`pixelcoat/profiles/signs/<theme>.json`). Order matters: the
+#: first match wins, so the specific keyword comes before the general.
+SIGN_FAMILIES = (
+    ("bank", "bank"), ("credit_union", "bank"), ("pawn", "pawn"),
+    ("deli", "deli"), ("diner", "restaurant"), ("restaurant", "restaurant"),
+    ("cheesesteak", "deli"), ("pizza", "restaurant"),
+    ("brewery", "liquor"), ("distillery", "liquor"), ("bar", "bar"),
+    ("club", "club"), ("casino", "club"),
+    ("supermarket", "supermarket"), ("market", "supermarket"),
+    ("grocery", "supermarket"),
+    ("gas_station", "gas_station"), ("gas", "gas_station"),
+    ("auto", "auto"), ("garage", "auto"), ("repair", "auto"),
+    ("warehouse", "warehouse"), ("storage", "warehouse"),
+    ("depot", "warehouse"), ("freight", "warehouse"),
+    ("factory", "industrial"), ("industrial", "industrial"),
+    ("mill", "industrial"),
+    ("retail", "retail"), ("strip", "retail"), ("shop", "retail"),
+    ("store", "retail"), ("pharmacy", "retail"), ("laundr", "retail"),
+    ("courthouse", "civic"), ("police", "civic"), ("station", "civic"),
+    ("library", "civic"), ("clinic", "civic"), ("hospital", "civic"),
+)
+
+
+def sign_family(archetype_id: str) -> str:
+    """The family of business ``archetype_id`` reads as, or ``default``."""
+    a = str(archetype_id or "").lower()
+    for key, family in SIGN_FAMILIES:
+        if key in a:
+            return family
+    return "default"
+
+
+def _sign_profile(ws, theme: str) -> list:
+    """The theme's businesses, read from the Pixelcoat checkout this
+    workspace is pinned to. Source, not output: it is there whether or not
+    the pixelcoat job has run, which is what lets the themed spec name a
+    building's sign at PLAN time the way it names a ground skin."""
+    import json
+    try:
+        repos = (ws.load_tools_local() or {}).get("repositories") or {}
+    except Exception:
+        return []
+    root = repos.get("pixelcoat")
+    if not root:
+        return []
+    path = Path(str(root)) / "profiles" / "signs" / f"{theme}.json"
+    if not path.is_file():
+        return []
+    try:
+        return list(json.loads(path.read_text(encoding="utf-8")).get("signs", []))
+    except (OSError, ValueError):
+        return []
+
+
+def _signs_for(ws, buildings, pixelcoat_out: Path, theme: str) -> dict[str, str]:
+    """Which sign each building wears: `{building id: pack directory}`.
+
+    A building takes a business of its own family, chosen by a stable hash
+    of its archetype and its place in the row, and no two buildings on one
+    street take the same one while the family has another to give -- a
+    strip with two GOOSE MARTs reads as a mistake, which it is. A building
+    whose family the theme has nothing for takes a `default`; a theme with
+    no signs profile gives nobody one, and Lot draws no band.
+    """
+    profile = _sign_profile(ws, theme)
+    if not profile:
+        return {}
+    out: dict[str, str] = {}
+    taken: set[str] = set()
+    for i, b in enumerate(buildings):
+        family = sign_family(b.get("archetype") or b.get("id"))
+        pool = [s for s in profile if family in (s.get("families") or [])]
+        if not pool:
+            pool = [s for s in profile if "default" in (s.get("families") or [])]
+        if not pool:
+            continue
+        h = 2166136261
+        for ch in f"{b.get('archetype', '')}:{i}":
+            h = ((h ^ ord(ch)) * 16777619) & 0xFFFFFFFF
+        start = h % len(pool)
+        pick = None
+        for step in range(len(pool)):
+            cand = pool[(start + step) % len(pool)]
+            if cand["slug"] not in taken:
+                pick = cand
+                break
+        pick = pick or pool[start]
+        taken.add(pick["slug"])
+        out[b["id"]] = str(Path(pixelcoat_out) / "signs" / f"sign_{pick['slug']}")
+    return out
+
+
 def _ground_skins_for(pixelcoat_out: Path, theme: str) -> dict[str, str]:
     """Pack directory per outdoor family under a Pixelcoat theme build.
 
@@ -1109,7 +1208,8 @@ def _ground_skins_for(pixelcoat_out: Path, theme: str) -> dict[str, str]:
 def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
                      *, seed: int, themed_scene: str | None = None,
                      ground_skins: dict[str, str] | None = None,
-                     cover_modules: dict[str, object] | None = None) -> Path:
+                     cover_modules: dict[str, object] | None = None,
+                     pixelcoat_out: Path | None = None) -> Path:
     """Write ONE candidate's Lot site spec (named 'site.json' so Lot's stem-based
     outputs are canonical: site.tscn / site_walk.tscn / site.site.gameplay.json).
 
@@ -1477,6 +1577,20 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
     # than the run that used it is the provenance trap roadmap 33 is about.
     if ground_skins:
         spec["ground_skins"] = dict(ground_skins)
+    # THE SHOP SIGNS (roadmap 153): which business each building is, as the
+    # Pixelcoat pack its band wears. Themed sites only -- the greybox one is
+    # what the candidate is judged on.
+    if pixelcoat_out is not None and themed_scene:
+        signs = _signs_for(ws, buildings, pixelcoat_out, model.theme)
+        if signs:
+            spec["signs"] = signs
+            print(f"[site] {len(signs)} shop sign(s): " + ", ".join(
+                f"{bid}={Path(d).name[len('sign_'):]}"
+                for bid, d in sorted(signs.items())))
+        else:
+            print(f"[site] no shop signs: theme {model.theme!r} names no "
+                  f"businesses (pixelcoat/profiles/signs/{model.theme}.json), "
+                  f"so every building stands with a blank facade")
     if cover_modules:
         spec["cover_modules"] = dict(cover_modules)
     dest = (ws.internal_dir / "temp" / model.mission_id

@@ -101,10 +101,26 @@ class PixelcoatAdapter(BaseAdapter):
             # resolves from via --skins <this out dir> --theme <theme>.
             args = ["-m", "pixelcoat.cli.main", "theme-library",
                     "--theme", str(theme), "--out", str(work), "--json"]
+            # AND THE SHOP SIGNS, beside the skins (roadmap 153). A theme
+            # owns the street's vocabulary, and a 1990s Delaware County
+            # strip is as much its businesses as its brick;
+            # `profiles/signs/<theme>.json` names them and this writes one
+            # pack per business into `<out>/signs/`, which the themed site
+            # spec points each building at. A theme with no signs profile
+            # fails that command and not this one, so a library build never
+            # depends on a street having shops.
+            sign_args = ["-m", "pixelcoat.cli.main", "theme-signs",
+                         "--theme", str(theme), "--out", str(work / "signs"),
+                         "--force", "--json-log"]
             return [PlannedCommand(
                 executable=Path(str(py)), arguments=tuple(args),
                 working_directory=repo,
                 expected_outputs=(),   # <kind>_<theme>/ dirs; validated in normalize
+                resource_class="python_cpu", timeout_seconds=1800,
+            ), PlannedCommand(
+                executable=Path(str(py)), arguments=tuple(sign_args),
+                working_directory=repo,
+                expected_outputs=("signs/signs.index.json",),
                 resource_class="python_cpu", timeout_seconds=1800,
             )]
 
