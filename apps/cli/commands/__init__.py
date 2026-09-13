@@ -908,12 +908,28 @@ def _deli_for(plan, job):
     return f"{job.mission_id}.deli_generate.candidate.seed_{seed}"
 
 
+#: Brief weather words that mean water falling from the sky. The briefs in
+#: examples/ use "clear", "rain" and "hurricane"; "storm" is the obvious third.
+_RAIN_WEATHER = frozenset({"rain", "storm", "hurricane"})
+
+
 def _preset_for(model: MissionBrief) -> str:
     # Lux registers presets under their DISPLAY names ("Blue Hour"), not
     # resource stems — a wrong name makes blend_to_preset a silent no-op
     # (proven on hardware in the lux visual pass). Registered library:
     # Delco Summer Afternoon / Delco Arcade / Gas Station Fluorescent /
     # Blue Hour / Heavy Rain / Mission Goes Hot.
+    #
+    # WEATHER FIRST. `MissionBrief.weather` was read by nothing, so a brief
+    # that said "rain" shipped dry. Heavy Rain is the one shipped
+    # preset carrying a rain profile (Lux 0.35.0): LuxRoot builds the falling
+    # rain from it, and run_lux_apply.gd builds the colliders that keep the
+    # buildings dry. It wins over time of day, and that is a trade, not a
+    # rule: Heavy Rain is an overcast DAY, so a night brief that asks for rain
+    # (both rain briefs in examples/ do) gets daylight rain until rain is a
+    # layer over the time-of-day look rather than a look of its own.
+    if (model.weather or "").strip().lower() in _RAIN_WEATHER:
+        return "Heavy Rain"
     tod = (model.time_of_day or "").lower()
     if tod in ("night", "evening"):
         return "Blue Hour"

@@ -1,3 +1,47 @@
+## [0.83.0] - a brief that says rain gets rain, and the buildings stay dry
+
+`MissionBrief.weather` has been read by nothing. `_preset_for` chose the look
+from `time_of_day` alone, so the two briefs in `examples/` that ask for weather
+-- `warehouse_yard_001` ("rain") and `category5_baie_dore_001` ("hurricane")
+-- shipped dry. Lux 0.35.0 gives Heavy Rain a rain profile; this release is
+the three places Level Factory had to meet it.
+
+THE PRESET. `_preset_for` returns "Heavy Rain" when the brief's weather is
+rain, storm or hurricane (case and whitespace ignored), and keeps its
+time-of-day choice for anything else, "clear" included. Rain wins over time
+of day, and that is a trade rather than a rule: Heavy Rain is an overcast
+DAY, and both rain briefs in `examples/` are night, so they get daylight rain
+until rain is a layer over the time-of-day look rather than a look of its own.
+
+THE COLLIDERS. Particles pass through geometry unless a particle collider
+stops them, so without them it rains in every lobby. `run_lux_apply.gd`
+reads the APPLIED preset's weather off LuxRoot (not the request) and, when it
+has rain, calls `LuxRainCollision.build` on the site: one box per building
+matched as `b<index>` -- the id `_write_site_spec` writes and Lot names each
+building node after -- from its lowest surface to 0.885 m over its roof, and
+a 0.66 m ground box across the site. Re-owned like the fixture and daylight
+rigs, or `pack()` drops them. A dry preset builds nothing, so every dry
+level's applied scene is unchanged apart from the driver's own hash.
+`lux.quality.json` gains `rain_asked`, `rain_drops`, `rain_colliders` and
+`rain_msg`; rain that was asked for with no building matched or no drops
+built is `LUX_RAIN_NOT_CONTAINED` (moderate).
+
+THE CACHE. The preset NAME was already an input to the Lux stage's
+fingerprint, the driver is hashed, and Lux's repository commit is in the
+probe, so no dry `lux.applied.tscn` can be served to a rain brief.
+`tests/unit/test_lux_rain.py` pins that the name moves the fingerprint and
+moves nothing else, alongside the preset choice and the driver's collider
+wiring (a source-shape test; unit CI has no headless Godot).
+
+Hardware evidence, in Lux 0.35.0's changelog: cold run 9048's walk copy
+rebuilt through this driver with Heavy Rain and localized with this
+module's `localize_export` -- the driver reported 9,000 drops and 4 boxes, and
+the frames count 12,000-18,000 risen pixels of rain from the street and 0
+under the roof of each of the three buildings.
+
+Not done: a game that switches a dry-built level to rain at runtime has no
+colliders and rains indoors. Not yet run through a cold run.
+
 ## [0.82.0] - a door path ends at the sidewalk, and no path crosses a street mid-block
 
 The walker, walking cold run 9048, asked why the asphalt "has a horizontal

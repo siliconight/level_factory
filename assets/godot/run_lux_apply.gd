@@ -173,6 +173,49 @@ func _initialize() -> void:
 		print("[lux] %s" % daylight_msg)
 		await process_frame
 
+	# Keep the rain out of the buildings (Lux 0.35.0). The applied preset's
+	# weather decides: LuxRoot builds the falling rain from it at load, and
+	# particles pass through geometry unless a particle COLLIDER stops them,
+	# so without these boxes it rains in every lobby. One box per building
+	# from its lowest surface to its roof, plus the ground; the boxes are plain
+	# engine nodes, so they are packed here and cost nothing to load.
+	#
+	# Buildings are matched as `b<index>` because that is the id this
+	# pipeline writes into Lot's site spec (`_write_site_spec`), and Lot names
+	# each building node after its id. Same ownership rule as the rigs above.
+	#
+	# Only when rain is asked for: a dry preset builds nothing, so every dry
+	# level's applied scene is unchanged by this block. A game that switches
+	# a dry level to rain at runtime has no colliders and rains indoors.
+	var rain_drops := 0
+	var rain_colliders := 0
+	var rain_msg := "preset has no rain"
+	var rain_ok := true
+	var rain_asked := false
+	var weather: Object = null
+	if lux.has_method("get_current_preset"):
+		var cur_p: Object = lux.get_current_preset()
+		if cur_p != null:
+			weather = cur_p.get("weather")
+	if weather != null and bool(weather.get("rain_enabled")):
+		rain_asked = true
+		if lux.has_method("get_rain_drops"):
+			rain_drops = int(lux.get_rain_drops())
+		var coll_script: GDScript = load("res://addons/lux/runtime/lux_rain_collision.gd")
+		if coll_script != null and coll_script.has_method("build") and scene is Node3D:
+			var rres: Dictionary = coll_script.build(scene, weather, "^b\\d+$", 0.0)
+			rain_ok = bool(rres.get("ok", false))
+			rain_colliders = int(rres.get("boxes", 0))
+			rain_msg = String(rres.get("msg", ""))
+			var rcontainer: Node = scene.get_node_or_null(NodePath("LuxRainColliders"))
+			if rcontainer != null:
+				_own_recursive(rcontainer, scene)
+		else:
+			rain_ok = false
+			rain_msg = "lux addon has no LuxRainCollision.build (Lux < 0.35.0)"
+		print("[lux] rain: %d drop(s); %s" % [rain_drops, rain_msg])
+		await process_frame
+
 	# Save the applied presentation scene.
 	var applied := PackedScene.new()
 	if applied.pack(scene) != OK:
@@ -194,7 +237,9 @@ func _initialize() -> void:
 		"fixture_lights": fixture_count, "fixture_msg": fixture_msg,
 		"daylight_lights": daylight_count,
 		"daylight_anchors_in_manifest": daylight_in_manifest,
-		"daylight_msg": daylight_msg}
+		"daylight_msg": daylight_msg,
+		"rain_asked": rain_asked, "rain_drops": rain_drops,
+		"rain_colliders": rain_colliders, "rain_msg": rain_msg}
 	_write_json(out_dir + "/lux.quality.json", quality)
 	var issues := []
 	# The manifest asked for daylight and none was made -- or could not be
@@ -203,6 +248,13 @@ func _initialize() -> void:
 		issues.append({"code": "LUX_NO_DAYLIGHT", "severity": "moderate",
 			"category": "presentation",
 			"message": "window anchors did not become light: %s" % daylight_msg})
+	# Rain was asked for and the buildings are not covered, or no rain was
+	# built at all. Moderate: the level ships, and it rains indoors or not at
+	# all, which a person walking it will see and nothing else will.
+	if rain_asked and (not rain_ok or rain_drops == 0):
+		issues.append({"code": "LUX_RAIN_NOT_CONTAINED", "severity": "moderate",
+			"category": "presentation",
+			"message": "preset asks for rain: %d drop(s); %s" % [rain_drops, rain_msg]})
 	if not preset_known:
 		issues.append({"code": "LUX_PRESET_UNKNOWN", "severity": "moderate",
 			"category": "presentation",
