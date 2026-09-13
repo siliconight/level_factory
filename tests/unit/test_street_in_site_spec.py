@@ -94,3 +94,32 @@ def test_the_written_spec_carries_the_road_and_the_spurs(tmp_path):
     spurs = [x for x in spec["paths"] if "a" in x]
     assert len(chain) == 2 and len(spurs) == 3
     assert all(s["b"][1] == spec["roads"][0]["a"][1] for s in spurs)
+
+
+def test_the_buildings_meet_the_street_instead_of_standing_back_from_it():
+    """The walker's art direction, point 4: commercial Delco grew out of
+    ROADS, buildings close to the road with parking beside or behind.
+
+    `y_road` used to come from the PLATE's own south edge, and the plate is
+    sized by the building row and by whatever shape the brief asked for, so
+    the distance from a front door to the kerb was a residue rather than a
+    decision. Measured on cold run 9041's own row: 21.5 m of empty ground
+    between a bank's south face and its sidewalk.
+    """
+    from apps.cli.commands import (_street_for, ROAD_WIDTH, SIDEWALK_WIDTH,
+                                   ROAD_MARGIN, FRONTAGE)
+    # cold run 9041's row, and a plate far larger than the street needs
+    buildings = [{"at": [-54, 10], "rot": 90}, {"at": [5, 0], "rot": 0},
+                 {"at": [49, -10], "rot": 270}]
+    footprints = [(40, 30), (36, 28), (30, 24)]
+    roads, spurs, span_x, span_y = _street_for(buildings, footprints, 179, 99)
+    south = min(
+        b["at"][1] - (f[0] if int(b["rot"]) % 180 == 90 else f[1]) / 2.0
+        for b, f in zip(buildings, footprints))
+    y_road = roads[0]["a"][1]
+    walk_edge = y_road + ROAD_WIDTH / 2.0 + SIDEWALK_WIDTH
+    assert abs((south - walk_edge) - FRONTAGE) < 1e-9, (south, walk_edge)
+    # and the plate still holds the road's far side
+    assert -span_y / 2.0 <= y_road - ROAD_WIDTH / 2.0 - SIDEWALK_WIDTH - ROAD_MARGIN
+    # a spur from each face still reaches the carriageway
+    assert len(spurs) == len(buildings)

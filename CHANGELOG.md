@@ -1,3 +1,31 @@
+## [0.81.0] - the buildings meet the street
+
+The walker's art direction, point 4
+(`docs/DELCO_1997_ART_DIRECTION.md`): commercial Delaware County "grew out
+of roads, not plazas" -- buildings sit close to the road with parking beside
+or behind them. Every cold package to date laid freestanding shells with a
+field of empty plate between them and the kerb. Measured on cold run 9041:
+the southernmost building face is at y = -10, the road's near sidewalk ends
+at y = -31.5, so 21.5 m of nothing separated a bank's front door from the
+pavement it opens onto.
+
+THE CAUSE WAS AN ORDERING MISTAKE, NOT A NUMBER. `y_road` was derived from
+the PLATE -- `-span_y/2 + ROAD_MARGIN + SIDEWALK_WIDTH + ROAD_WIDTH/2` --
+and the plate is sized by the building row plus whatever the shape asked
+for, so the road was pinned to the south edge of however much ground there
+happened to be and the gap was a residue nobody chose. The `need_half`
+above it only ever GREW the plate when it was too small; it never pulled
+the road in when the plate was too big.
+
+Now the road is derived from the face and the plate from the road:
+`y_road = south - FRONTAGE - SIDEWALK_WIDTH - ROAD_WIDTH / 2`. `FRONTAGE`
+is `ROAD_MARGIN`, the same 2 m of plate this module already keeps between a
+sidewalk and anything else -- a stoop and a meter strip, not a yard. On
+9041's own row the face-to-sidewalk distance goes from 21.5 m to 2.0 m.
+
+Buildings shallower than the deepest one still stand back by the
+difference, which is what a real corridor does.
+
 ## [0.80.1] - the signs travel with the package
 
 Cold run 9039 built a street whose every shop had a sign -- FIRST DELCO

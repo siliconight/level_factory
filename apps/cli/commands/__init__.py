@@ -1035,6 +1035,13 @@ SIDEWALK_WIDTH = 3.0
 ROAD_MARGIN = 2.0
 SPUR_WIDTH = 4.0
 ROAD_BAND = ROAD_MARGIN + SIDEWALK_WIDTH + ROAD_WIDTH + SIDEWALK_WIDTH + ROAD_MARGIN
+#: How much plate stands between a building's front face and its sidewalk.
+#: The walker's art direction (docs/DELCO_1997_ART_DIRECTION.md point 4):
+#: commercial Delco grew out of ROADS, buildings close to the road with
+#: parking beside or behind. 2.0 m is `ROAD_MARGIN`, the same margin this
+#: module already keeps between a sidewalk and anything else, and it is a
+#: stoop and a meter strip rather than a yard.
+FRONTAGE = ROAD_MARGIN
 
 
 def _street_for(buildings, footprints, span_x, span_y):
@@ -1073,10 +1080,17 @@ def _street_for(buildings, footprints, span_x, span_y):
         faces.append((x, face))
         edges.append((x - float(ext_x) / 2.0, x + float(ext_x) / 2.0))
         south = face if south is None else min(south, face)
-    need_half = -south + ROAD_BAND
+    # THE ROAD IS DERIVED FROM THE FACE, AND THE PLATE FROM THE ROAD. It used
+    # to be the other way round -- `y_road` from `-span_y/2`, the plate's own
+    # south edge -- and since the plate is sized by the building row and by
+    # whatever the shape asked for, the distance between a front door and the
+    # kerb was a residue rather than a decision. Measured on cold run 9041:
+    # 21.5 m of empty ground between a bank's south face and its sidewalk.
+    y_road = south - FRONTAGE - SIDEWALK_WIDTH - ROAD_WIDTH / 2.0
+    # the plate must still hold the road's far sidewalk and its margin
+    need_half = -(y_road - ROAD_WIDTH / 2.0 - SIDEWALK_WIDTH - ROAD_MARGIN)
     if span_y / 2.0 < need_half:
         span_y = int(_m.ceil(2.0 * need_half))
-    y_road = -span_y / 2.0 + ROAD_MARGIN + SIDEWALK_WIDTH + ROAD_WIDTH / 2.0
     # the cross street's line: the widest gap that holds a band, else west
     edges.sort()
     x_cross, widest = None, ROAD_BAND
