@@ -1,3 +1,31 @@
+## [0.82.0] - a door path ends at the sidewalk, and no path crosses a street mid-block
+
+The walker, walking cold run 9048, asked why the asphalt "has a horizontal
+path between 2 areas that dont look like a crosswalk", and found stop signs
+in pairs facing each other across a footpath. Both were paths this module
+hands Lot, measured on cold run 9049's site spec.
+
+THE SPURS ran from a metre off each building's south face to the road's
+centre line, 4 m wide, so Lot would cut the kerb there. Lot treats any path
+that crosses a road as a crossing: both kerbs cut, a crosswalk with stop
+bars, and, because 4 m is at least Lot's `DRIVEWAY_WIDTH`, a stop sign each
+side as a parking-lot exit. Every door got a mid-block crossing. A spur now
+ends inside the back of the sidewalk (`SPUR_INTO_WALK`, 15% of the walk's
+depth), overlapping it with no seam and never reaching the kerb line.
+Crossings belong at junctions (`docs/STREET_RULES.md` in the factory root).
+
+THE CHAIN joined each building to the next centre to centre, 8 m wide. On
+9049, b0 (-62, 10) to b1 (0, 0) crossed the cross street at x = -35.5: an
+8 m sidewalk-skinned band across the side street. A chain segment that
+crosses a road is no longer emitted (`_segment_crosses_road`); buildings
+either side of a street are joined by that street's junction crossings.
+Lot reports an unjoined building as a warning, not a gate failure, so the
+cold run's walktest is what confirms the crew still reaches every building.
+
+The walk preview's debug overlay (`assets/godot/debug_overlay.gd`) removes
+itself in a release build (`OS.is_debug_build()`). The walker's rule: F3
+toggles it, it is for debug builds only, and player exports never carry it.
+
 ## [0.81.0] - the buildings meet the street
 
 The walker's art direction, point 4

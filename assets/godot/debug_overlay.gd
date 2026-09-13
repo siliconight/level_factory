@@ -31,6 +31,11 @@ extends Node
 ##
 ## F3 toggles it. It is on by default, because an overlay you have to remember
 ## to enable is one that is off in the screenshot you needed it in.
+##
+## DEBUG BUILDS ONLY. A release export of a project that carries this script
+## removes the overlay on its first frame: players never see it, even when a
+## walk project is exported as-is. Player exports are not meant to ship the
+## script at all; this is the guard for when one does.
 
 const RAY_LENGTH := 60.0
 const _VARIANT := "_a"
@@ -40,6 +45,11 @@ var _shown := true
 
 
 func _ready() -> void:
+	if not OS.is_debug_build():
+		set_process(false)
+		set_process_input(false)
+		queue_free()
+		return
 	var layer := CanvasLayer.new()
 	layer.layer = 128
 	add_child(layer)
@@ -72,7 +82,7 @@ func _ready() -> void:
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		var key := event as InputEventKey
-		if key.keycode == KEY_F3:
+		if key.keycode == KEY_F3 and _label != null:
 			_shown = not _shown
 			_label.get_parent().visible = _shown
 

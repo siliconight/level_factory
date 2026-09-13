@@ -32,7 +32,12 @@ def test_the_road_runs_south_of_every_building_and_spurs_reach_it():
     assert len(spurs) == 3
     for s, b in zip(spurs, buildings):
         assert s["a"][0] == s["b"][0] == b["at"][0]
-        assert s["b"][1] == y and s["a"][1] < b["at"][1]
+        # a door path ends inside the back of the sidewalk, never at the
+        # kerb: a spur that reached the road was cut, painted and signed
+        # like a street crossing (the walker, cold run 9048)
+        walk_back = y + cmds.ROAD_WIDTH / 2 + cmds.SIDEWALK_WIDTH
+        assert walk_back - cmds.SIDEWALK_WIDTH / 2 < s["b"][1] < walk_back
+        assert s["a"][1] < b["at"][1]
         assert s["width"] == cmds.SPUR_WIDTH
 
 
@@ -92,8 +97,23 @@ def test_the_written_spec_carries_the_road_and_the_spurs(tmp_path):
     assert spec["ground"]["size_x"] >= 2 * abs(spec["roads"][1]["a"][0]) + cmds.ROAD_BAND
     chain = [x for x in spec["paths"] if "from" in x]
     spurs = [x for x in spec["paths"] if "a" in x]
-    assert len(chain) == 2 and len(spurs) == 3
-    assert all(s["b"][1] == spec["roads"][0]["a"][1] for s in spurs)
+    assert len(spurs) == 3
+    road_y = spec["roads"][0]["a"][1]
+    kerb = road_y + cmds.ROAD_WIDTH / 2
+    assert all(s["b"][1] > kerb for s in spurs)
+    at = {b["id"]: b["at"] for b in spec["buildings"]}
+    for c in chain:
+        assert not cmds._segment_crosses_road(at[c["from"]], at[c["to"]], spec["roads"])
+
+
+def test_a_chain_segment_that_would_cross_a_street_is_not_emitted():
+    """Cold run 9049: b0 (-62, 10) to b1 (0, 0) crossed the cross street at
+    x = -35.5 mid-block, an 8 m sidewalk band laid across the side street
+    ("a horizontal path between 2 areas that dont look like a crosswalk")."""
+    cross = {"a": [-35.5, -23.15], "b": [-35.5, 35.5], "width": 10.0}
+    road = {"a": [-90.5, -23.15], "b": [90.5, -23.15], "width": 10.0}
+    assert cmds._segment_crosses_road([-62, 10], [0, 0], [road, cross])
+    assert not cmds._segment_crosses_road([0, 0], [59, 10], [road, cross])
 
 
 def test_the_buildings_meet_the_street_instead_of_standing_back_from_it():
@@ -121,5 +141,6 @@ def test_the_buildings_meet_the_street_instead_of_standing_back_from_it():
     assert abs((south - walk_edge) - FRONTAGE) < 1e-9, (south, walk_edge)
     # and the plate still holds the road's far side
     assert -span_y / 2.0 <= y_road - ROAD_WIDTH / 2.0 - SIDEWALK_WIDTH - ROAD_MARGIN
-    # a spur from each face still reaches the carriageway
+    # a spur from each face reaches its sidewalk, and stops there
     assert len(spurs) == len(buildings)
+    assert all(walk_edge - SIDEWALK_WIDTH / 2 < s["b"][1] < walk_edge for s in spurs)

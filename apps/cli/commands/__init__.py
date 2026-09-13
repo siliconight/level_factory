@@ -1034,6 +1034,12 @@ ROAD_WIDTH = 10.0
 SIDEWALK_WIDTH = 3.0
 ROAD_MARGIN = 2.0
 SPUR_WIDTH = 4.0
+#: How far into the sidewalk a door spur runs, as a fraction of the walk's
+#: depth from its BACK edge. Deep enough that the path and the walk overlap
+#: with no seam; short of the walk's centre line, which is where Lot's
+#: `kerb_crossings` tests a path for a crossing -- a spur that reached it
+#: would be cut, painted and signed like a street crossing again.
+SPUR_INTO_WALK = 0.15
 ROAD_BAND = ROAD_MARGIN + SIDEWALK_WIDTH + ROAD_WIDTH + SIDEWALK_WIDTH + ROAD_MARGIN
 #: How much plate stands between a building's front face and its sidewalk.
 #: The walker's art direction (docs/DELCO_1997_ART_DIRECTION.md point 4):
@@ -1042,6 +1048,17 @@ ROAD_BAND = ROAD_MARGIN + SIDEWALK_WIDTH + ROAD_WIDTH + SIDEWALK_WIDTH + ROAD_MA
 #: module already keeps between a sidewalk and anything else, and it is a
 #: stoop and a meter strip rather than a yard.
 FRONTAGE = ROAD_MARGIN
+
+
+def _segment_crosses_road(p, q, roads):
+    """Does the straight segment p->q cross any road's centre line?"""
+    def _cross(a, b, c, d):
+        def orient(o, u, v):
+            return (u[0] - o[0]) * (v[1] - o[1]) - (u[1] - o[1]) * (v[0] - o[0])
+        d1, d2 = orient(c, d, a), orient(c, d, b)
+        d3, d4 = orient(a, b, c), orient(a, b, d)
+        return (d1 * d2 < 0.0) and (d3 * d4 < 0.0)
+    return any(_cross(p, q, r["a"], r["b"]) for r in roads or [])
 
 
 def _street_for(buildings, footprints, span_x, span_y):
@@ -1106,8 +1123,15 @@ def _street_for(buildings, footprints, span_x, span_y):
             "width": ROAD_WIDTH, "sidewalk": SIDEWALK_WIDTH}
     cross = {"a": [x_cross, y_road], "b": [x_cross, span_y / 2.0 - ROAD_MARGIN],
              "width": ROAD_WIDTH, "sidewalk": SIDEWALK_WIDTH}
-    spurs = [{"a": [x, face - 1.0], "b": [x, y_road], "width": SPUR_WIDTH}
-             for x, face in faces if face - 1.0 - y_road > 1.0]
+    # A DOOR PATH ENDS AT THE SIDEWALK. It ran to the road's centre line so
+    # Lot would cut the kerb there, and Lot duly treated every door as a
+    # street crossing: both kerbs dropped, a crosswalk with stop bars, and a
+    # stop sign each side (the walker, cold run 9048). A door opens onto the
+    # sidewalk; crossings belong at junctions (docs/STREET_RULES.md).
+    walk_back = y_road + ROAD_WIDTH / 2.0 + SIDEWALK_WIDTH
+    spur_end = walk_back - SIDEWALK_WIDTH * SPUR_INTO_WALK
+    spurs = [{"a": [x, face - 1.0], "b": [x, spur_end], "width": SPUR_WIDTH}
+             for x, face in faces if face - 1.0 - spur_end > 0.3]
     return [road, cross], spurs, span_x, span_y
 
 
@@ -1503,8 +1527,18 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         # path fills the gap the layout already made for it. Two sides of
         # one contract asking for the same thing, the way CLEARANCE and
         # Lot's own CLEARANCE already do.
+        #
+        # NO CHAIN SEGMENT CROSSES A STREET. The chain runs centre to centre,
+        # and on cold run 9049 b0 -> b1 cut straight across the cross street
+        # mid-block as an 8 m sidewalk-skinned band (the walker: "a horizontal
+        # path between 2 areas that dont look like a crosswalk"). Buildings on
+        # either side of a street are joined by that street's junction
+        # crossings instead.
         "paths": [{"from": f"b{i}", "to": f"b{i + 1}", "width": STREET}
-                  for i in range(count - 1)] + spurs,
+                  for i in range(count - 1)
+                  if not _segment_crosses_road(buildings[i]["at"],
+                                               buildings[i + 1]["at"],
+                                               roads)] + spurs,
         "roads": roads,
         # Closes the site. Lot lays four perim_ walls around the ground
         # rect; without them a walker can leave the plate entirely. Three
