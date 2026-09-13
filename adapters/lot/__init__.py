@@ -143,7 +143,13 @@ class LotAdapter(BaseAdapter):
             # re-themed ground is a different site. Fold the pack manifest
             # and every map it names; a pack that is not there yet folds
             # nothing, as a building's GLB does.
-            for pack_dir in (doc.get("ground_skins") or {}).values():
+            # ... and the shop signs the spec names (roadmap 153), by the
+            # same rule: a street whose GOOSE MART became a PIZZA KING is a
+            # different site, and a fingerprint that could not tell would
+            # serve the old one from the cache.
+            packs = list((doc.get("ground_skins") or {}).values())
+            packs += list((doc.get("signs") or {}).values())
+            for pack_dir in packs:
                 pd = Path(str(pack_dir))
                 if not pd.is_dir():
                     continue

@@ -892,8 +892,14 @@ def export_mission(
         # the assembly, `res://skins/<map>` from Lux's applied scene, both
         # of which resolve to this one directory at the package root.
         # ... and the cover modules Lot 0.59.2 copies to `cover/` (roadmap
-        # 22), for the same reason and by the same rule.
-        for sib in ("skins", "cover"):
+        # 22), and the shop signs Lot 0.69.0 copies to `signs/` (roadmap
+        # 153), for the same reason and by the same rule. THE LIST IS THE
+        # CONTRACT: cold run 9039 shipped a street whose every sign was
+        # named by the scene and whose maps were in none of these, and the
+        # closure gate refused the package with six unresolved references
+        # -- which is the gate working, and the reason a new sibling
+        # directory in Lot means a line here.
+        for sib in ("skins", "cover", "signs"):
             src = Path(themed_site_dir) / sib
             if src.is_dir():
                 shutil.copytree(str(src), str(export_dir / sib),

@@ -1,3 +1,18 @@
+## [0.80.1] - the signs travel with the package
+
+Cold run 9039 built a street whose every shop had a sign -- FIRST DELCO
+BANK, APEX MARKETS, STATE WINE + SPIRITS -- and the export refused it:
+`EXPORT_CLOSURE_BROKEN`, six unresolved references, the scene naming
+`signs/sign_*.png` that were in no exported directory. The closure gate
+working exactly as built, one stage after the mistake.
+
+`signs` joins `skins` and `cover` in the siblings the export copies to the
+package root, and that list is the contract: a new sibling directory in
+Lot means a line there. The Lot adapter also folds each sign pack into the
+job's fingerprint, next to the ground skins -- a street whose GOOSE MART
+became a PIZZA KING is a different site, and a fingerprint that could not
+tell would serve the old one from the cache.
+
 ## [0.80.0] - every shop gets a sign
 
 Roadmap 153, the piece between Pixelcoat and Lot. The pixelcoat job now
