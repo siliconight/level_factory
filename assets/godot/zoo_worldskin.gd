@@ -52,6 +52,11 @@ const STAIR_KIND: String = "concrete"
 
 func _post_import(scene: Node) -> Object:
 	var base: String = get_source_file().get_file()
+	# EVERY GLB: a far wall shimmers into moire without a mip chain, and props
+	# (a car, a container) are seen at distance as much as kit walls are.
+	var mipped: int = _mip_chains(scene, {})
+	if mipped > 0:
+		print("[worldskin] %s  %d texture(s) given a mip chain" % [base, mipped])
 	# EVERY GLB, kit or not: the glass is in props (teller line, bus shelter,
 	# car) as much as in windows.
 	var glass: int = _glass_casts_no_shadow(scene, {})
@@ -79,6 +84,63 @@ func _post_import(scene: Node) -> Object:
 	print("[worldskin] %s  %d material(s) world-projected, %d without a UV density"
 		% [base, changed, no_density])
 	return scene
+
+
+## Every texture on an imported material gets a mip chain.
+##
+## THE KIT'S TEXTURES HAD NONE. The export pins `gltf/embedded_image_handling=3`
+## (Embed as Uncompressed -- `packages/exporting/export.py`, chosen for ship size),
+## and an embedded uncompressed image keeps no mipmaps. Measured by headless
+## readback on cold run 9051's walk copy: 138 of 138 metal-skin surfaces ask
+## for TEXTURE_FILTER_NEAREST_WITH_MIPMAPS and carry `get_mipmap_count() == 0`,
+## so a distant pixel samples one full-resolution texel among several of a
+## corrugated wall's 5 cm ribs, and the ribs and the pixel grid beat into moire
+## bands (the walker, cold run 9052: the far end of a corrugated wall; roadmap
+## 89 is the same defect reached through a different setting).
+##
+## MEASURED as an A/B on two copies of that walk copy, same station, the only
+## difference this pass: mean |Laplacian| over the corrugated wall 22.32 -> 12.58
+## and the arcs gone in the frame; a grazing station elsewhere 9.40 -> 9.40. The
+## filter stays NEAREST, so a texture up close is exactly as Pixelcoat drew it.
+## Normal maps renormalise their mips. Cost: the import cache, about a third
+## more texture memory; the shipped package is unchanged.
+func _mip_chains(n: Node, seen: Dictionary) -> int:
+	var count: int = 0
+	var mi: MeshInstance3D = n as MeshInstance3D
+	if mi != null and mi.mesh != null:
+		for i in range(mi.mesh.get_surface_count()):
+			var bm: BaseMaterial3D = mi.mesh.surface_get_material(i) as BaseMaterial3D
+			if bm == null or seen.has(bm.get_instance_id()):
+				continue
+			seen[bm.get_instance_id()] = true
+			var a: Texture2D = _with_mips(bm.albedo_texture, false)
+			if a != bm.albedo_texture:
+				bm.albedo_texture = a
+				count += 1
+			var nm: Texture2D = _with_mips(bm.normal_texture, true)
+			if nm != bm.normal_texture:
+				bm.normal_texture = nm
+				count += 1
+			var r: Texture2D = _with_mips(bm.roughness_texture, false)
+			if r != bm.roughness_texture:
+				bm.roughness_texture = r
+				count += 1
+	for c in n.get_children():
+		count += _mip_chains(c, seen)
+	return count
+
+
+func _with_mips(tex: Texture2D, normal_map: bool) -> Texture2D:
+	if tex == null:
+		return tex
+	var img: Image = tex.get_image()
+	if img == null or img.has_mipmaps():
+		return tex
+	img = img.duplicate()
+	if img.is_compressed():
+		img.decompress()
+	img.generate_mipmaps(normal_map)
+	return ImageTexture.create_from_image(img)
 
 
 ## Blended glass stops casting an opaque shadow.

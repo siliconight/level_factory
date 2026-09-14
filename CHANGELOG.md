@@ -1,3 +1,22 @@
+## [0.85.0] - every imported texture gets a mip chain
+
+The walker, cold run 9052: circular bands at the far end of a corrugated steel
+wall. MEASURED by headless readback on cold run 9051's walk copy: 138 of 138
+metal-skin surfaces ask for `TEXTURE_FILTER_NEAREST_WITH_MIPMAPS` and carry no
+mipmaps. The export pins `gltf/embedded_image_handling=3` (embed as
+uncompressed, chosen for ship size), and an embedded uncompressed image keeps
+none -- so a distant pixel samples one full-resolution texel among a
+corrugated wall's 5 cm ribs, and ribs and pixel grid beat into moire. Roadmap
+89 was the same defect reached through a different setting.
+
+`zoo_worldskin.gd` now gives every material texture without a mip chain one
+at import (albedo, roughness, and normal maps renormalised), for every GLB.
+The filter stays NEAREST, so a texture up close is unchanged. A/B on two
+copies of 9051's walk copy, same station, differing only in this pass: mean
+|Laplacian| over the corrugated wall 22.32 -> 12.58, the arcs gone from the
+frame; a grazing station elsewhere 9.40 -> 9.40. Cost is the import cache,
+about a third more texture memory; the shipped package is unchanged.
+
 ## [0.84.0] - glass lets the light in, not just the eye
 
 Pixelcoat 0.40.0 makes delco_1997's glass see-through, and a window you can
