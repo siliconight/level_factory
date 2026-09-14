@@ -1390,7 +1390,15 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         # that gets worked around. Both commands are named so the next line
         # after this one is the fix.
         stale, worst_days = building_library.stale_shells(library)
-        if stale:
+        if stale is None:
+            # the rule is there and could not be read: say so, because a
+            # silent guard reads as a fresh library (cold run 9053)
+            print(f"[site] FRESHNESS UNKNOWN: could not read GEOMETRY_SOURCES "
+                  f"from {Path(library).parent / 'build_freshness.py'}; the "
+                  f"library's age is unchecked.")
+            print(f"[site]   check it:   python build_freshness.py --list"
+                  f"   (in Deli Counter)")
+        elif stale:
             print(f"[site] STALE LIBRARY: {len(stale)} shell(s) in {library} "
                   f"are older than the code that builds them (worst "
                   f"{worst_days:.1f} days). Every gate below is grading "

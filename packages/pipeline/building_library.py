@@ -212,14 +212,14 @@ def index(build_dir) -> tuple[list[dict], list[dict], list[dict]]:
     return complete, incomplete, non_source
 
 
-def _geometry_sources(src: Path) -> list[Path]:
+def _geometry_sources(src: Path) -> list[Path] | None:
     """The files `build_freshness.py` compares against, READ from it.
 
     That tool owns the freshness rule and names the geometry modules in a
     `GEOMETRY_SOURCES` tuple. Copying the list here would be two copies of one
     rule in two repos -- the objection `Building._cap_thick` states as "one
     rule, one place, because both wall emitters need it and two copies drift".
-    So it is parsed out of the assignment, with no import and no subprocess
+    So it is read out of the assignment, with no import and no subprocess
     across the boundary.
 
     Comparing against every `*.py` instead is not close enough. Measured
@@ -228,32 +228,75 @@ def _geometry_sources(src: Path) -> list[Path]:
     rule said 7.2 days behind, because `check.py` had just been edited and
     `check.py` builds no geometry.
 
-    Returns [] when the tool or the tuple cannot be found. A check that cries
-    stale because it could not locate the rule gets ignored, and one that
-    reports fresh for the same reason is worse -- both are worse than silence.
+    REFUTED, 2026-09-14: "a check that cannot find the rule should be silent".
+    This used to cut the tuple out with a regex matching "(" then anything
+    but ")" then ")", and return []
+    on any failure. Deli Counter 0.116.0 wrote a comment inside the tuple --
+    `# the light manifest is a build output (0.116.0)` -- whose `)` ended the
+    match, `literal_eval` failed, and this guard said nothing on every run from
+    then on. Cold run 9053 composed 130 stale shells of 132 under it, and the
+    placement gate refused the export. It now parses the module with `ast`,
+    where a comment is not text, and distinguishes the two absences:
+
+      * ``[]``   -- no `build_freshness.py` beside the build: no rule to apply;
+      * ``None`` -- the tool is there and its rule could not be read: the
+        caller must say so, because silence here reads as "fresh".
     """
     tool = src / "build_freshness.py"
     if not tool.is_file():
         return []
     try:
-        text = tool.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return []
-    m = re.search(r"^GEOMETRY_SOURCES\s*=\s*(\([^)]*\))", text, re.M)
-    if not m:
-        return []
-    try:
         import ast
-        names = ast.literal_eval(m.group(1))
-    except (ValueError, SyntaxError):
-        return []
+        tree = ast.parse(tool.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, SyntaxError, ValueError):
+        return None
+    names = None
+    for node in tree.body:
+        targets = (node.targets if isinstance(node, ast.Assign)
+                   else [node.target] if isinstance(node, ast.AnnAssign) else [])
+        if any(isinstance(tg, ast.Name) and tg.id == "GEOMETRY_SOURCES"
+               for tg in targets):
+            try:
+                names = ast.literal_eval(node.value)
+            except (ValueError, SyntaxError):
+                return None
+    if names is None:
+        return None
     if isinstance(names, str):
         names = (names,)
-    return [src / n for n in names if isinstance(n, str) and (src / n).is_file()]
+    found = [src / n for n in names if isinstance(n, str) and (src / n).is_file()]
+    return found or None
 
 
-def stale_shells(build_dir) -> tuple[list[str], float]:
-    """``(names, worst_gap_days)`` for shells older than the code building them.
+def _manifest_mismatch(glb: Path) -> bool:
+    """Does the manifest beside ``glb`` record other bytes for it?
+
+    Deli Counter 0.131.1 writes `outputs_sha256_16` into the tracked manifest
+    of every build. `build/*.glb` is gitignored, so a checkout moves the
+    manifest to a new build while the old shell stays on disk; mtime sees that
+    only when a geometry source moved too. A manifest without the field (built
+    before 0.131.1) is not judged on it."""
+    import hashlib
+    import json
+    mpath = glb.with_name(glb.stem + ".manifest.json")
+    try:
+        man = json.loads(mpath.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    want = (man.get("outputs_sha256_16") or {}).get(glb.name)
+    if not want:
+        return False
+    h = hashlib.sha256()
+    with glb.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()[:16] != want
+
+
+def stale_shells(build_dir) -> tuple[list[str] | None, float]:
+    """``(names, worst_gap_days)`` for shells older than the code building them
+    or not the build their manifest records; ``(None, 0.0)`` when Deli
+    Counter's rule is present and could not be read (see `_geometry_sources`).
 
     THE CONSUMER'S GUARD, NOT THE AUTHORITY. `deli_counter/build_freshness.py`
     owns this question, was written for it on 2026-08-05 after `nav_gate --all`
@@ -264,29 +307,33 @@ def stale_shells(build_dir) -> tuple[list[str], float]:
 
     Deli Counter's sources sit one directory up from its `build/`, which is the
     same relationship `build_freshness.py` assumes. If that stops being true
-    this returns nothing rather than guessing, because a freshness check that
-    reports "fresh" because it looked in the wrong place is worse than none.
+    this returns nothing rather than guessing.
 
     mtime, with the caveat the owning tool records: a fresh clone or a checkout
     that rewrites sources marks everything stale, asking for a rebuild that was
     not needed -- the safe direction. The unsafe direction needs a source
     written with an OLDER timestamp than the build, which git does not do in
-    normal use.
+    normal use -- or an untracked shell left behind by a checkout, which is
+    what `_manifest_mismatch` answers.
     """
     build = Path(build_dir)
     src = build.parent
     if not build.is_dir() or not src.is_dir():
         return [], 0.0
     sources = _geometry_sources(src)
+    if sources is None:
+        return None, 0.0
     if not sources:
         return [], 0.0
     try:
         newest = max((p.stat().st_mtime for p in sources), default=0.0)
         if not newest:
             return [], 0.0
-        gaps = [(p.name, newest - p.stat().st_mtime)
-                for p in sorted(build.glob("*.glb"))
-                if p.stat().st_mtime < newest]
+        gaps = []
+        for p in sorted(build.glob("*.glb")):
+            gap = newest - p.stat().st_mtime
+            if gap > 0 or _manifest_mismatch(p):
+                gaps.append((p.name, max(gap, 0.0)))
     except OSError:
         return [], 0.0
     worst = max((g for _n, g in gaps), default=0.0) / 86400.0
