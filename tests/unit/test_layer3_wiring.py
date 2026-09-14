@@ -61,9 +61,11 @@ def test_the_dressing_joins_clutter_surfaces_and_the_themed_assembly():
     assert set(dress.depends_on) == {jobs["zoo_clutter_build"].job_id,
                                      jobs["lot_site_surfaces"].job_id,
                                      jobs["themed_site_assemble"].job_id}
-    # Clutter and surfaces need only the locked candidate's assembly.
+    # Surfaces need only the locked candidate's assembly; the clutter build
+    # also takes the skin library (0.86.0), or every species is flat colour.
     lot_jid = f"{_SEL.split('.candidate')[0]}.lot_assemble.candidate.seed_1997"
-    assert jobs["zoo_clutter_build"].depends_on == [lot_jid]
+    assert jobs["zoo_clutter_build"].depends_on == [lot_jid,
+                                                    jobs["pixelcoat_build"].job_id]
     assert jobs["lot_site_surfaces"].depends_on == [lot_jid]
     assert dress.expected_outputs == ["m1.surface_dressing.json"]
     assert jobs["zoo_clutter_build"].expected_outputs == ["shapes.metrics.json"]

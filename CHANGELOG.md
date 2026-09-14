@@ -1,3 +1,80 @@
+## [0.86.0] - a pebble is a stone, and a car wears its dirt
+
+Two reports from walk 9052_rain that were one defect and then two more. Zoo,
+rebuilding the cargo container: baking rib shading into vertex colour changed
+nothing in the frame. The walker: flat white lumps on the sidewalks, and white
+boxes at the foot of the stop signs.
+
+**What was there, measured before anything moved.** The GLBs carry Zoo's
+COLOR_0 (greyscale wear, and the delco ambient tint on the kit), and Zoo says
+to draw it with "Vertex Color > Use as Albedo". Headless readback of every
+imported surface on a copy of the walk:
+
+| family | surfaces with COLOR_0 | non-white | drawing it |
+| --- | --- | --- | --- |
+| cover props (`cover/`) | 181 | 75 | 0 |
+| interior props (`art/zoo/prop_*`) | 327 | 327 | 0 |
+| fixtures | 153 | 91 | 0 |
+| ceiling / floor / roof panels | 232 | 232 | 0 |
+| Patina edge strips (`*_dressing.glb`) | 659 | 659 | 0 |
+| kit modules (world-projected) | 98 | 98 | 0 |
+| clutter (`dressing/*.res`) | 4 | 4 | 0 |
+
+Godot 4.7's glTF importer never sets the flag, so none of it was drawn.
+
+**`zoo_worldskin.gd` turns it on for objects.** Every GLB that is not a tile:
+not the kit, not `ceiling_` / `floor_` / `roof_`, not `*_dressing.glb`. Per
+material, over every surface wearing it: on when a vertex is darker than 0.99,
+off when all are white (the multiply is 1.0) or when a surface wearing it has
+no colour array. Tiles stay off because Zoo computes wear per module, and
+turned on over the kit it multiplied the 2 m module signature 3.8x (Zoo
+0.54.0, roadmap 84); the panels and edge strips are built the same way and
+were not measured either way. Readback after, same walk: cover 75 of 75
+non-white surfaces drawing, interior props 327 of 327, fixtures 91 of 91,
+panels 0 of 232, edge strips 0 of 659, kit 0 of 98, and no all-white surface
+touched.
+
+A/B on two copies of the walk, differing only in the two scripts (GL
+Compatibility, RTX 2060, rain preset, fixed stations; mean luma in a box on
+the object): the hydrant at the stop sign 74.0 -> 60.9, the cargo container's
+side 64.4 -> 52.4, a white sedan's fender 81.4 -> 74.1, a blue hatchback
+67.8 -> 64.3; the elevations of the kit walls within 0.4 of each other, which
+is the rain. The hydrant is still a grey box -- it is Zoo 0.79.0's placeholder
+species in `metal_painted` grey, and that is Zoo's to change.
+
+**`extract_meshes.gd` does it for the clutter**, which never passes through
+the import script (the extraction runs in a scratch project with none).
+
+**REFUTED, kept: vertex colour did not make the clutter stop being white.**
+Same station, sidewalk band, 90th-percentile luma of the lit tops: a pebble
+197 -> 185 against sidewalk at 155. The lumps are white because Zoo built them
+on its flat path -- `M_Pebble_gravel`, no texture, baseColorFactor 0.56 linear,
+2.5x the delco sidewalk pack's mean albedo of 0.22 -- and it took the flat path
+because the clutter build is the only Zoo build the planner runs without
+`--skins`. Pixelcoat had built `gravel_`, `vegetation_` and `paper_delco_1997`
+in the same run.
+
+**The clutter build now takes the skin library**, with `--theme`, as the kit
+and dressing builds do; the planner makes it depend on the pixelcoat build
+(and a batch on the shared one), and the fingerprint picks up the pack hashes.
+
+**And the textures now ride in the `.res`.** Built with skins, the extracted
+pebble was 11,298 bytes: `FLAG_BUNDLE_RESOURCES` does not bundle an imported
+texture, which has a path of its own in the scratch project's `.godot/imported`
+cache, so a walk loaded it with `Unable to open file: ...ctex` and
+`albedo_texture == null` on 4 of 4 surfaces -- whiter than before. Every
+texture slot is now copied into an ImageTexture with a mip chain first. The
+four `.res` go from 39 KB to 1.35 MB.
+
+With both: pebble tops 150, rubble 136, against sidewalk 155; the pebbles read
+as stones, the weeds green, the rubble as gravel. Litter scrap at Zoo's 0.32
+wear reads as dark flakes, which is what Zoo authored and may want a look.
+
+NOT VERIFIED: the skinned clutter was built by Zoo main (0.83.0) from the same
+cold run's Pixelcoat output and extracted by this script into a copy of the
+walk; no cold run has run the planner change end to end. The panels and edge
+strips were left off on the kit's evidence, not their own.
+
 ## [0.85.0] - every imported texture gets a mip chain
 
 The walker, cold run 9052: circular bands at the far end of a corrugated steel

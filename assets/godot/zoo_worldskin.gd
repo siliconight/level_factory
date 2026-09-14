@@ -49,6 +49,17 @@ const STAIR_PREFIX: String = "stair"
 ## species with its own pack is the later, dearer answer.
 const STAIR_KIND: String = "concrete"
 
+## Families whose module is ONE TILE of a surface that repeats: the kit above,
+## and the panels a floor, ceiling or roof is laid from, and Patina's building
+## dressing (`<building>_dressing.glb`, runs of edge strips and base courses
+## laid end to end). Their vertex colour stays off -- see
+## `_vertex_colour_albedo`.
+const TILED_PREFIXES: Array = ["ceiling_", "floor_", "roof_"]
+const TILED_SUFFIXES: Array = ["_dressing.glb"]
+## A vertex is white when every channel is at least this. Zoo writes an
+## untouched `Wear` corner as exactly 1.0.
+const VERTEX_WHITE: float = 0.99
+
 
 func _post_import(scene: Node) -> Object:
 	var base: String = get_source_file().get_file()
@@ -67,6 +78,14 @@ func _post_import(scene: Node) -> Object:
 	for p in KIT_PREFIXES:
 		if base.begins_with(p):
 			is_kit = true
+	# EVERY GLB THAT IS AN OBJECT RATHER THAN A TILE: a car, a container, a
+	# chair, a lamp. Zoo's wear and form shading ride COLOR_0 and nothing
+	# drew them.
+	if not is_kit and not _is_tiled(base):
+		var vc: Array = _vertex_colour_albedo(scene)
+		if int(vc[0]) + int(vc[1]) + int(vc[2]) > 0:
+			print("[worldskin] %s  %d material(s) draw vertex colour, %d all-white left off, %d with a surface lacking colours left off"
+				% [base, int(vc[0]), int(vc[1]), int(vc[2])])
 	if not is_kit:
 		if base.begins_with(BASE_PREFIX):
 			var n: Array = _skin_stairs(scene, get_source_file().get_base_dir())
@@ -181,6 +200,92 @@ func _glass_casts_no_shadow(n: Node, seen: Dictionary) -> int:
 	for c in n.get_children():
 		changed += _glass_casts_no_shadow(c, seen)
 	return changed
+
+
+## An object's vertex colour multiplies its albedo, as Zoo authored it.
+##
+## Zoo bakes wear, and on some species form shading, into COLOR_0 and says to
+## draw it with "Vertex Color > Use as Albedo" (its README, and
+## `bpylayer/materials.py`). Godot 4.7's glTF importer never sets that flag.
+## MEASURED by headless readback on walk 9052_rain: 0 of 1,650 imported
+## BaseMaterial3D surfaces that carry COLOR_0 draw it -- all 181 cover
+## surfaces among them, every car, container and box truck -- so baking a
+## container's rib shading into vertex colour moved nothing in the frame (Zoo
+## 0.82.0 records it).
+##
+## PER MATERIAL, decided over every surface that wears it. On when some
+## surface under it carries a vertex darker than VERTEX_WHITE; left off when
+## every vertex is white (the multiply is 1.0 and the flag would change
+## nothing but the material) and when any surface wearing it has no colour
+## array at all, which this does not assume draws as white.
+##
+## NOT ON A TILE. The caller skips the kit and TILED_PREFIXES / _SUFFIXES.
+## Zoo computes wear per module, so on a module laid edge to edge it repeats
+## per module by construction: measured on a delco elevation (Zoo 0.54.0,
+## roadmap 84), turning it on multiplied the 2 m module signature 3.8x. A
+## car or a chair is not laid against a copy of itself. Floors, ceilings,
+## roofs and Patina's edge strips were not measured either way; they are
+## kept off on the kit's evidence because they are built the same way.
+##
+## Returns [turned on, all-white left off, colour array missing left off].
+func _vertex_colour_albedo(scene: Node) -> Array:
+	var by_mat: Dictionary = {}
+	_collect_vertex_colour(scene, by_mat)
+	var on: int = 0
+	var white: int = 0
+	var missing: int = 0
+	for key in by_mat:
+		var e: Dictionary = by_mat[key]
+		if bool(e["missing"]):
+			missing += 1
+			continue
+		if not bool(e["tinted"]):
+			white += 1
+			continue
+		var bm: BaseMaterial3D = e["mat"]
+		bm.vertex_color_use_as_albedo = true
+		on += 1
+	return [on, white, missing]
+
+
+func _collect_vertex_colour(n: Node, by_mat: Dictionary) -> void:
+	var mi: MeshInstance3D = n as MeshInstance3D
+	if mi != null and mi.mesh != null:
+		for i in range(mi.mesh.get_surface_count()):
+			var bm: BaseMaterial3D = mi.mesh.surface_get_material(i) as BaseMaterial3D
+			if bm == null:
+				continue
+			var key: int = bm.get_instance_id()
+			if not by_mat.has(key):
+				by_mat[key] = {"mat": bm, "tinted": false, "missing": false}
+			var e: Dictionary = by_mat[key]
+			var arrays: Array = mi.mesh.surface_get_arrays(i)
+			var cols: PackedColorArray = PackedColorArray()
+			if arrays.size() > Mesh.ARRAY_COLOR and arrays[Mesh.ARRAY_COLOR] != null:
+				cols = arrays[Mesh.ARRAY_COLOR]
+			if cols.is_empty():
+				e["missing"] = true
+			elif _has_tint(cols):
+				e["tinted"] = true
+	for c in n.get_children():
+		_collect_vertex_colour(c, by_mat)
+
+
+func _has_tint(cols: PackedColorArray) -> bool:
+	for col in cols:
+		if col.r < VERTEX_WHITE or col.g < VERTEX_WHITE or col.b < VERTEX_WHITE:
+			return true
+	return false
+
+
+func _is_tiled(base: String) -> bool:
+	for p in TILED_PREFIXES:
+		if base.begins_with(p):
+			return true
+	for s in TILED_SUFFIXES:
+		if base.ends_with(s):
+			return true
+	return false
 
 
 func _apply(n: Node, seen: Dictionary) -> Array:

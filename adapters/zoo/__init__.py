@@ -182,6 +182,14 @@ class ZooAdapter(BaseAdapter):
                         "--out", str(work), "--no-collision", "--no-blend"]
             if job_spec.get("theme"):
                 zoo_args += ["--prompt", str(job_spec["theme"])]
+            # --skins with --theme, the pair the dress branch below explains:
+            # a themed library resolves only under its own theme. Without
+            # them a species takes the flat path, and the clutter shipped as
+            # untextured light-grey lumps (level_factory 0.86.0).
+            if job_spec.get("skins_dir"):
+                zoo_args += ["--skins", str(job_spec["skins_dir"])]
+                if job_spec.get("theme"):
+                    zoo_args += ["--theme", str(job_spec["theme"])]
             if job_spec.get("seed") is not None:
                 zoo_args += ["--seed", str(job_spec["seed"])]
             args = ["--background", "--python", cli, "--", *zoo_args]

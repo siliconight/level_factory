@@ -515,10 +515,21 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                 repos = ws.load_tools_local().get("repositories", {})
                 sets_path = _clutter_asset_sets(repos)
                 species = _clutter_species(sets_path)
+                # THE SKIN LIBRARY, as the kit and dressing builds get it.
+                # Without it every clutter species takes Zoo's flat path:
+                # walk 9052_rain's pebble and rubble shipped as an untextured
+                # 0.56 linear grey, 2.5x the delco sidewalk pack's mean
+                # albedo, and read as white lumps -- while Pixelcoat had built
+                # `gravel_`, `vegetation_` and `paper_delco_1997` for them in
+                # the same run. The planner makes this job depend on the
+                # pixelcoat build so the directory exists when it runs.
+                pix_job = _dep(job, "pixelcoat_build")
                 specs[job.job_id] = {
                     "mode": "habitat",
                     "habitat": ",".join(species),
                     "theme": model.theme or batch.get("theme_family", "") or "delco",
+                    "skins_dir": (str(_latest_output(jobs_dir / pix_job, "."))
+                                  if pix_job else ""),
                     "seed": int(job.candidate_id.rsplit("_", 1)[-1]),
                     "measure_shapes": True,
                     "metrics_name": "shapes.metrics.json",
@@ -1956,7 +1967,8 @@ def _batch_job_specs(ws: Workspace, batch: dict, batch_plan) -> dict:
                 continue
             spec = mission_specs.get(job.job_id, {})
             # Repoint the (batch-merged) Zoo kit at the shared Pixelcoat packs.
-            if job.stage_id == "zoo_kit_build" and shared_id in job.depends_on:
+            if (job.stage_id in ("zoo_kit_build", "zoo_clutter_build")
+                    and shared_id in job.depends_on):
                 spec = {**spec, "skins_dir": shared_out}
             specs[job.job_id] = spec
 

@@ -91,7 +91,9 @@ def plan_batch(
             if include_shared and job.stage_id == "pixelcoat_build":
                 continue
             deps = list(job.depends_on)
-            if include_shared and job.stage_id == "zoo_kit_build":
+            # Every job that takes the skin library -- the kit builds and,
+            # since 0.86.0, the clutter build -- takes the shared one.
+            if include_shared:
                 deps = [shared_id if d.endswith("pixelcoat_build") else d for d in deps]
             graph.add(replace(job, depends_on=deps))
         plan.mission_ids.append(brief.mission_id)

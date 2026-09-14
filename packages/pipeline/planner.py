@@ -518,7 +518,11 @@ def plan_mission(
             job_id=clutter_jid, mission_id=brief.mission_id,
             stage_id=_STAGE_ZOO_CLUTTER, adapter_id="zoo",
             candidate_id=selected_candidate, resource_class="blender",
-            depends_on=[lot_jid],
+            # The skin library too, as the kit and dressing builds take it: a
+            # clutter build with no --skins takes Zoo's flat path, and a
+            # pebble in flat 0.56 linear grey against a 0.22 sidewalk pack
+            # is a white lump (level_factory 0.86.0).
+            depends_on=[lot_jid, pixelcoat_jid],
             # The habitat index is named by a hash Zoo derives at build time;
             # the measurement sidecar is the declared output.
             expected_outputs=["shapes.metrics.json"],
