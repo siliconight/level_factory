@@ -47,11 +47,30 @@ zero. The number this writes is a floor, not the truth; item 56 owns the fix.
 
 Below the engine default the global line is not written, and an unlit package
 carries no rendering override at all.
+
+THE DRIVER'S CENSUS RAISES THE CAP (0.87.0). `run_lux_apply.gd` now writes
+`lights_in_tree` into `lux.quality.json`: every Light3D in the running tree
+after every bake it performs -- the marker-spawned fixtures, the window rigs,
+the room probes' neighbours, the club set, a `vending` rig the loader learns
+tomorrow -- before the scene is packed. That is the number item 56 asked for,
+measured at the one moment the whole lit tree exists in one process. The cap
+is the LARGER of the text count and that census: the text count is still the
+only number an export has for lights that arrive by other paths (Lot's own
+scene), and the census is the only number that sees a lamp a rig builds in
+_ready. Absent, unreadable or short of the key, the record contributes
+nothing and the text count stands alone, as it did before -- an older driver
+is not a reason to write a smaller cap than 0.86.1 would have.
 """
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
+
+#: The Lux driver's quality record, wherever the package carries it
+#: (`presentation/` in an export, beside the applied scene in a preview).
+QUALITY_RECORD = "lux.quality.json"
+LIGHTS_IN_TREE_KEY = "lights_in_tree"
 
 # Every node type that consumes a slot in the light budgets.
 _LIGHT_TYPES = ("OmniLight3D", "SpotLight3D", "DirectionalLight3D")
@@ -80,6 +99,37 @@ def count_package_lights(root: Path) -> int:
             continue
         total += len(_LIGHT_RE.findall(text))
     return total
+
+
+def lights_reported_by_lux(root: Path) -> int | None:
+    """The running-tree light census the Lux driver wrote, or None.
+
+    None -- not 0 -- when no record is found, one cannot be parsed, or the
+    record predates the key: a checker that cannot find the field it wants
+    has learned nothing and must say so. Several records (a preview that
+    kept two) contribute their largest.
+    """
+    best: int | None = None
+    for rec in sorted(Path(root).rglob(QUALITY_RECORD)):
+        try:
+            data = json.loads(rec.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        v = data.get(LIGHTS_IN_TREE_KEY)
+        if isinstance(v, bool) or not isinstance(v, int):
+            continue
+        best = v if best is None else max(best, v)
+    return best
+
+
+def package_light_budget(root: Path) -> int:
+    """The light count the `[rendering]` cap is written from: the larger of
+    the scene-text count and the driver's census (module docstring)."""
+    text = count_package_lights(root)
+    census = lights_reported_by_lux(root)
+    return text if census is None else max(text, census)
 
 
 def rendering_block(light_count: int) -> str:

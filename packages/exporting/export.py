@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from packages.core.canonical import pretty_dumps
-from packages.core.godot_project import (count_package_lights,
+from packages.core.godot_project import (package_light_budget,
                                           rendering_block)
 from packages.core.hashing import hash_file
 from packages.core.ids import (export_archive_name,
@@ -475,7 +475,7 @@ def _write_project_godot(export_dir: Path, entry_scene: str, mission_id: str,
         f'config/name="{mission_id} (shell)"\n'
         f'config/features=PackedStringArray("{godot_version}")\n'
         f'run/main_scene="res://{entry_scene}"\n\n'
-        + rendering_block(count_package_lights(export_dir))
+        + rendering_block(package_light_budget(export_dir))
         + _importer_defaults_block(export_dir) +
         "[debug]\n"
         "; Localized tool scripts are strict-clean under their home projects'\n"

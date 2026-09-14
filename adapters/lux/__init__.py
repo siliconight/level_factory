@@ -50,7 +50,14 @@ class LuxAdapter(BaseAdapter):
     # lamps and says nothing about the glow. Same reasoning as 0.4.0 and
     # 0.5.0 above: when the QUESTION changes, the cached ANSWER is not an
     # answer to it.
-    adapter_version = "0.6.0"
+    # 0.7.0 bakes the ROOM PROBES and the CLUB SET and takes the light
+    # census the `[rendering]` cap is written from (Lux 0.38.0, roadmap 56).
+    # The driver hash already moves the key; the bump is what makes a
+    # cached 0.6.0 entry -- an applied scene with no `LuxRoomAmbient` and a
+    # quality record with no `lights_in_tree` -- execute once rather than be
+    # served to an export whose cap would then be written from a record
+    # that cannot answer the question.
+    adapter_version = "0.7.0"
     capabilities = frozenset(
         {"apply_preset", "apply_roles", "level_override", "validate_scene",
          "preview_states", "quality_tiers", "fixture_gate"}

@@ -10,7 +10,8 @@ extends SceneTree
 ## Usage:
 ##   godot --headless --path <project> -s res://run_lux_apply.gd -- \
 ##     --scene res://level.tscn --preset <preset_name> [--out <abs_dir>]
-##     [--lights <abs path to site.site.lights.json>]   (window anchors -> area lights)
+##     [--lights <abs path to site.site.lights.json>]   (window anchors -> area lights;
+##          rooms -> ambient probes, Lux 0.38.0; club anchors -> the club set, 0.37.0)
 ##
 ## NOTE: preview PNG capture (calm/alarm/extraction) needs a rendering context,
 ## which --headless does not provide. This driver writes the applied scene +
@@ -173,6 +174,81 @@ func _initialize() -> void:
 		print("[lux] %s" % daylight_msg)
 		await process_frame
 
+	# Darken the rooms (Lux 0.38.0). Interiors read dark by default, lit by
+	# their own fixtures: one interior ReflectionProbe per room the manifest
+	# names, sized by the `room_box_local` Deli Counter writes on the room's
+	# ceiling anchors, replaces the sky's ambient inside it. A manifest that
+	# names rooms and boxes none of them (Deli Counter before the field) bakes
+	# nothing and says so: `room_probe_rooms` against `room_probes` is the
+	# number a run reads that on. Same ownership rule as the rigs above.
+	var room_probes := 0
+	var room_rooms := 0
+	var room_without: Array = []
+	var room_msg := "no --lights given"
+	var room_ok := true
+	if not lights_path.is_empty():
+		var room_loader: GDScript = load("res://addons/lux/runtime/lux_light_loader.gd")
+		if room_loader != null and room_loader.has_method("bake_room_ambient"):
+			var rres: Dictionary = room_loader.bake_room_ambient(lights_path, scene)
+			room_ok = bool(rres.get("ok", false))
+			room_probes = int(rres.get("count", 0))
+			room_rooms = int(rres.get("rooms", 0))
+			room_without = rres.get("without_box", [])
+			room_msg = String(rres.get("msg", ""))
+			var rocontainer: Node = scene.get_node_or_null(NodePath("LuxRoomAmbient"))
+			if rocontainer != null:
+				_own_recursive(rocontainer, scene)
+		else:
+			room_ok = false
+			room_msg = "lux addon has no bake_room_ambient (Lux < 0.38.0)"
+		print("[lux] %s" % room_msg)
+		await process_frame
+
+	# Light the club (Lux 0.37.0), only when the manifest carries one. The
+	# club types -- club_wash, stage_light, neon, room_ambient -- have no
+	# hardware and no marker, so like the windows they reach a level only
+	# through the manifest. The list of types is READ OFF THE LOADER, not
+	# spelled here: a fifth type Lux adds is baked and counted the day it
+	# lands. `refused` names the anchors the loader would not build (an
+	# unknown colour, a stage light with no target); a refusal is a finding,
+	# a manifest with no club anchors is not.
+	var club_lights := 0
+	var club_in_manifest := 0
+	var club_refused: Array = []
+	var club_msg := "no --lights given"
+	var club_ok := true
+	if not lights_path.is_empty():
+		var club_loader: GDScript = load("res://addons/lux/runtime/lux_light_loader.gd")
+		var club_types: Variant = club_loader.get("CLUB_TYPES") if club_loader != null else null
+		if typeof(club_types) == TYPE_ARRAY:
+			club_in_manifest = _count_anchor_types(lights_path, club_types)
+		if club_in_manifest == 0:
+			club_msg = "manifest carries no club anchors"
+		elif club_loader != null and club_loader.has_method("bake_club"):
+			var cres: Dictionary = club_loader.bake_club(lights_path, scene)
+			club_ok = bool(cres.get("ok", false))
+			club_refused = cres.get("refused", [])
+			club_msg = String(cres.get("msg", ""))
+			var ccontainer: Node = scene.get_node_or_null(NodePath("LuxClub"))
+			if ccontainer != null:
+				_own_recursive(ccontainer, scene)
+				club_lights = _count_lights(ccontainer)
+		else:
+			club_ok = false
+			club_msg = "lux addon has no bake_club (Lux < 0.37.0)"
+		print("[lux] club: %s" % club_msg)
+		await process_frame
+
+	# THE CENSUS THE LIGHT BUDGET IS WRITTEN FROM. `count_package_lights`
+	# counts `type="OmniLight3D"` declarations in scene text, and roadmap 56
+	# measured the running tree at 272 against a written 136: an instanced
+	# rig counts once, a lamp a rig builds in _ready counts zero. This is the
+	# tree as it stands after every bake above, before pack -- every
+	# Light3D, the sun included, whichever path spawned it, a `vending` rig
+	# the loader learns tomorrow included. `packages.core.godot_project`
+	# takes the larger of the two numbers.
+	var lights_in_tree := _count_lights(scene)
+
 	# Keep the rain out of the buildings (Lux 0.35.0). The applied preset's
 	# weather decides: LuxRoot builds the falling rain from it at load, and
 	# particles pass through geometry unless a particle COLLIDER stops them,
@@ -239,9 +315,28 @@ func _initialize() -> void:
 		"daylight_anchors_in_manifest": daylight_in_manifest,
 		"daylight_msg": daylight_msg,
 		"rain_asked": rain_asked, "rain_drops": rain_drops,
-		"rain_colliders": rain_colliders, "rain_msg": rain_msg}
+		"rain_colliders": rain_colliders, "rain_msg": rain_msg,
+		"room_probes": room_probes, "room_probe_rooms": room_rooms,
+		"room_probe_rooms_without_box": room_without, "room_probe_msg": room_msg,
+		"club_lights": club_lights, "club_anchors_in_manifest": club_in_manifest,
+		"club_refused": club_refused, "club_msg": club_msg,
+		"lights_in_tree": lights_in_tree}
 	_write_json(out_dir + "/lux.quality.json", quality)
 	var issues := []
+	# The manifest names rooms and none of them got a probe -- Deli Counter
+	# wrote no `room_box_local`, or the bake could not run. Moderate: the
+	# level ships, and its interiors keep the sky's ambient through the roof,
+	# which is the look the walker decided against (Lux 0.38.0).
+	if not lights_path.is_empty() and (not room_ok or (room_rooms > 0 and room_probes == 0)):
+		issues.append({"code": "LUX_NO_ROOM_PROBES", "severity": "moderate",
+			"category": "presentation",
+			"message": "rooms did not get an ambient probe: %s" % room_msg})
+	# A club anchor the loader refused is a typo in a colour or a stage light
+	# with no target; the manifest asked for a light that was not built.
+	if not lights_path.is_empty() and club_in_manifest > 0 and (not club_ok or not club_refused.is_empty()):
+		issues.append({"code": "LUX_CLUB_REFUSED", "severity": "moderate",
+			"category": "presentation",
+			"message": "club anchors did not all become light: %s" % club_msg})
 	# The manifest asked for daylight and none was made -- or could not be
 	# read at all. Moderate: the level ships, darker than it was specified.
 	if not lights_path.is_empty() and (not daylight_ok or (daylight_in_manifest > 0 and daylight_count == 0)):
@@ -284,6 +379,30 @@ func _write_json(path: String, data: Dictionary) -> void:
 	if f != null:
 		f.store_string(JSON.stringify(data, "  "))
 		f.close()
+
+
+## How many anchors of `path` carry one of `types`. Reads the manifest
+## itself rather than asking the loader, so "no club anchors" can be told
+## apart from "the loader refused every one".
+func _count_anchor_types(path: String, types: Array) -> int:
+	if not FileAccess.file_exists(path):
+		return 0
+	var data: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+	if typeof(data) != TYPE_DICTIONARY or typeof(data.get("anchors")) != TYPE_ARRAY:
+		return 0
+	var n := 0
+	for a in data["anchors"]:
+		if typeof(a) == TYPE_DICTIONARY and types.has(String(a.get("type", ""))):
+			n += 1
+	return n
+
+
+## Every Light3D under `node`, itself included: the running tree's census.
+func _count_lights(node: Node) -> int:
+	var n := 1 if node is Light3D else 0
+	for c in node.get_children():
+		n += _count_lights(c)
+	return n
 ## Give every node under `node` the same owner, so PackedScene.pack keeps them.
 ## Nodes created at runtime have a null owner and pack() drops those without a
 ## word; the spawner only sets owners in the editor.

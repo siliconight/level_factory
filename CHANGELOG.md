@@ -1,3 +1,97 @@
+## [0.87.0] - interiors read dark, and the light budget counts what Lux built
+
+The walker's decision (Lux 0.38.0): interiors read dark by default, lit by
+their own fixtures, not by the sun, sky and fog leaking through the roof. On
+the walk copy of cold run 9054 (Heavy Rain, RTX 2060, GL Compatibility,
+1600 x 900, `tools/look_shots.py`), the same six cameras, whole-frame Rec.709
+luma of the 8-bit frame, before and after this driver and Lux 0.38.0:
+
+    station          0.86.1 as shipped   0.87.0 as shipped   + sun shadow (refused)
+                     mean  p05 p50 p95   mean  p05 p50 p95   mean  p05 p50 p95
+    street           68.5   23  76 105   62.7   18  65  99   69.4   28  70 115
+    spawn (derived)  70.6   53  71  89   55.3   38  54  78   22.7   13  21  39
+    lobby (b0)       59.4   24  61  98   43.1   17  33  87   27.7    5  23  68
+    office (b2)      82.7   50  78 118   60.7   25  55 101   37.3   19  35  57
+    vault antechamb. 81.8   38  80 125   60.6   19  67 107   30.1   17  28  56
+    vault room       73.0   50  73  96   52.0   22  54  85   29.0   14  27  51
+
+As shipped, every room drops 15-22 codes and the street 6: that is the room
+probes replacing the sky's ambient. The right-hand column is what the sun's
+shadow would add and was REFUSED at every setting priced (+1.9 to +9.0 GPU
+ms per station against a ~2 ms budget; the table is in Lux 0.38.0's
+changelog). The sun through the roof is the biggest of the three terms and
+is still there; turning it on is one line in a preset with a measured
+price. This entry is the driver's half.
+
+### Changed
+- **`run_lux_apply.gd` bakes the room probes** (`LuxLightLoader.bake_room_ambient`,
+  Lux 0.38.0) beside the daylight bake, and re-owns `LuxRoomAmbient` the way
+  it owns `LuxDaylight`, or `pack()` drops it without a word. One
+  ReflectionProbe per room the manifest names, sized by the `room_box_local`
+  Deli Counter is asked to write on each room's ceiling anchors (below). On
+  9054's merged manifest with the field stamped: 16 probes for 16 rooms, 0
+  without a box. On the same manifest as Deli Counter ships it today: 0 for
+  16, and the quality record says so (`room_probe_rooms` 16, `room_probes`
+  0) and `LUX_NO_ROOM_PROBES` is raised -- moderate, presentation: the level
+  ships with its interiors keeping the sky's ambient, which is the look this
+  release exists to end.
+- **The club set is baked when the manifest carries it** (`bake_club`, Lux
+  0.37.0; nothing called it). The types are read off the loader's
+  `CLUB_TYPES`, never spelled in the driver, so a fifth type Lux adds is baked
+  the day it lands; `LuxClub` is re-owned; `club_lights` counts the Light3D
+  the bake made; a refused anchor (an unknown colour, a stage light with no
+  target) is `LUX_CLUB_REFUSED`, a manifest with no club anchors is not a
+  finding. 9054 carries none.
+- **The `[rendering]` cap is written from a census, not only a grep** (roadmap
+  56). The driver counts every Light3D in the running tree after its last bake
+  and before `pack()` -- marker-spawned fixtures, window rigs, the club set,
+  the sun, a `vending` rig the loader learns tomorrow -- into
+  `lux.quality.json["lights_in_tree"]`. `packages.core.godot_project.package_light_budget`
+  takes the LARGER of the scene-text count and that number, and both
+  project.godot writers (the export and the walk preview) use it. On 9054: 98
+  declared in text, 99 in the tree (the LuxSun LuxRoot builds at load and
+  never packs), cap 98 -> 99. A record that is absent, unparseable or
+  predates the key contributes NOTHING -- `None`, not 0 -- so an older driver
+  cannot lower the cap below what 0.86.1 wrote.
+- `LuxAdapter.adapter_version` 0.7.0: the question the cached answer is
+  supposed to answer changed (probes, club, census), so every cached Lux
+  entry executes once.
+
+### What Deli Counter must add (the exact field)
+On every ceiling anchor that names a `room` (`fluorescent`, `pendant`):
+
+    "room_box_local": [x0, y0, z0, x1, y1, z1]
+
+metres, RELATIVE TO THE ANCHOR'S `pos`, in the anchor's frame -- x along
+`rot_y`, y across it, z up (Deli Counter's own axes) -- z0 the room's floor
+(`-drop`), z1 the underside of the capping slab (`+_CEILING_GAP` for a row,
+`+_PENDANT_CORD + _CEILING_GAP` for a bulb). Relative because Lot's
+`merge_lights` transforms `pos` and `rot_y` and copies every other field
+verbatim: a world-frame box would ship building-local on a site whose
+buildings are turned 180 degrees. The scratch manifest this release was
+measured on was stamped exactly so from the merged rooms' bounds
+(`_scratch`: `make_dark_manifest.py`); Deli Counter has the same numbers one
+function earlier. A room without the field gets no probe and is counted.
+
+### Tests
+`tests/unit/test_lux_interior_dark.py` (every test fails on 0.86.1): the
+driver bakes rooms and club, reads the club types off the loader, owns both
+containers, takes the census after every bake and before pack, records the
+nine new keys and two findings; `package_light_budget` raises the cap to the
+census, never lowers it, and every shape of "cannot find the field" -- no
+record, bad JSON, a pre-0.87.0 record, a string, a bool, a list --
+contributes nothing rather than zero; export and preview write the same cap
+from it; a census under the engine default still writes no cap. The existing
+lux, daylight, rain, readback and project-agreement suites pass unchanged.
+
+### Not done, and said
+- Deli Counter does not write `room_box_local` yet; until it does every run
+  raises `LUX_NO_ROOM_PROBES` and interiors keep half the sky's ambient. That
+  finding is the measurement, not noise.
+- The `spawn_wing` given station in `_scratch/dark` faces a partition 2.7 m
+  away in both runs; the derived `spawn` shot is the one quoted above.
+- No `vending` rig exists in Lux; the census counts it the day one does.
+
 ## [0.86.1] - the library freshness guard reads its rule again
 
 Cold run 9053 (2026-09-14) was refused at export by

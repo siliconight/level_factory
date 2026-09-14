@@ -33,7 +33,7 @@ import re
 import shutil
 from pathlib import Path
 
-from packages.core.godot_project import (count_package_lights,
+from packages.core.godot_project import (package_light_budget,
                                           rendering_block)
 
 # Marker groups worth spawning the player at, best first. These are the groups
@@ -379,7 +379,7 @@ def build_walk_preview(content_dir, player_src, dest, *, name="level"):
     (dest / "project.godot").write_text(
         _PROJECT.format(name=name, level=level,
                         rendering=rendering_block(
-                            count_package_lights(dest))), encoding="utf-8")
+                            package_light_budget(dest))), encoding="utf-8")
 
     # 6. WHAT THIS WAS BUILT FROM. `walk` rmtree's and rebuilds, so a preview
     # is current at the moment it is made -- and nothing recorded that, so
