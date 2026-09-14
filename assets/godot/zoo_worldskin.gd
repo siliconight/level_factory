@@ -52,6 +52,12 @@ const STAIR_KIND: String = "concrete"
 
 func _post_import(scene: Node) -> Object:
 	var base: String = get_source_file().get_file()
+	# EVERY GLB, kit or not: the glass is in props (teller line, bus shelter,
+	# car) as much as in windows.
+	var glass: int = _glass_casts_no_shadow(scene, {})
+	if glass > 0:
+		print("[worldskin] %s  %d blended material(s) moved out of the shadow pass"
+			% [base, glass])
 	var is_kit: bool = false
 	for p in KIT_PREFIXES:
 		if base.begins_with(p):
@@ -73,6 +79,46 @@ func _post_import(scene: Node) -> Object:
 	print("[worldskin] %s  %d material(s) world-projected, %d without a UV density"
 		% [base, changed, no_density])
 	return scene
+
+
+## Blended glass stops casting an opaque shadow.
+##
+## Godot's glTF importer maps alphaMode BLEND to TRANSPARENCY_ALPHA_DEPTH_PRE_PASS,
+## and a depth-prepass material is drawn into the shadow map as if it were
+## solid. MEASURED in GL Compatibility (Godot 4.7, RTX 2060) with a delco_1997
+## window module laid flat under a shadowed DirectionalLight3D, ground
+## luminance under the pane over open ground:
+##
+##     opaque pane (Pixelcoat 0.39.0 glass)                  0.463
+##     blended pane, as imported (ALPHA_DEPTH_PRE_PASS)      0.463
+##     blended pane, hidden (the dial check)                 1.000
+##     blended pane, cast_shadow OFF                         1.000
+##     blended pane, TRANSPARENCY_ALPHA                      1.000
+##
+## So a see-through window still threw a window-shaped shadow into the room it
+## was supposed to light. The material is changed rather than the mesh's
+## `cast_shadow`, for the reason the header gives for world projection: one
+## edit to the shared material at import, not a setting per placement. On the
+## same stage with the sun's shadow switched off, the two transparency modes
+## render byte-identical frames (0 of 360,000 pixels differ), so there the
+## switch changes the shadow and not the pane. That is one camera over one
+## flat pane; self-overlapping glass (a car's greenhouse) is where a depth
+## prepass could matter for sorting, and it was not measured.
+func _glass_casts_no_shadow(n: Node, seen: Dictionary) -> int:
+	var changed: int = 0
+	var mi: MeshInstance3D = n as MeshInstance3D
+	if mi != null and mi.mesh != null:
+		for i in range(mi.mesh.get_surface_count()):
+			var bm: BaseMaterial3D = mi.mesh.surface_get_material(i) as BaseMaterial3D
+			if bm == null or seen.has(bm.get_instance_id()):
+				continue
+			seen[bm.get_instance_id()] = true
+			if bm.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_DEPTH_PRE_PASS:
+				bm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+				changed += 1
+	for c in n.get_children():
+		changed += _glass_casts_no_shadow(c, seen)
+	return changed
 
 
 func _apply(n: Node, seen: Dictionary) -> Array:

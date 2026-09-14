@@ -1,3 +1,59 @@
+## [0.84.0] - glass lets the light in, not just the eye
+
+Pixelcoat 0.40.0 makes delco_1997's glass see-through, and a window you can
+see through still threw a window-shaped shadow into the room behind it.
+Godot 4.7's glTF importer turns alphaMode BLEND into
+`TRANSPARENCY_ALPHA_DEPTH_PRE_PASS`, and a depth-prepass material goes into the
+shadow map as if it were solid. glTF has no way to say "casts no shadow", so
+the fix lands where every GLB passes through at import: `zoo_worldskin.gd`.
+
+MEASURED first, in GL Compatibility on an RTX 2060: a delco_1997 window
+module laid flat 3 m over a white plane under a shadowed sun, ground
+luminance under the pane over open ground.
+
+| pane | under pane / open |
+| --- | --- |
+| opaque (the 0.39.0 glass) | 0.463 |
+| blended, as imported (transparency 4) | 0.463 |
+| blended, hidden -- the dial check | 1.000 |
+| blended, `cast_shadow` off | 1.000 |
+| blended, `TRANSPARENCY_ALPHA` | 1.000 |
+
+**`_glass_casts_no_shadow`** runs first in `_post_import`, for every GLB --
+the teller line, bus shelter, newspaper box and parking meter carry glass
+and are not kit modules, and the kit branch returns early for them -- and
+moves each material at `TRANSPARENCY_ALPHA_DEPTH_PRE_PASS` to
+`TRANSPARENCY_ALPHA`. Nothing else about the material changes. The material
+and not each mesh's `cast_shadow`, for the reason world projection gave: one
+edit to the shared material at import. With the sun's shadow switched off on
+the same stage, the two modes render byte-identical frames (0 of 360,000
+pixels), so there the switch moves the shadow and not the pane; overlapping
+glass (a car's greenhouse), where losing the prepass could change sorting,
+was not measured.
+
+On a scratch copy of walk 9050 with the glass modules rebuilt (Pixelcoat
+0.40.0, Zoo 0.80.0), Lux 0.36.0's window quads off, and this script, the
+import log reports `1 blended material(s) moved out of the shadow pass` on
+each of the 11 glass GLBs; readback is transparency 1, albedo alpha 0.380 on
+every pane, and `glass_facade` frames stay at 0. `look_shots` at the bank's
+south window from inside shows a sunlit patch on the carpet under the sill
+that the opaque-glass build does not have. Cost, 14 shots twice each:
+summed GPU ms 146.4 / 144.9 before, 148.7 / 146.6 after, inside the per-shot
+spread between identical runs (elev_N 32.7 against 28.4 on one build). Draw
+calls fall slightly at every station measured (street 4,611 -> 4,550,
+overview 13,011 -> 12,904): the quads are gone and blended panes leave the
+shadow passes. The machine was also serving a cold run's jobs.
+
+`tests/unit/test_worldskin_glass_shadow.py` holds the shape the measurement
+depends on: the pass exists, changes only the importer's BLEND spelling, runs
+before the kit branch, and the script is a fingerprinted installed asset, so
+the presentation stage rebuilds. It reads the GDScript -- the unit suite has
+no Godot -- and fails on the 0.83.0 script.
+
+A package imported before this release keeps its shadowing panes until its
+glass GLBs are reimported: an import script change does not by itself
+invalidate Godot's import cache.
+
 ## [0.83.0] - a brief that says rain gets rain, and the buildings stay dry
 
 `MissionBrief.weather` has been read by nothing. `_preset_for` chose the look
