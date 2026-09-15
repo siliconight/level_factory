@@ -34,12 +34,21 @@ _DC_HARD_CODES = {
     "STAIR_VOLUME_INVADED",
 }
 
-# Real DC presets (new_level.py --list).
+# Real DC presets (new_level.py --list; the keys of `presets.REGISTRY`).
+#
+# A COPY OF ANOTHER REPO'S LIST, AND IT DRIFTED. Deli Counter added `twin`
+# and then `strip_club` (0.133.0) and this set learned neither: cold runs
+# 9055 and 9056 were refused at graybox with "brief archetype 'strip_club'
+# matches no DC preset" while `new_level.py --list` printed it. The keyword
+# fallback below searches THIS set, so it could not rescue a name the set did
+# not hold -- the claim that it would was made without re-reading it.
+# `tests/unit/test_dc_preset_registry.py` now compares this set with the
+# registry whenever Deli Counter sits beside this repo.
 _VALID_PRESETS = {
     "auto_shop", "bank", "casino_tower", "compound", "corner_deli",
     "facade_industrial", "facade_rowhome", "facade_storefront", "gas_station",
     "hospital", "office", "parking_garage", "pawn_shop", "police_station",
-    "rowhome", "suburban_safehouse", "warehouse",
+    "rowhome", "strip_club", "suburban_safehouse", "twin", "warehouse",
 }
 # LF archetype -> DC preset aliases (extend as briefs introduce new archetypes).
 _ARCHETYPE_ALIASES = {

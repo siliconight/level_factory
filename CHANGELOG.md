@@ -1,3 +1,29 @@
+## [0.87.1] - the adapter knows every preset Deli Counter registers
+
+Cold runs 9055 and 9056 (2026-09-14) were refused at graybox, 3 seconds in,
+with "internal error: brief archetype 'strip_club' matches no DC preset". The
+brief asked for a strip club; Deli Counter 0.133.0 registers `strip_club` and
+`new_level.py --list` prints it.
+
+`adapters/deli_counter._VALID_PRESETS` is a copy of Deli Counter's
+`presets.REGISTRY` keys, and it had drifted twice: it held neither `twin` nor
+`strip_club`. REFUTED, and kept: the report that shipped Deli Counter 0.133.0
+said Level Factory needed nothing because `_preset_for`'s keyword fallback
+"matches any archetype that contains a preset's name". That fallback iterates
+`_VALID_PRESETS`, the same stale copy, so it could not find a name the copy
+did not hold. 9056 was run on that claim and refused identically; the claim
+was made without re-reading the loop.
+
+**Both names are added.** `tests/unit/test_dc_preset_registry.py` reads
+`REGISTRY` out of `deli_counter/presets.py` with `ast` (no import across the
+boundary) and fails on any difference in either direction; it skips when
+Deli Counter is not beside this repo rather than passing. On 0.87.0 it fails
+with "missing here: ['strip_club', 'twin']". A second test resolves 9055's
+archetype. Suite exits 0.
+
+Still a copy, and said so: the test is what keeps it honest, and it runs only
+where both repos stand side by side, as they do in the factory.
+
 ## [0.87.0] - interiors read dark, and the light budget counts what Lux built
 
 The walker's decision (Lux 0.38.0): interiors read dark by default, lit by
