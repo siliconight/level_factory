@@ -131,6 +131,10 @@ _SEAL = "sealed off from the crew spawn"
 _UNSEEN = "on a storey this field does not see"
 CODE_UNSEEN_STOREY = "LT_STOREY_UNSEEN"
 
+#: `_placement`'s verdict for a cell with no in-band surface. Named for the
+#: reason `_SEAL` is: `_split_seals` has to recognise it in the counterfactual.
+_GAP = "over a gap in the storey the mission starts on"
+
 _PLAYER = "LT_PlayerSpawn"
 _ENEMY_GROUP = "LT_EnemySpawnPoints"
 _ROUTE_GROUP = "LT_PlayerRoutePoints"
@@ -499,7 +503,7 @@ def _placement(field: Field, point: Vec3, reach: dict):
     if i is None:
         return None, "outside the site's collision entirely"
     if field.floor[i] is None:
-        return i, "over a gap in the storey the mission starts on"
+        return i, _GAP
     if abs(field.floor[i] - field.reference) > FIELD_BAND:
         return i, "on a different storey than the crew spawn"
     surface = field.floor[i]
@@ -597,6 +601,26 @@ def _split_seals(stranded: dict, points: dict, loose) -> tuple[dict, dict]:
             _i, still = _placement(lfield, points[name], lreach)
             if still is None:
                 unverified[name] = why
+                continue
+            if still.startswith(_UNSEEN) or still == _GAP:
+                # The counterfactual took away the floor the point stands on:
+                # that floor was itself inferred, taller than a step, and left
+                # with the walls. A field that no longer holds the storey
+                # cannot confirm a seal on it -- only "still sealed" does.
+                #
+                # Cold run 9058: `twin_a01`'s upstairs objective. Slab 1's
+                # bounding box paved over both stairwells, so the strict field
+                # had no flight to find and said sealed; the counterfactual
+                # dropped slab 1 and said "on a storey this field does not
+                # see"; and this loop used to count that as confirmation and
+                # refuse the export. Lot's contract bake paths 81.0 m to it.
+                without = (still[len(_UNSEEN):].strip()
+                           if still.startswith(_UNSEEN) else f"({still})")
+                unverified[name] = (
+                    f"{_UNSEEN} once its inferred floor is set aside {without}; "
+                    f"the only surface this reader holds at the marker's "
+                    f"height is a collision mesh's bounding box, and a box "
+                    f"paves over any stairwell up to it")
                 continue
         verified[name] = why
     return verified, unverified

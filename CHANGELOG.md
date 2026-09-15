@@ -1,3 +1,76 @@
+## [0.88.0] - a storey the counterfactual cannot hold does not confirm a seal
+
+Cold run 9058 (2026-09-15) was refused at export by the Laser Tag pre-flight:
+"LT_ObjectivePoint is sealed off from the crew spawn". The objective is
+`b1/OBJECTIVE_UPSTAIRS` in Deli Counter's `twin_a01`, at Godot (-4.0, 2.9,
+-13.0). The same candidate's `walktest_navqa` walked to it: the report's
+`proxy_6` is raw (-4.0, 2.9, -13.0), snapped 0.24 m to (-4.0, 3.1, -13.0),
+`home->proxy_6` path-proved at 81.0 m, 4 walkers 11 of 11. Same build: the
+staged `site.tscn` and the lot_assemble one hash identically (9608db64...).
+
+Which was wrong, measured on a scratch copy of the lot_assemble out folder:
+
+- **The pre-flight's field never held a stair.** `twin_a01`'s collision is
+  read as one bounding box per mesh. Slab 1 is x -8..8, y 2.65..2.90,
+  z -16.5..-3.5 -- the whole footprint, both stairwells included -- and its
+  top is inside `FIELD_BAND` of the street, so it is the highest in-band
+  surface over every cell of the building. Ground floor and both flights are
+  absent; the flood fill stops at the facade where the surface jumps 2.9 m.
+  The counterfactual (`_optimistic_reach`) then set slab 1 aside with every
+  other inferred box taller than a step, held 0.0 under the marker, and said
+  "on a storey this field does not see". `_split_seals` counted any answer
+  except "reachable" as confirmation, so a seal nothing measured gated.
+- **The contract bake reaches it.** Lot's NavigationMesh as `site_walk.tscn`
+  declares it (cell 0.1, cell height 0.15, climb 0.15, radius 0.4, slope 55):
+  2772 polygons, spawn to objective 81.0 m, up stair1 (x -3.65, y 0.59 to
+  3.29, z -4.85 to -8.65) and through the upstairs cross-wall door. A 0.35 x
+  1.8 CharacterBody3D (floor_max_angle 45) followed it and stopped 0.31 m from
+  the marker, foot y 2.90, on floor.
+
+### Fixed
+- **`_split_seals` confirms a seal only when the counterfactual holds the
+  point's storey.** A counterfactual answering "on a storey this field does
+  not see" or "over a gap" has lost the floor the point stands on -- an
+  inferred floor, gone with the walls -- and the point is filed under
+  `LT_STOREY_UNSEEN` (advisory, walktest is the instrument) with the reason
+  said on it. "Reachable" still demotes to `LT_SEAL_UNVERIFIED`; "still
+  sealed", inside solid, off the field all still gate. The gap verdict is
+  named (`_GAP`) because two functions now have to agree on it.
+- On 9058's scene: `check_spawn_placement` [1 refusal] -> [], and the
+  objective appears once under `LT_STOREY_UNSEEN`.
+
+### Tests
+`tests/unit/test_seal_honesty.py` builds `twin_a01` from the spans the reader
+produced on 9058 (two slabs, both storeys' walls and cross walls, both storey-0
+flights and landings). On 0.87.1 the upstairs-objective test fails with 9058's
+own sentence; the others pin what did not move: the field over the building
+is 2.9 with stairs in it, the verdict is identical with the flights removed
+(this reader cannot tell the two apart, which is why it reports), the same
+shell out of measured boxes still refuses, and an inferred shell sealed by a
+measured ring still refuses. Suite exits 0.
+
+### Not this repo, and not fixed by this
+The refusal's OUTCOME was right for a reason it never measured. Laser Tag
+0.23.0's `run_map_eval._bake_navigation` bakes a fresh NavigationMesh with
+only `agent_radius = 0.4` set: cell 0.25, cell height 0.25, climb 0.25,
+height 1.5, slope 45, the engine defaults, not `agent_contract.json`'s
+`nav_bake`. On that navmesh (1462 polygons) spawn to objective ends at
+(-8.65, 0.34, -15.9), 6.05 m short. Leg by leg the breaks are twin_a01's
+doorways: street to front room ends on the stoop 2.20 m short (1.30 m door),
+front room to rear room ends 2.93 m short at the ground-floor cross wall
+(1.20 m door); the flight itself connects. Moving ONLY cell size and cell
+height to 0.1 / 0.15 connects every leg, 81.0 m. That matches the contract's
+own erosion rule: 2 * ceil(0.4 / 0.25) * 0.25 + 2 * 0.25 = 1.5 m minimum door
+at 0.25 cells. One real Laser Tag run on the scratch copy (seed 9058, 4 v 6):
+`validate_map()` did not refuse, grade WARN 68, TRAVERSAL FAIL,
+`route_completion_rate` 0.0, progress 0.33, the three surviving crew
+reporting stuck at (7.3, 0.0, -17.1..-17.7) from 28 s to the 180 s timeout
+-- beside the east end of twin_a01's left porch deck (top 0.20), where Laser
+Tag's partial path steps up onto it. Until Laser Tag bakes at the contract's
+cell size, this candidate trades a 3-second pre-flight refusal for a full
+evaluation whose report carries TRAVERSAL FAIL, which `lasertag_report` files
+as major.
+
 ## [0.87.1] - the adapter knows every preset Deli Counter registers
 
 Cold runs 9055 and 9056 (2026-09-14) were refused at graybox, 3 seconds in,
