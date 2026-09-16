@@ -15,6 +15,7 @@ stay collision-free (24.5) so they never touch the locked functional shell.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
@@ -31,9 +32,47 @@ from packages.validation.kit_dims import kit_dimension_findings
 # happen. `validate_configuration` therefore CHECKS the tool is there, so a
 # layout change is a configuration error someone reads rather than a
 # measurement that quietly stopped happening.
-#   adapters/zoo/__init__.py -> zoo -> adapters -> level_factory -> <factory>
-_FACTORY_ROOT = Path(__file__).resolve().parents[3]
-SHAPE_METRICS = _FACTORY_ROOT / "tools" / "shape_metrics.py"
+#
+# IT WAS COUNTED, AND THE COUNT WAS A LAYOUT ASSUMPTION (0.94.0):
+# `parents[3]` is `adapters/zoo -> adapters -> level_factory -> <factory>`
+# from a checkout sitting beside its siblings, and `scratchpad` from a git
+# WORKTREE, where `tools/shape_metrics.py` is not. The check above then did
+# its job -- `measure_shapes needs C:\...\scratchpad\tools\shape_metrics.py,
+# which is not there` -- and the measurement stopped, three tests with it.
+# That is the same defect `tests/siblings.py` removes on the test side, in
+# the production path.
+#
+# So: SEARCH for the tool rather than count to it, `LF_FACTORY_ROOT` first.
+# No behaviour changes from a checkout -- the walk's first hit is the
+# directory the count named.
+_TOOL_REL = Path("tools") / "shape_metrics.py"
+
+
+def _factory_root() -> Path:
+    """The directory holding `tools/shape_metrics.py`, at or above this file.
+
+    When nothing above carries it, this answers with THIS REPO's root -- found
+    the same way, by the file that marks it -- so the refusal
+    `validate_configuration` prints names a real directory instead of a
+    counted guess at one. Nothing reads that path except the message:
+    `SHAPE_METRICS.is_file()` is False on both branches, which is the answer
+    that matters.
+    """
+    env = os.environ.get("LF_FACTORY_ROOT")
+    if env and (Path(env) / _TOOL_REL).is_file():
+        return Path(env)
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / _TOOL_REL).is_file():
+            return parent
+    for parent in here.parents:
+        if (parent / "pyproject.toml").is_file():
+            return parent
+    return here.parent
+
+
+_FACTORY_ROOT = _factory_root()
+SHAPE_METRICS = _FACTORY_ROOT / _TOOL_REL
 
 
 class ZooAdapter(BaseAdapter):

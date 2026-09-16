@@ -2,6 +2,15 @@
 
 Pixelcoat names a theme's businesses; Lot hangs the band on the facade
 that faces the street; this is the piece between them.
+
+WHERE PIXELCOAT IS, AND WHY THAT IS A SEARCH (0.94.0). It was
+`parents[3] / "pixelcoat"` -- correct beside the sibling checkouts, and
+`scratchpad/pixelcoat` from a git worktree. The profile was there the whole
+time; two tests failed with `KeyError: 'signs'` under the builder's own
+`no shop signs: theme 'delco_1997' names no businesses` message, which is
+what a missing checkout and an empty theme look like from here. The locator
+now walks up to the profile it is about to read, and it ASSERTS rather than
+letting the absence answer the question -- `tests/siblings.py`.
 """
 import json
 from pathlib import Path
@@ -9,12 +18,18 @@ from types import SimpleNamespace
 
 import apps.cli.commands as cmds
 from packages.core.models import MissionBrief
+from tests.siblings import not_found, sibling_repo
 
-PIXELCOAT = Path(__file__).resolve().parents[3] / "pixelcoat"
+#: The file these tests are really about: without it, `_signs_for` returns {}
+#: and every assertion below reads as a design answer rather than a missing
+#: repo. So it is the marker, not the directory name.
+_PROFILE = "profiles/signs/delco_1997.json"
+PIXELCOAT = sibling_repo("pixelcoat", marker=_PROFILE)
 
 
 class _Workspace(SimpleNamespace):
     def load_tools_local(self) -> dict:
+        assert PIXELCOAT is not None, not_found("pixelcoat", marker=_PROFILE)
         return {"repositories": {"pixelcoat": str(PIXELCOAT)}}
 
 

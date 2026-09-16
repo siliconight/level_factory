@@ -1,3 +1,144 @@
+## [0.94.0] - a base nobody names, and a repo nobody finds
+
+Two defects found on 2026-09-16, unrelated except that both are a check
+answering about something other than what it was pointed at.
+
+### Fixed -- A VARIED LOT SHIPS NO BASE NO SCENE IN IT NAMES
+
+0.93.0's own re-import listed it and skinned the stairs instead:
+`site_base.glb (root)` -- "an export leftover no scene in the package
+references, carrying 18 instanced flight meshes". Cold run 9061's
+`LF_card_block_001.portable-godot`, 371,260 bytes at the package root, 525
+nodes, 279 meshes, while `grep -rn site_base --include=*.tscn` over the
+package hits only `lot/card_shop_a01/site.tscn`, `lot/pharmacy_a01/site.tscn`
+and `lot/strip_retail_a02/site.tscn`, each naming its OWN
+`res://lot/<id>/site_base.glb`. It is in `portable_resource_manifest.json`
+line 2311, so it ships AND imports rather than merely sitting on disk. Cold
+run 9057's `LF_club_block_001` carries the same orphan at 400,444 bytes.
+
+**What wrote it, established before anything was deleted**, because the sizes
+say it is not the first building's base (371,260 / 525 / 279 against
+card_shop_a01's 388,568 / 539 / 293). One copy exists upstream, in
+`presentation_compose/out/presentation/`, and the adapter says why:
+`adapters/presentation.plan_commands` composes the mission's OWN shell to
+`presentation/site.tscn` for every mission, varied or not, to satisfy that
+job's output contract -- the note by its `_LOT_SUBDIR` records that a varied
+lot does not place it. On a varied lot that compose gets no kit
+(`modules_dir` is keyed per archetype and carries no `""` entry), so its
+`compose.summary.json` reports `portable: false` with 63 dangling
+`res://art/zoo/*` refs, and the base comes out beside the scene.
+
+The export already refused that scene. `_root_site_wanted` asks
+`lux.applied.tscn`, which names `res://lot/<id>/site.tscn` three times and
+`res://site.tscn` never, so `skip_rel` dropped `site.tscn` -- and kept the
+`site_base.glb` that scene alone names, `id="0_greybox_base"`. They are one
+pair now, `_COMPOSED_ROOT_PAIR`, skipped or kept together. The two paths that
+need the base keep it by construction rather than by a second rule: `wanted`
+means the root scene ships as the entry, and `building_rel` means the whole
+composed root moves under `lot/<id>/`, where the assembly names it (roadmap
+49).
+
+Not free while it lasted: with no `art/` beside it, 0.93.0's `_skin_stairs`
+guard push_errors `[worldskin] res://site_base.glb; NO art/zoo BESIDE THE
+BASE -- 18 flight mesh(es) left in the greybox material` on every import of a
+package of this shape, and `--import` still exits 0. An error about a file
+nobody loads is how a real one stops being read.
+
+**Kept:** `zoo_worldskin.gd`, which sits beside the base at the composed root.
+`project.godot` sets it as the `[importer_defaults] scene` import script, so
+every `.import` in the package -- three building bases, the cover props, every
+kit module -- names `res://zoo_worldskin.gd` at the ROOT; the `lot/<id>/`
+copies are named by nothing. And the skip is by relative path, not by name:
+`site_base.glb` is the name of four different files in a varied package and
+`_copy_tree`'s `skip` matches basenames anywhere in the tree, which is the
+failure already recorded above that call for `site.tscn`.
+
+`tests/unit/test_orphan_root_base.py`, six cases. One fails on 0.93.0; the
+other five are the paths that must not move.
+
+### Fixed -- A TEST FINDS A SIBLING REPO BY LOOKING FOR IT
+
+0.91.0 fixed `test_dc_preset_registry.py` and named the shape:
+`parents[3] / "deli_counter"` is right from a checkout beside its siblings and
+wrong from a git WORKTREE, which is where the work happens. Six more files
+were still counting parents, found by running the suite from
+`gabagool_factory/scratchpad/lf_stairs`. **They do not all fail the same way,
+and the difference is worth keeping:**
+
+- **Two FAILED**, which is the better failure. `test_signs_in_site_spec.py`
+  raised `KeyError: 'signs'` twice, under the builder's own `no shop signs:
+  theme 'delco_1997' names no businesses` -- the theme file was there the
+  whole time; the test looked in `scratchpad/pixelcoat`.
+  `test_layer3_wiring.py::test_the_tracked_asset_set_file_names_the_four_clutter_species`
+  raised `FileNotFoundError` on `scratchpad\patina\patina\asset_sets\
+  ground_clutter.json`.
+- **Three files SKIPPED, seven tests**, which is 0.91.0's failure again -- a
+  pass nobody made. `test_agent_contract_seam.py` (lasertag, 1),
+  `test_theme_zoo_resolution.py` (zoo, 4) and `test_lasertag_contract.py`
+  (lot and lasertag, 2).
+- **One PASSED, on the wrong corpus**, and that is the worst of the four.
+  `test_archetype_resolution.py` sweeps every `brief.json` under
+  `parents[2]`, which from a worktree is `scratchpad` -- so it read the OTHER
+  worktrees' copies of these same briefs. Measured: 4 briefs and 4
+  archetypes against the factory's 85 and 11, with `mixed_block` -- the one
+  offender its `_KNOWN_UNRESOLVABLE` list exists to hold -- absent. Its own
+  `test_the_corpus_is_not_empty` asks for 20 and did catch it -- the first
+  reading of "three failures" came from a run whose output had been tailed to
+  forty lines, which is the same defect as the rest of this entry wearing a
+  pipe.
+- **And one is not a test.** `adapters/zoo`'s
+  `_FACTORY_ROOT = parents[3]` reaches `tools/shape_metrics.py` at the factory
+  root and reached `scratchpad/tools/` from a worktree, so `measure_shapes`
+  refused with its own `measure_shapes needs <...>/scratchpad/tools/
+  shape_metrics.py, which is not there` and three tests in
+  `test_dressing_jobs.py` went red. The comment above it already said "a path
+  walk is a silent failure waiting to happen" and answered it with a check
+  rather than a search. It searches now, `LF_FACTORY_ROOT` first, and answers
+  with this repo's own root -- found by its `pyproject.toml`, not counted --
+  when the tool is nowhere above, so the refusal names a real directory. From
+  a checkout nothing changes: the walk's first hit is the directory the count
+  named.
+
+  IT IS NOT IN THE SWEEP THAT FOUND THE OTHER SIX. `grep -rn "parents\[" tests/`
+  cannot see it, because it is not in `tests/`. Running the suite from a
+  worktree is what saw it.
+
+`tests/siblings.py` replaces the arithmetic with a search: `sibling_repo(name,
+marker=...)` walks up from the test file to the nearest directory that carries
+the file the caller is about to read, `LF_<NAME>_ROOT` overrides it
+(`LF_DC_ROOT` keeps the name 0.91.0 shipped), a wrong override is reported
+rather than papered over, and the answer is `None` so the caller decides
+whether absence is a skip or an assertion. The `marker` is the argument that
+makes it a search for a REPO rather than for a directory with the right name.
+`factory_root()` derives the tree the brief corpus lives in from Deli
+Counter's `agent_contract.json` rather than counting to it.
+
+The two that failed now ASSERT the locator found something, naming the file
+and the override. The three that skipped keep skipping -- that is 0.91.0's own
+call for an optional cross-repo check -- but their locator is fixed, so they
+no longer skip from a worktree: seven skipped tests became zero.
+
+`tests/unit/test_sibling_locator.py` is the part that generalises, because the
+defect is not any one locator, it is that the arithmetic keeps getting
+written. It reads every `.py` in the repo with `ast` and fails on
+any `parents[N]` landing above the repo -- N is compared against the file's
+OWN depth to the root, which is what lets it sweep production code where a
+`parents[3]` in `apps/cli/commands/` is correct -- and on any
+`<expr>.parent / "<sibling repo>"`. It started at `tests/`; widening it cost
+one line and is what would have found the zoo adapter. On 0.93.0 it fails on
+seven files and passes on `test_dc_preset_registry.py`, whose docstring
+quotes the old spelling as history: `ast` is why prose is not a finding, and
+there is a test for that. Its first draft asked whether the left-hand source
+contained the word `parent` and flagged 0.91.0's correct walk -- a checker
+that reports the fix as the defect. `.parent`, with the dot.
+
+### Where the numbers came from
+
+Cold run 9061 (`workspaces/cold-9061-ws`, card_block_001, Deli Counter
+0.139.0) and cold run 9057 (club_block_001), both read and neither edited.
+Suite run from both a checkout and a worktree, because a fix for a defect that
+only exists in a worktree has not been tested until it has been run from one.
+
 ## [0.93.0] - a card shop has no concrete wall
 
 Roadmap 144, walked TWICE. 0.72.0 wrote the stair skin and measured it on a

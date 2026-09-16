@@ -24,6 +24,14 @@ from packages.core.models import MissionBrief  # noqa: E402
 from packages.exporting import dressing_layer  # noqa: E402
 from packages.exporting.localize import LocalizeReport, write_entry_scene  # noqa: E402
 from packages.pipeline.planner import LAYER_ART, plan_mission  # noqa: E402
+from tests.siblings import not_found, sibling_repo  # noqa: E402
+
+#: Patina's tracked asset-set file, which one test below reads as source.
+#: `ROOT.parent / "patina"` found it beside the checkout and found
+#: `scratchpad/patina` from a worktree -- a FileNotFoundError about a repo
+#: that was never missing (0.94.0). `tests/siblings.py` walks up to it.
+_CLUTTER_REL = "patina/asset_sets/ground_clutter.json"
+PATINA = sibling_repo("patina", marker=_CLUTTER_REL)
 
 _SEL = "m1.candidate.seed_1997"
 
@@ -180,8 +188,13 @@ def test_a_missing_asset_set_file_plans_a_refusal_not_a_crash(tmp_path, capsys):
 
 
 def test_the_tracked_asset_set_file_names_the_four_clutter_species():
-    """The real file, in the real Patina checkout beside this repo."""
-    path = ROOT.parent / "patina" / "patina" / "asset_sets" / "ground_clutter.json"
+    """The real file, in the real Patina checkout above this one.
+
+    ASSERTED, not skipped: this is the only test that reads the file the
+    species actually come from, and a run that cannot find Patina has learned
+    nothing about the four species it is asserting."""
+    assert PATINA is not None, not_found("patina", marker=_CLUTTER_REL)
+    path = PATINA / "patina" / "asset_sets" / "ground_clutter.json"
     doc = json.loads(path.read_text(encoding="utf-8"))
     assert sorted(doc["asset_sets"]) == ["litter_scrap", "pebble", "rubble_frag",
                                          "weed_tuft"]

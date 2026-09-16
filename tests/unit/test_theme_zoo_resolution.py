@@ -18,16 +18,19 @@ twice.
 """
 import json
 import sys
-from pathlib import Path
 
 import pytest
 
 from packages.tools import themes
+from tests.siblings import not_found, sibling_repo
 
-# parents[2] is `level_factory`; the sibling checkouts are one above it.
-_ROOT = Path(__file__).resolve().parents[3]
-_ZOO = _ROOT / "zoo"
-_SPECIES = _ZOO / "zoo_keeper" / "genome" / "species"
+# A SEARCH, not a count of parents. `parents[3]` holds the sibling checkouts
+# from a checkout and is `scratchpad` from a worktree, where every test below
+# skipped (0.94.0). The species directory is the marker because that is what
+# these read; a `zoo/` with something else in it is not this zoo.
+_SPECIES_REL = "zoo_keeper/genome/species"
+_ZOO = sibling_repo("zoo", marker=_SPECIES_REL)
+_SPECIES = (_ZOO / _SPECIES_REL) if _ZOO else None
 
 #: Names worth asking of both. The first is the one that caused this; the rest
 #: cover each branch of the rule and the cases that must NOT resolve.
@@ -38,8 +41,8 @@ _THEMES = ["delco_1997", "delco", "1990s", "rockay", "center_city",
 
 def _zoo_theme_style():
     """Zoo's own implementation, or a skip when the checkout is not beside us."""
-    if not _SPECIES.is_dir():
-        pytest.skip("zoo checkout not beside level_factory")
+    if _SPECIES is None:
+        pytest.skip(not_found("zoo", marker=_SPECIES_REL))
     if str(_ZOO) not in sys.path:
         sys.path.insert(0, str(_ZOO))
     try:
@@ -97,16 +100,16 @@ def test_the_corpus_actually_exercises_the_fallback():
 
 def test_the_preflight_counts_resolution_not_spelling():
     """The reading that was wrong: 0 species carry the name, 56 resolve it."""
-    if not _SPECIES.is_dir():
-        pytest.skip("zoo checkout not beside level_factory")
+    if _SPECIES is None:
+        pytest.skip(not_found("zoo", marker=_SPECIES_REL))
     zoo = themes.resolve("delco_1997", {"zoo": str(_ZOO)})["zoo"]
     assert zoo["species_with_style"] == 0, "no species spells delco_1997"
     assert zoo["species_with_resolved_style"] == zoo["species_scanned"] > 0
 
 
 def test_a_theme_nothing_answers_still_reports_zero():
-    if not _SPECIES.is_dir():
-        pytest.skip("zoo checkout not beside level_factory")
+    if _SPECIES is None:
+        pytest.skip(not_found("zoo", marker=_SPECIES_REL))
     zoo = themes.resolve("nonesuch", {"zoo": str(_ZOO)})["zoo"]
     assert zoo["species_with_resolved_style"] == 0
     lines = " ".join(themes.summary_lines(themes.resolve(

@@ -23,6 +23,13 @@ import pytest
 
 from adapters import laser_tag
 from packages.validation import agent_contract
+from tests.siblings import not_found, sibling_repo
+
+#: Laser Tag's scenario resource, read as source. `parents[3] / "lasertag"`
+#: found it beside the checkout and found nothing from a worktree, so the one
+#: test that compares the two repos SKIPPED there (0.94.0, the shape 0.91.0
+#: named).
+_SCENARIO_REL = "addons/laser_tag_tool/resources/LT_TestScenario.gd"
 
 
 def _contract(tmp_path, **player):
@@ -191,10 +198,10 @@ def test_every_stock_key_is_a_real_scenario_field():
     the same defect facing the other way. Skipped when the sibling checkout is
     not present."""
     import re
-    gd = (Path(__file__).resolve().parents[3] / "lasertag" / "addons"
-          / "laser_tag_tool" / "resources" / "LT_TestScenario.gd")
-    if not gd.is_file():
-        pytest.skip("lasertag checkout not beside level_factory")
+    lasertag = sibling_repo("lasertag", marker=_SCENARIO_REL)
+    if lasertag is None:
+        pytest.skip(not_found("lasertag", marker=_SCENARIO_REL))
+    gd = lasertag / _SCENARIO_REL
     exports = set(re.findall(r"^@export var (\w+)", gd.read_text(encoding="utf-8"),
                              re.M))
     unknown = sorted(k for k in laser_tag._STOCK_SCENARIO if k not in exports)

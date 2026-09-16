@@ -17,6 +17,7 @@ import pytest
 
 from adapters.deli_counter import (UnknownArchetype, _ARCHETYPE_ALIASES,
                                    _VALID_PRESETS, _preset_for)
+from tests.siblings import factory_root
 
 
 @pytest.mark.parametrize("preset", sorted(_VALID_PRESETS))
@@ -109,7 +110,13 @@ def test_unresolvable_archetypes_still_hash_DISTINCTLY():
 
 import json
 
-_ROOT = Path(__file__).resolve().parents[2]
+#: The tree the corpus lives in: `level_factory/examples`, the recorded cold
+#: runs and `workspaces/`. `parents[2]` named it from a checkout and named
+#: `scratchpad` from a worktree -- where this sweep read the OTHER worktrees'
+#: copies of these same briefs, found more than twenty of them and passed, on
+#: a corpus nobody meant. Derived from Deli Counter now (`tests/siblings.py`),
+#: so both spellings of "run the suite" read one tree.
+_ROOT = factory_root()
 
 #: Briefs known to name an archetype no preset answers to, with the reason.
 #: NOT a suppression list: a brief here is a defect somebody has to decide
@@ -152,6 +159,10 @@ def _brief_paths():
     defect that was sitting in one of the 2. A walk cannot miss a directory
     shape nobody thought of.
     """
+    assert _ROOT is not None, (
+        "the factory root is not above %s -- set LF_DC_ROOT. A corpus sweep "
+        "with no corpus passes and proves nothing."
+        % Path(__file__).resolve().parent)
     out = []
     for path in _ROOT.rglob("*.json"):
         if _SKIP_DIRS & set(path.parts):

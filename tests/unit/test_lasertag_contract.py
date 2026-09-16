@@ -22,6 +22,13 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from packages.validation import lasertag_contract as lt  # noqa: E402
+from tests.siblings import not_found, sibling_repo  # noqa: E402
+
+#: The two shipped files these compare, each named by what makes its repo
+#: recognisable. `ROOT.parent / "<repo>"` is `level_factory`'s parent, which
+#: is `scratchpad` from a worktree: both checks skipped there (0.94.0).
+_LOT_REL = "site_cover.py"
+_LT_REL = "addons/laser_tag_tool"
 
 
 # ---------------------------------------------------------------------------
@@ -355,10 +362,11 @@ def test_the_shipped_lot_constants_agree_with_the_shipped_evaluator():
     """The two repositories, as they stand on disk. Skipped when either
     sibling checkout is absent -- this is the check that stops the copies
     drifting, so it has to run against the copies rather than a fixture."""
-    lot = ROOT.parent / "lot"
-    lasertag = ROOT.parent / "lasertag"
-    if not (lot / "site_cover.py").is_file() or not lasertag.is_dir():
-        pytest.skip("lot and lasertag checkouts not beside level_factory")
+    lot = sibling_repo("lot", marker=_LOT_REL)
+    lasertag = sibling_repo("lasertag", marker=_LT_REL)
+    if lot is None or lasertag is None:
+        pytest.skip("%s; %s" % (not_found("lot", marker=_LOT_REL),
+                                not_found("lasertag", marker=_LT_REL)))
     import re
     text = (lot / "site_cover.py").read_text(encoding="utf-8")
     eye = float(re.search(r"^EYE_HEIGHT = ([\d.]+)", text, re.M).group(1))
@@ -426,9 +434,9 @@ def test_an_unwired_crew_sight_still_comes_from_the_bot():
 def test_the_shipped_checkout_opens_at_the_crews_range():
     """Against the real files. This is the number Lot sizes every enemy
     placement against, and it read 35 for as long as the module existed."""
-    lasertag = ROOT.parent / "lasertag"
-    if not lasertag.is_dir():
-        pytest.skip("lasertag checkout not beside level_factory")
+    lasertag = sibling_repo("lasertag", marker=_LT_REL)
+    if lasertag is None:
+        pytest.skip(not_found("lasertag", marker=_LT_REL))
     eng = lt.read_engagement_from(lasertag)
     assert eng.player_sight == 45.0
     assert eng.opening_range == 45.0

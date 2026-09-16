@@ -23,39 +23,23 @@ until it finds a `deli_counter/presets.py`, and `LF_DC_ROOT` overrides.
 Run:  python -m pytest tests/unit/test_dc_preset_registry.py
 """
 import ast
-import os
-from pathlib import Path
 
 import pytest
 
 from adapters.deli_counter import _preset_for, _VALID_PRESETS
+from tests.siblings import not_found, sibling_repo
 
-
-def _presets_path():
-    """The nearest `deli_counter/presets.py` at or above this file, or None.
-
-    `LF_DC_ROOT` first, then every ancestor directory. Returning the path
-    rather than a bool so the skip message can say where it looked.
-    """
-    env = os.environ.get("LF_DC_ROOT")
-    if env:
-        p = Path(env) / "presets.py"
-        return p if p.is_file() else (Path(env) / "deli_counter" / "presets.py")
-    here = Path(__file__).resolve()
-    for parent in here.parents:
-        p = parent / "deli_counter" / "presets.py"
-        if p.is_file():
-            return p
-    return None
-
-
-PRESETS = _presets_path()
+#: 0.94.0: the walk this file introduced now lives in `tests/siblings.py`,
+#: because three more tests had the same one-path locator and a rule with four
+#: copies is four rules. The behaviour is unchanged, `LF_DC_ROOT` included.
+_PRESETS_REL = "presets.py"
+_DELI = sibling_repo("deli_counter", marker=_PRESETS_REL)
+PRESETS = (_DELI / _PRESETS_REL) if _DELI else None
 
 
 def _registry_keys():
-    if PRESETS is None or not PRESETS.is_file():
-        pytest.skip("Deli Counter not found above %s (set LF_DC_ROOT)"
-                    % Path(__file__).resolve().parent)
+    if PRESETS is None:
+        pytest.skip(not_found("deli_counter", marker=_PRESETS_REL))
     tree = ast.parse(PRESETS.read_text(encoding="utf-8"))
     for node in tree.body:
         if isinstance(node, ast.Assign) and any(
