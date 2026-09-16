@@ -226,6 +226,21 @@ _ROOT_SITE_REF = re.compile(r'^\[ext_resource[^\]]*path="res://site\.tscn"',
 _LOT_SITE_REF = re.compile(r'path="(lot/([^"/]+)/site\.tscn)"')
 
 
+#: THE COMPOSER'S ROOT PAIR, kept or dropped TOGETHER (see the `skip_rel` at
+#: the composed-root copy). `site.tscn` is the scene Deli Counter's composer
+#: writes at the root of a composed package; `site_base.glb` is the greybox
+#: base that scene alone names, as `res://site_base.glb` with
+#: `id="0_greybox_base"`. Nothing else in a package can reach it: each
+#: building names `res://lot/<id>/site_base.glb` instead.
+#:
+#: NOT `zoo_worldskin.gd`, which sits beside them at the composed root and
+#: always ships. `project.godot` sets it as the `[importer_defaults] scene`
+#: import script, so EVERY `.import` in the package -- all three buildings'
+#: bases, the cover props, the kit modules -- names `res://zoo_worldskin.gd`
+#: at the root. The copies under `lot/<id>/` are named by nothing.
+_COMPOSED_ROOT_PAIR = frozenset({"site.tscn", "site_base.glb"})
+
+
 def _assembly_building_dir(themed_site_dir, composed_root) -> str:
     """``"lot/<id>"`` when the composed root belongs under it, else ``""``.
 
@@ -848,13 +863,48 @@ def export_mission(
         # `lot/<id>/`, because there it IS the building the assembly names.
         # Skipping it would recreate the same dangling reference one
         # directory down.
+        #
+        # AND ITS BASE GOES WITH IT -- `_COMPOSED_ROOT_PAIR`, not just the
+        # scene. A varied lot refused the composer's root `site.tscn` here
+        # and shipped the `site_base.glb` that scene alone names, so the
+        # package carried a mesh nothing could reach. Measured on cold run
+        # 9061's card_block_001: 371,260 bytes at the package root, 525
+        # nodes, 279 meshes, 18 `stair0_*` flight meshes, named by no
+        # `.tscn` in the package -- the three buildings name
+        # `res://lot/<id>/site_base.glb` (388,568 / 187,884 / 150,668) --
+        # and listed in `portable_resource_manifest.json`, so it ships AND
+        # imports rather than merely sitting on disk. Cold run 9057's
+        # LF_club_block_001 carries the same orphan at 400,444 bytes.
+        #
+        # WHAT WROTE IT, since the size says it is not the first building's:
+        # `adapters/presentation.plan_commands` composes the mission's OWN
+        # shell to `presentation/site.tscn` for every mission, varied or
+        # not, to satisfy that job's output contract -- its own note by
+        # `_LOT_SUBDIR` says a varied lot does not place it. On a varied lot
+        # that compose gets no kit (`modules_dir` is keyed per archetype and
+        # carries no "" entry), so it emits a scene with 63 dangling
+        # `res://art/zoo/*` refs and `portable: false` beside this base. The
+        # scene was already refused here. The base is its other half.
+        #
+        # NOT FREE, either: the base has no `art/` beside it, so 0.93.0's
+        # `_skin_stairs` guard push_errors `[worldskin] res://site_base.glb;
+        # NO art/zoo BESIDE THE BASE -- 18 flight mesh(es) left in the
+        # greybox material` on every import of a package of this shape, and
+        # `--import` still exits 0. An error about a file nobody loads is
+        # how a real one stops being read.
+        #
+        # BOTH OTHER PATHS KEEP IT, and by construction rather than by a
+        # second rule: `wanted` means the root scene ships as the entry, and
+        # `building_rel` means the whole composed root moves under
+        # `lot/<id>/` where the assembly names it. The base's fate is the
+        # scene's fate in all three.
         _copy_tree(composed_root, dest,
                    skip={"project.godot", "HANDOFF.md",
                          "portable_resource_manifest.json",
                          "compose.summary.json",
                          "site_main.tscn"},
                    skip_rel=(set() if (wanted or building_rel)
-                             else {"site.tscn"}),
+                             else set(_COMPOSED_ROOT_PAIR)),
                    skip_dirs={".godot", "addons"})
 
     # 2.5 THE ASSEMBLY SCENE.
