@@ -1,3 +1,171 @@
+## [0.93.0] - a card shop has no concrete wall
+
+Roadmap 144, walked TWICE. 0.72.0 wrote the stair skin and measured it on a
+hospital; the walker photographed the same yellow-orange flight again on cold
+run 9061's package, in `card_shop_a01`, between skinned brick walls, at world
+(-49.0, 1.6, -0.2). The pass had not regressed. It had never been able to
+answer for that building, and it said so into a log nobody reads.
+
+`STAIR_KIND = "concrete"` asks a building for a finish it may not own.
+Re-imported that package headless, four `site_base.glb` imports, four
+different notes, `0 stair surface(s) skinned` on every one:
+
+    lot/pharmacy_a01      found concrete in wall_delco_1997_01_w200.glb -- and
+                          no stair mesh in that base at all. A correct no-op,
+                          printed in the same sentence as a real failure.
+    lot/strip_retail_a02  the same.
+    site_base.glb (root)  "no art/zoo beside the base": an export leftover no
+                          scene in the package references, carrying 18
+                          instanced flight meshes.
+    lot/card_shop_a01     "no imported kit module wearing concrete under
+                          art/zoo". Its kit is brick, glass facade, drywall and
+                          wood panel. 18 flight meshes left in `gb_stair`.
+
+### Changed -- THE PACK COMES FROM A FAMILY, NOT FROM A FINISH NAME
+
+- `zoo_worldskin.gd`: `STAIR_FLIGHT_FAMILY = ["floor_"]`. A tread is a floor,
+  every building has a floor family by construction, and `site.tscn` already
+  instances it. Within the family, sort order picks the module, and that is a
+  derivation rather than luck: Zoo's `kit.module_stem` writes
+  `{typ}_{theme}_{style:02d}` with the style index at a fixed position, and a
+  style index is the 1-based position in `spec.materials`, whose first entry is
+  the spec's default finish (`floors.FINISH_PALETTE` is APPENDED, so authored
+  styles keep their numbers -- roadmap 146). Lowest style = the building's
+  default surface. Measured across the package: card_shop floor 05 concrete /
+  08 tile / 09 carpet, pharmacy and strip_retail floor 01 default / 06 carpet /
+  07 tile. Concrete in all three, without the word "concrete" appearing in the
+  lookup.
+- `STAIR_KIND` is gone; its refutation is kept above the rule that replaced it.
+- The result on card_shop_a01: `18 flight surface(s) skinned on 18 mesh(es), 0
+  mesh(es) left flat; flight from floor_delco_1997_05_w1000_d700.glb`, world
+  triplanar at `uv1_scale` 0.5000 -- the 2.0 m pack period, so the stair's texel
+  density equals the wall's beside it.
+
+### Changed -- AND IT REFUSES OUT LOUD
+
+A flight mesh with no pack is counted and `push_error`ed, naming the base. The
+failure this replaces was a `print`. Three outcomes that used to share one
+sentence now have three:
+
+    no flight mesh in this base, nothing to skin      (pharmacy, strip_retail)
+    NO art/zoo BESIDE THE BASE -- n flight mesh(es)   (the root leftover)
+    NO MODULE UNDER art/zoo IN FAMILIES [...]         (a kit that cannot answer)
+
+`--import` still exits 0; the error is a report, not a build failure.
+
+### Refuted while building it -- THE GUARDS ARE NOT THIS PASS'S BUSINESS
+
+The plan was to skin `stair_guard_*` with the wall family, reading a 1.07 m by
+0.10 m guard (`stairwell.GUARD_HEIGHT` / `GUARD_THICK`) as a wall rather than a
+balustrade. Asked the artefact first, and it is wrong twice:
+
+- The themed scene already fills those six slots, better.
+  `lot/card_shop_a01/site.tscn` 661-676 instances
+  `prop_delco_1997_01_w385_d40_h315_mbrick` on both sides and the back and
+  `prop_delco_1997_07_*_mwood` on the three rails -- the building's own wall for
+  the sides, wood for the rails, from its palette, exactly as
+  `Builder._stair_guards`' docstring says. Painted metal, or any pack chosen
+  here, would have overridden a palette-driven decision with a hardcoded one.
+- The base's guard meshes are not drawn at all. In the GLB the six meshes
+  `stair_guard_side_0` .. `stair_guard_back_5` (all `gb_prop`) are referenced by
+  NO node; the only nodes carrying a guard mesh are the `*_col-convcolonly`
+  bodies. The composer drops the greybox mesh for a slot it fills. Same on four
+  more buildings -- bank_branch_a02 48 stair-named meshes / 38 instanced,
+  construction_site_a01 24 / 19, strip_club_a03 25 / 19, twin_a01 80 / 60, every
+  orphan a guard.
+
+So a guard mesh is counted and left alone, and an INSTANCED one is reported: it
+means a slot the composer did not fill, and skinning it would hide that.
+
+### What it costs, measured on the real package, GL Compatibility
+
+Nine `look_shots` stations, the same package with the script on and off, eight
+of them controls whose image is identical to 0.1 of a code:
+
+    station      gpu ms off    on     delta     mean L off -> on
+    elev_N           18.890  19.059  +0.169     166.0  165.9
+    elev_S            9.899   9.034  -0.865     117.5  117.5
+    elev_E            9.103   8.649  -0.454     105.9  105.9
+    elev_W            8.865   8.816  -0.049     174.3  174.3
+    spawn            13.202  12.802  -0.400     148.0  148.0
+    objective         3.485   3.737  +0.252     147.3  147.3
+    extraction        5.412   5.769  +0.357     150.6  150.6
+    stair            12.922  12.623  -0.299      84.0   78.4
+
+The controls scatter -0.865 to +0.357 ms. The one station whose picture changed
+moved -0.299, inside that band and in the cheaper direction. Below the noise
+floor, RTX 2060, gl_compatibility, 1280x720.
+
+Counted by resource identity over the whole site scene:
+
+    distinct materials        628 -> 628   (one material replaces one)
+    drawn surfaces          4,089 -> 4,089 (no new draw call; the 18 stair
+                                            meshes already drew)
+    distinct textures       1,284 -> 1,287 (+3)
+    texture bytes     207,842,476 -> 208,563,370  (+720,894 = +0.688 MiB, +0.35%)
+
+THE TEXTURE COST IS REAL AND WAS EXPECTED TO BE ZERO. The plan said a pack the
+building already loads is free. It is not: `surface_set_material` at import
+bakes the material into the base's own imported scene, and Godot serialises the
+embedded images with it, so the concrete albedo, roughness and metallic arrive
+as COPIES -- 256x256 RGB8, 262,143 + 262,143 + 196,608 bytes, at
+`res://lot/card_shop_a01/site_base.glb::ImageTexture_*` rather than shared with
+`floor_delco_1997_05_w1000_d700.glb`. The import cache for that base grows
+29,883 -> 200,641 bytes on the consumer's machine. Per building WITH stairs;
+buildings without pay nothing.
+
+0.688 MiB against 198.2 MiB of scene texture is the cheap version and it ships.
+What the expensive one buys: an external shared material resource, or a Zoo
+stair species with its own pack, would take the +3 to 0 and give the flight a
+nosing and a worn edge instead of a floor's tile. The budget is recorded here
+so it can be reopened when there is runtime telemetry to reopen it with.
+
+### Which walks see it
+
+Both, and the same way. The change is in the import script bound by
+`import_script/path` in every `site_base.glb.import` sidecar, so the base is
+skinned before any scene instances it -- the themed walk (`walk_export.py`) and
+the greybox walk (`walk_greybox.py`) show the same flight. There is no themed-
+only path here and the two walks cannot disagree about it.
+
+`tools/walk_themed.py` is the exception and it is NOT this repo's file: it reads
+a `zoo_worldskin.gd` sitting beside itself in the factory root, 6,664 bytes
+against this one's 35,470, with no stair pass in it at all. Recorded in the
+report, not fixed here.
+
+### What it looks like
+
+`look_shots --station stair:-49.0,1.6,-0.2,-45.0,1.8,0.05`, the walker's own
+position, before and after, over the tread region (565,395)-(780,690):
+
+    mean R  173.9 -> 111.5   (-62.4)
+    mean G  145.1 ->  96.0   (-49.1)
+    mean B   98.5 ->  90.1   ( -8.4)
+    luma    147.8 ->  98.8   (-49.0)
+    chroma   75.4 ->  25.1   (-50.3)
+
+The yellow was carried almost entirely by red over blue; it comes out as a warm
+grey with the pack's aggregate speckle in it. It does NOT read as a hole: the
+treads sit at luma 98.8 against 51.0 on the brick wall beside them, so the
+flight is still the brightest thing in the frame, and tread-to-riser separation
+widens slightly (p95 - p50 16.5 -> 19.1), so the nosing reads. No z-fighting:
+the material is assigned to the existing surfaces, no geometry is added.
+
+### Added
+- `tests/unit/test_worldskin_stairs.py` -- seven cases driven through a REAL
+  Godot import of a generated one-building package, and two source-shape cases.
+  All nine fail on 0.91.0. The Godot cases skip where no binary is found
+  (`LF_GODOT`, `DC_GODOT`, `LOT_GODOT`, the usual path, then PATH). They run the
+  real script because the defect was invisible to any source-shape test that
+  could have been written: the GDScript was correct and the building did not
+  answer it.
+- `tests/unit/glb_import_fixture.py` -- `.glb` files Godot can actually import,
+  with a BIN chunk and a hand-written PNG. `glb_fixture.py` next door emits a
+  JSON chunk and no binary, deliberately, because its reader never loads one.
+
+No adapter version bump: `PresentationAdapter` already hashes
+`installed_asset_hash[zoo_worldskin.gd]` into the build fingerprint, so editing
+the script recomposes every mission on its own.
 ## [0.92.0] - the theme existed, and the wall was still blank
 
 Roadmap 72 taught `plan` and `run` to ask whether a brief's theme has a

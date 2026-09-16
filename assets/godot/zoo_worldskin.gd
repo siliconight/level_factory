@@ -43,11 +43,74 @@ const KIT_PREFIXES: Array = ["wall_", "wallEnd_", "window_", "doorway_",
 ## level the yellow still shows.
 const BASE_PREFIX: String = "site_base"
 const STAIR_PREFIX: String = "stair"
-## What a stair wears: the building's own concrete pack, found beside the
-## base under `art/zoo/` as the albedo Zoo copied next to a concrete kit
-## module. The stairs are concrete in every 1990s hospital there is; a stair
-## species with its own pack is the later, dearer answer.
-const STAIR_KIND: String = "concrete"
+
+## REFUTED 2026-09-16, kept above the rule that replaced it.
+##
+## 0.72.0 wrote `STAIR_KIND = "concrete"` and looked for a kit module whose
+## material name carried `_concrete`. "The stairs are concrete in every 1990s
+## hospital there is" was true and the lookup was not: it asks a building for
+## a finish it may not own. Measured on cold run 9061's package, four
+## `site_base.glb` imports, four different notes, and `0 stair surface(s)
+## skinned` on every one of them:
+##
+##   lot/pharmacy_a01     found concrete in wall_delco_1997_01_w200.glb -- and
+##                        that base has no stair mesh at all. Correct no-op,
+##                        indistinguishable in the log from a failure.
+##   lot/strip_retail_a02 the same.
+##   site_base.glb (root) no `art/zoo` beside it: an export leftover no scene
+##                        references, carrying 24 visual stair meshes.
+##   lot/card_shop_a01    24 visual stair meshes, and its kit is brick, glass
+##                        facade, drywall and wood panel. A CARD SHOP HAS NO
+##                        CONCRETE WALL. "no imported kit module wearing
+##                        concrete under art/zoo", and the walker photographed
+##                        the yellow flight between skinned brick walls.
+##
+## So the pack is chosen by FAMILY, not by finish name. Every building has a
+## floor and a wall family by construction, and `site.tscn` instances both --
+## which is what makes this free: the material duplicated here points at a
+## texture that is already resident, so no texture memory and no draw call is
+## added. Within a family, sort order picks the module, and sort order is a
+## derivation rather than an accident: Zoo's `kit.module_stem` writes
+## `{typ}_{theme}_{style:02d}` with the style index at a fixed position, and a
+## style index is the 1-based position in `spec.materials`, whose first entry
+## is the spec's default finish (`floors.FINISH_PALETTE` is APPENDED, so
+## authored styles keep their numbers -- roadmap 146). Lowest style = the
+## building's default surface. Measured on the same package: card_shop
+## floor 05 concrete / 08 tile / 09 carpet, pharmacy and strip_retail floor 01
+## default / 06 carpet / 07 tile -- the default in all three.
+##
+## A TREAD IS A FLOOR, so the flight takes the floor family.
+const STAIR_FLIGHT_FAMILY: Array = ["floor_"]
+## THE GUARDS ARE NOT THIS PASS'S BUSINESS, and that was a plan before it was
+## a rule -- the rule is what the artefact said when it was asked.
+##
+## `stairwell.stair_guards` bakes `side`, `back` and `rail` volumes beside the
+## flight and `Builder._stair_guards` gives each one "the geometry, collision,
+## recorded slot and surface material every volume gets". RECORDED SLOT is the
+## operative half. The intended change here was to skin `stair_guard_*` with
+## the wall family, on the reading that a 1.07 m by 0.10 m guard is a wall
+## rather than a balustrade. Measured on cold run 9061's card_shop_a01 before
+## writing it, and it is wrong twice over:
+##
+##  * The themed scene already fills those six slots, with better packs than
+##    this could pick. `lot/card_shop_a01/site.tscn` lines 661-676 instance
+##    `prop_delco_1997_01_w385_d40_h315_mbrick` on the two sides and the back
+##    and `prop_delco_1997_07_*_mwood` on the three rails -- the building's
+##    own wall for the sides and wood for the rails, from its palette, exactly
+##    as `_stair_guards`' docstring says. Painted metal would have replaced a
+##    palette-driven choice with a hardcoded one.
+##  * The base's guard meshes are not drawn at all. In the GLB the six meshes
+##    `stair_guard_side_0` .. `stair_guard_back_5` (all `gb_prop`) are
+##    referenced by NO node; the only nodes carrying a guard mesh are the
+##    `*_col-convcolonly` bodies. The composer drops the greybox mesh for a
+##    slot it fills. Same shape on four more buildings: bank_branch_a02 48
+##    stair-named meshes / 38 instanced, construction_site_a01 24 / 19,
+##    strip_club_a03 25 / 19, twin_a01 80 / 60 -- every orphan a guard.
+##
+## So a guard mesh is COUNTED and LEFT ALONE. One that is actually instanced
+## means a slot the composer did not fill, and skinning it here would hide
+## that rather than report it.
+const STAIR_GUARD_PREFIX: String = "stair_guard_"
 
 ## Families whose module is ONE TILE of a surface that repeats: the kit above,
 ## and the panels a floor, ceiling or roof is laid from, and Patina's building
@@ -313,9 +376,10 @@ func _post_import(scene: Node) -> Object:
 				% [base, int(vc[0]), int(vc[1]), int(vc[2])])
 	if not is_kit:
 		if base.begins_with(BASE_PREFIX):
-			var n: Array = _skin_stairs(scene, get_source_file().get_base_dir())
-			print("[worldskin] %s  %d stair surface(s) skinned on %d mesh(es)%s"
-				% [base, int(n[0]), int(n[1]), String(n[2])])
+			var n: Dictionary = _skin_stairs(scene, get_source_file().get_base_dir())
+			print("[worldskin] %s  stairs: %d flight surface(s) skinned on %d mesh(es), %d mesh(es) left flat%s"
+				% [base, int(n["flight_surfaces"]), int(n["flight_meshes"]),
+					int(n["unskinned_meshes"]), String(n["note"])])
 			return scene
 		print("[worldskin] %s  not a kit module, left alone" % base)
 		return scene
@@ -667,105 +731,170 @@ func _uv_density(mesh: Mesh, surface: int) -> float:
 	ratios.sort()
 	return float(ratios[ratios.size() / 2])
 
-## Skin the greybox base's stairs with the building's concrete, as
+## Skin the greybox base's stairs with packs the building already loads, as
 ## world-projected as the walls beside them (roadmap 144).
 ##
 ## The stairs are boxes with NORMAL and POSITION only -- no UVs, so the kit
 ## pass above has no density to read and would skip them -- in Deli Counter's
-## flat `gb_stair`. World triplanar needs no UVs at all: the texture is
-## projected from world position, which is the whole reason it is the right
-## tool for a surface nobody unwrapped.
+## flat `gb_stair` and `gb_prop`. World triplanar needs no UVs at all: the
+## texture is projected from world position, which is the whole reason it is
+## the right tool for a surface nobody unwrapped.
+##
+## ONE PACK, AND IT DRESSES THE FLIGHT ONLY: the flight takes the floor family
+## and a `stair_guard_*` mesh is counted and left alone, for the reasons
+## written on `STAIR_FLIGHT_FAMILY` and `STAIR_GUARD_PREFIX` above.
 ##
 ## THE MATERIAL COMES FROM A KIT MODULE'S IMPORTED SCENE, NOT FROM A FILE.
 ## The first version looked for `*_concrete_*_albedo.png` under `art/zoo/`
 ## and worked on a walk copy that happened to carry loose PNGs; the cold-run
 ## export (LF 0.71.0, `_write_import_sidecars` mode 3) EMBEDS every texture
 ## in its GLB and ships no PNG at all, so on a real package that version
-## skinned nothing and said so. A `wall_*` module's imported material is
-## the concrete the walls wear, textures included, at the tile period the
-## kit pass already resolved -- so the stair's texel density equals the
-## wall's by construction. Visual meshes only: `stair<n>col_*` and `*ramp*`
-## are collision.
+## skinned nothing and said so. A kit module's imported material carries its
+## textures and the tile period the kit pass already resolved -- so a stair's
+## texel density equals its neighbours' by construction.
 ##
-## Returns [surfaces, meshes, note].
-func _skin_stairs(scene: Node, base_dir: String) -> Array:
+## AND IT REFUSES OUT LOUD. A visual stair mesh this cannot find a pack for is
+## counted and pushed as an error naming the base, because the failure this
+## replaces was a `print` nobody read for five days while the level shipped
+## yellow. Visual meshes only: `stair<n>col_*` and `*ramp*` are collision, and
+## a base with no stair mesh at all is a no-op that says which it is.
+##
+## Returns {flight_surfaces, flight_meshes, guard_meshes, unskinned_meshes,
+## note}. `guard_meshes` is a census, not work done: see `STAIR_GUARD_PREFIX`.
+func _skin_stairs(scene: Node, base_dir: String) -> Dictionary:
+	var out: Dictionary = {"flight_surfaces": 0, "flight_meshes": 0,
+		"guard_meshes": 0, "unskinned_meshes": 0, "note": ""}
+	# The census and the work use ONE definition of a visual stair mesh,
+	# because two would drift: a null material counts instead of assigning.
+	var present: Array = _assign_stairs(scene, null)
+	var flights: int = int(present[2])
+	out["guard_meshes"] = int(present[3])
+	if flights == 0:
+		out["note"] = ("; no flight mesh in this base, nothing to skin (%d guard mesh(es) instanced)"
+			% int(present[3]))
+		return out
 	var art: String = base_dir.path_join("art").path_join("zoo")
 	var dir := DirAccess.open(art)
 	if dir == null:
-		return [0, 0, "; no art/zoo beside the base, stairs left alone"]
+		out["unskinned_meshes"] = flights
+		out["note"] = "; NO art/zoo BESIDE THE BASE -- %d flight mesh(es) left in the greybox material" % flights
+		push_error("[worldskin] %s%s" % [get_source_file(), String(out["note"])])
+		return out
+	var flight: Array = _family_material(art, dir, STAIR_FLIGHT_FAMILY, "flight")
+	if flight.is_empty():
+		out["unskinned_meshes"] = flights
+		# `%` binds tighter than `+`, so the formatted piece is built whole
+		# before it is joined (the trap `tools/gdcheck.py` exists to catch).
+		out["note"] = ("; NO MODULE UNDER art/zoo IN FAMILIES %s -- %d flight mesh(es) left in the greybox material"
+			% [str(STAIR_FLIGHT_FAMILY), flights])
+		push_error("[worldskin] %s%s" % [get_source_file(), String(out["note"])])
+		return out
+	var counts: Array = _assign_stairs(scene, flight[0] as Material)
+	out["flight_surfaces"] = int(counts[0])
+	out["flight_meshes"] = int(counts[1])
+	out["unskinned_meshes"] = int(counts[4])
+	out["note"] = "; flight from %s" % String(flight[1])
+	if int(counts[3]) > 0:
+		out["note"] += ("; %d stair_guard_* mesh(es) INSTANCED in the base and left alone -- the composer fills those slots"
+			% int(counts[3]))
+	return out
+
+
+## A kit family's material: the first module of the first family that carries
+## a textured material, in sort order. `part` names the half it dresses, so
+## the duplicate is identifiable in a material list. Returns [] or
+## [material, module file].
+##
+## No `breach_` exclusion is needed here and none is written: `breach_*` is
+## its own family and cannot begin with `floor_`, `wall_` or `wallEnd_`. The
+## 0.72.0 version needed one because it scanned all of `KIT_PREFIXES`.
+func _family_material(art: String, dir: DirAccess, families: Array,
+		part: String) -> Array:
 	var files: PackedStringArray = dir.get_files()
 	files.sort()
-	# A plain wall's module first; `breach_*` sorts earlier and wears the
-	# BREACHED variant of the pack (the first run of the file-name version
-	# put rubble edges on every stair).
-	var modules: Array = []
-	for f in files:
-		if f.ends_with(".glb") and f.begins_with("wall_"):
-			modules.append(f)
-	for f in files:
-		if f.ends_with(".glb") and not f.begins_with("wall_"):
-			for p in KIT_PREFIXES:
-				if f.begins_with(p) and not f.begins_with("breach_"):
-					modules.append(f)
-	var found: Array = []   # [material, module file]
-	for f in modules:
-		var ps: PackedScene = load(art.path_join(f)) as PackedScene
-		if ps == null:
-			continue
-		var inst: Node = ps.instantiate()
-		var m: BaseMaterial3D = _kit_material(inst, STAIR_KIND)
-		if m != null:
-			found = [m.duplicate(), f]
-		inst.free()
-		if not found.is_empty():
-			break
-	if found.is_empty():
-		return [0, 0, "; no imported kit module wearing %s under art/zoo (import order?), stairs left alone" % STAIR_KIND]
-	var mat: BaseMaterial3D = found[0]
-	mat.resource_name = "M_Skin_%s_stairs" % STAIR_KIND
-	var note: String = "; material from %s" % String(found[1])
-	if not mat.uv1_world_triplanar:
-		# The module imported before the kit pass touched it: its uv1_scale
-		# is still the authored tile period. World-project it the way
-		# `_apply` does, at that period (the kit's meshes measure a UV
-		# density of ~1.0, so world == authored to four decimals).
-		mat.uv1_triplanar = true
-		mat.uv1_world_triplanar = true
-		note += " (world-projected here; the module's own pass had not run)"
-	var counts: Array = _assign_stairs(scene, mat)
-	return [counts[0], counts[1], note]
+	for fam in families:
+		for f in files:
+			if not f.ends_with(".glb") or not f.begins_with(String(fam)):
+				continue
+			var ps: PackedScene = load(art.path_join(f)) as PackedScene
+			if ps == null:
+				continue
+			var inst: Node = ps.instantiate()
+			var m: BaseMaterial3D = _kit_material(inst)
+			var dup: BaseMaterial3D = null
+			if m != null:
+				dup = m.duplicate()
+			inst.free()
+			if dup == null:
+				continue
+			dup.resource_name = "M_Skin_stair_%s" % part
+			if not dup.uv1_world_triplanar:
+				# The module imported before the kit pass touched it: its
+				# uv1_scale is still the authored tile period. World-project
+				# it the way `_apply` does, at that period (the kit's meshes
+				# measure a UV density of ~1.0, so world == authored to four
+				# decimals).
+				dup.uv1_triplanar = true
+				dup.uv1_world_triplanar = true
+			return [dup, f]
+	return []
 
 
-## The first textured material of `kind` in an instanced kit module.
-func _kit_material(n: Node, kind: String) -> BaseMaterial3D:
+## The first textured material in an instanced kit module.
+func _kit_material(n: Node) -> BaseMaterial3D:
 	var mi: MeshInstance3D = n as MeshInstance3D
 	if mi != null and mi.mesh != null:
 		for i in range(mi.mesh.get_surface_count()):
 			var bm: BaseMaterial3D = mi.mesh.surface_get_material(i) as BaseMaterial3D
-			if bm != null and bm.albedo_texture != null \
-					and String(bm.resource_name).contains("_" + kind):
+			if bm != null and bm.albedo_texture != null:
 				return bm
 	for c in n.get_children():
-		var m: BaseMaterial3D = _kit_material(c, kind)
+		var m: BaseMaterial3D = _kit_material(c)
 		if m != null:
 			return m
 	return null
 
 
-func _assign_stairs(n: Node, mat: Material) -> Array:
-	var surfaces: int = 0
-	var meshes: int = 0
+## A mesh named for the stair that is drawn rather than collided with.
+## `stair<n>col_*` and `stair<n>ramp_*` are Deli Counter's collision bodies.
+func _is_visual_stair(nm: String) -> bool:
+	return nm.begins_with(STAIR_PREFIX) and not nm.contains("col") \
+		and not nm.contains("ramp")
+
+
+## Assign the flight material. A null `flight_mat` counts the meshes it would
+## have dressed as unskinned instead of assigning -- so a null call is the
+## census `_skin_stairs` takes before it goes looking for a pack, and there is
+## one definition of "a visual stair mesh" rather than two that can drift.
+## A `stair_guard_*` mesh is counted and never assigned (`STAIR_GUARD_PREFIX`).
+##
+## Returns [flight_surfaces, flight_meshes, flight_seen, guard_seen,
+## unskinned_meshes].
+func _assign_stairs(n: Node, flight_mat: Material) -> Array:
+	var fs: int = 0
+	var fm: int = 0
+	var seen: int = 0
+	var guards: int = 0
+	var flat: int = 0
 	var mi: MeshInstance3D = n as MeshInstance3D
-	if mi != null and mi.mesh != null:
-		var nm: String = String(mi.name)
-		if nm.begins_with(STAIR_PREFIX) and not nm.contains("col") and not nm.contains("ramp"):
-			for i in range(mi.mesh.get_surface_count()):
-				mi.mesh.surface_set_material(i, mat)
-				surfaces += 1
-			meshes += 1
+	if mi != null and mi.mesh != null and _is_visual_stair(String(mi.name)):
+		if String(mi.name).begins_with(STAIR_GUARD_PREFIX):
+			guards += 1
+		else:
+			seen += 1
+			if flight_mat == null:
+				flat += 1
+			else:
+				for i in range(mi.mesh.get_surface_count()):
+					mi.mesh.surface_set_material(i, flight_mat)
+					fs += 1
+				fm += 1
 	for c in n.get_children():
-		var sub: Array = _assign_stairs(c, mat)
-		surfaces += int(sub[0])
-		meshes += int(sub[1])
-	return [surfaces, meshes]
+		var sub: Array = _assign_stairs(c, flight_mat)
+		fs += int(sub[0])
+		fm += int(sub[1])
+		seen += int(sub[2])
+		guards += int(sub[3])
+		flat += int(sub[4])
+	return [fs, fm, seen, guards, flat]
 
