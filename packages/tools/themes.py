@@ -158,11 +158,135 @@ def zoo_style_for(theme: str, styles: dict[str, int]) -> str | None:
     return None
 
 
-def resolve(theme: str, repositories: dict) -> dict:
+def theme_kinds(repo: str | Path | None, theme: str) -> set[str] | None:
+    """The material KINDS `<theme>.json` maps, or None when it cannot be read.
+
+    None and `set()` are different answers and the caller must be able to tell
+    them apart: a profile that is absent, unparseable or carries no
+    `materials` object has not said it maps nothing, it has said nothing. Both
+    of the last two return None deliberately -- an unrecognised shape FAILS
+    here rather than resolving to an empty set that makes every kind look
+    missing (or, with the comparison the other way round, makes none look
+    missing).
+    """
+    path = pixelcoat_profile_path(repo, theme)
+    if path is None or not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    materials = data.get("materials")
+    if not isinstance(materials, dict):
+        return None
+    return {str(k) for k in materials}
+
+
+def shell_kinds(slots_paths) -> tuple[dict[str, list[str]], list[str]]:
+    """(kind -> the shells asking for it, shells that could not be read).
+
+    READ OFF ONE REAL ARTEFACT before this was written --
+    `deli_counter/build/card_shop_a01.slots.json`, whose top level is
+    `slot_manifest_version / building_id / theme / module_library /
+    module_size / space / coverage / slots` and whose every slot carries a
+    `material` that is ALREADY a kind (Deli Counter ran it through
+    `material_kind.kind_for` before writing). 189 slots, 16 distinct kinds,
+    19 of them `wood_panel` and 2 `slatwall` -- which is exactly the count of
+    `_mwood_panel` / `_mslatwall` modules cold run 9061's `site.tscn`
+    instanced, so this file and the scene agree about the same 21 surfaces.
+
+    A manifest with no `slots` LIST is reported in the second return value,
+    not treated as a shell that asks for nothing. The difference is the whole
+    point: a shell that asks for nothing passes any coverage check ever
+    written, and a schema this function did not recognise must say so.
+    """
+    kinds: dict[str, list[str]] = {}
+    unreadable: list[str] = []
+    for entry in slots_paths or []:
+        if isinstance(entry, (tuple, list)):
+            shell_id, path = str(entry[0]), Path(str(entry[1]))
+        else:
+            path = Path(str(entry))
+            shell_id = path.name[: -len(".slots.json")] \
+                if path.name.endswith(".slots.json") else path.stem
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            unreadable.append(f"{shell_id}: cannot read {path}")
+            continue
+        slots = data.get("slots")
+        if not isinstance(slots, list):
+            unreadable.append(
+                f"{shell_id}: {path.name} has no 'slots' list "
+                f"(keys: {', '.join(sorted(map(str, data)))[:120]})")
+            continue
+        for slot in slots:
+            if not isinstance(slot, dict):
+                continue
+            kind = slot.get("material")
+            if not kind:
+                continue
+            kinds.setdefault(str(kind), [])
+            if shell_id not in kinds[str(kind)]:
+                kinds[str(kind)].append(shell_id)
+    return kinds, unreadable
+
+
+def kind_coverage(repo: str | Path | None, theme: str, slots_paths) -> dict:
+    """Does every kind the SHELLS ask for resolve to a pack in `theme`?
+
+    The defect this exists for, measured on cold run 9061's package
+    (`_runs/walk_export_card_block_001`): Pixelcoat 0.44.0 added
+    `wood_panel_delco` and `slatwall_retail` and mapped them in a new
+    `card_shop` theme only. The mission ran on `delco_1997`, which mapped
+    neither kind, so `lot/card_shop_a01/site.tscn` instanced 21 modules whose
+    stems end `_mwood_panel` or `_mslatwall` and Zoo's `find_pack` returned
+    None for every one of them. Of the 11 kinds that package's GLBs carry,
+    those two are the ONLY ones whose kind-named material has no
+    `baseColorTexture` -- the card shop's panelling, its pack walls and its
+    display cases shipped flat, in a package that passed every gate. The
+    walker photographed it from the shop floor.
+
+    Nothing here is new machinery. `<id>.slots.json` is the same manifest
+    `building_library.index` already requires of every placeable shell, and
+    the theme profile is the same file `resolve` already stats.
+
+    `checked` is False when the question could not be asked -- no profile, or
+    no shells handed in (a single-shell mission builds its shell during the
+    run, so at pre-flight time there is no manifest to read). A question that
+    was not asked is not an answer of yes.
+    """
+    have = theme_kinds(repo, theme)
+    asked, unreadable = shell_kinds(slots_paths)
+    if have is None or not asked:
+        return {"checked": False, "ok": True, "theme": theme,
+                "kinds_in_theme": sorted(have) if have else [],
+                "kinds_asked": sorted(asked), "shells": len(
+                    {s for shells in asked.values() for s in shells}),
+                "missing": {}, "unreadable": unreadable,
+                "why": ("no theme profile to read" if have is None
+                        else "no shell manifests to read")}
+    missing = {k: sorted(v) for k, v in sorted(asked.items()) if k not in have}
+    return {"checked": True, "ok": not missing and not unreadable,
+            "theme": theme,
+            "kinds_in_theme": sorted(have), "kinds_asked": sorted(asked),
+            "shells": len({s for shells in asked.values() for s in shells}),
+            "missing": missing, "unreadable": unreadable, "why": ""}
+
+
+def resolve(theme: str, repositories: dict, shells=None) -> dict:
     """What the installed tools will do with `theme`.
 
-    `ok` is False only when Pixelcoat cannot resolve it, because that is the
-    one that stops a run. Everything else is reported for the human.
+    `ok` is False when Pixelcoat cannot resolve the theme at all, and -- when
+    `shells` is given -- when the theme resolves but a kind those shells ask
+    for does not. Both stop a run for the same reason: the art pass has
+    nothing to skin with. The difference is that the second one used to stop
+    it silently, by shipping the surface flat.
+
+    `shells` is `(shell_id, <id>.slots.json path)` pairs, or bare paths.
+    Omitted, the kind check is not performed and `ok` keeps its old meaning
+    exactly -- which is what every caller that has not been taught to hand
+    them in still gets.
     """
     pc_repo = (repositories or {}).get("pixelcoat", "")
     zoo_repo = (repositories or {}).get("zoo", "")
@@ -179,9 +303,12 @@ def resolve(theme: str, repositories: dict) -> dict:
         1 for names in per_species
         if zoo_style_for(theme, {n: 1 for n in names}) is not None)
 
+    kinds = kind_coverage(pc_repo, theme, shells)
+
     return {
         "theme": theme,
-        "ok": pc_ok,
+        "ok": pc_ok and kinds["ok"],
+        "kinds": kinds,
         "pixelcoat": {
             "ok": pc_ok,
             "configured": bool(pc_repo),
@@ -219,6 +346,30 @@ def summary_lines(res: dict) -> list[str]:
         avail = pc.get("available") or []
         out.append("            pixelcoat carries: "
                    + (", ".join(avail) if avail else "(none)"))
+
+    # WHAT THE SHELLS ASK FOR, which is the half that shipped flat. A theme
+    # profile existing says the art pass will run; it says nothing about
+    # whether the surfaces in the buildings this mission places have a pack to
+    # resolve to. Cold run 9061's `delco_1997` profile was present and 21
+    # modules still came out untextured.
+    kinds = res.get("kinds") or {}
+    if kinds.get("checked"):
+        n_shell = kinds.get("shells", 0)
+        n_kind = len(kinds.get("kinds_asked") or [])
+        if kinds.get("ok"):
+            out.append(f"            kinds: all {n_kind} asked for by "
+                       f"{n_shell} shell(s) resolve in '{theme}'")
+        else:
+            for kind, shells in (kinds.get("missing") or {}).items():
+                out.append(f"            kinds: NO '{kind}' PACK in theme "
+                           f"'{theme}' — asked for by "
+                           + ", ".join(shells[:4])
+                           + (f" (+{len(shells) - 4} more)"
+                              if len(shells) > 4 else ""))
+            for line in kinds.get("unreadable") or []:
+                out.append(f"            kinds: UNREADABLE SHELL {line}")
+    elif kinds:
+        out.append(f"            kinds: not checked — {kinds.get('why')}")
 
     if zoo.get("configured"):
         n = zoo.get("species_with_style", 0)

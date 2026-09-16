@@ -169,11 +169,62 @@ def _theme_for(batch: dict, model) -> str:
     return str(getattr(model, "theme", "") or (batch or {}).get("theme_family", "") or "")
 
 
-def _theme_report(ws: Workspace, batch: dict, model) -> tuple[dict, list[str]]:
-    """(resolution, lines) for the theme this mission's art pass needs."""
+def _shells_for_theme_check(model, plan) -> list[tuple[str, str]]:
+    """`(archetype_id, <id>.slots.json)` for every shell this plan places.
+
+    THE SAME DERIVATION the compose spec and the site spec use --
+    `building_library.lot_for_brief`, the one rule -- so the pre-flight asks
+    its question of the buildings the run will actually place and not of the
+    library at large. Called directly rather than through `_lot_for_compose`
+    because that one PRINTS what it excluded, and a pre-flight that has not
+    dispatched anything should not be narrating the compose stage's business
+    once per candidate.
+
+    Empty for the single-shell path (no `lot_library`, or `building_count`
+    below 2): that shell does not exist yet -- Deli Counter builds it during
+    the run -- so there is no manifest to read and `kind_coverage` reports
+    the question as unasked rather than answered.
+
+    A LIBRARY TOO SMALL FOR THE BRIEF IS NOT THIS FUNCTION'S REFUSAL TO MAKE.
+    `lot_for_brief` raises `ThemedShellsUnavailable` for it, and the planner
+    and the spec builder both already own that refusal in their own words. A
+    pre-flight that turned a printable DAG into a traceback would be answering
+    a question nobody asked it, so it yields no shells and `kind_coverage`
+    reports the kind question as unasked -- which is true, and leaves the
+    library refusal to say its own piece.
+    """
+    if plan is None:
+        return []
+    from packages.pipeline import building_library
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for cid in getattr(plan, "candidate_ids", ()) or ():
+        try:
+            lot, _incomplete = building_library.lot_for_brief(
+                model, cid, themed=True)
+        except building_library.ThemedShellsUnavailable:
+            return []
+        for row in lot:
+            aid, slots = row.get("id"), row.get("slots")
+            if aid and slots and aid not in seen:
+                seen.add(str(aid))
+                out.append((str(aid), str(slots)))
+    return out
+
+
+def _theme_report(ws: Workspace, batch: dict, model, plan=None) -> tuple[dict, list[str]]:
+    """(resolution, lines) for the theme this mission's art pass needs.
+
+    With `plan`, the report also asks whether every material KIND the shells
+    that plan places name in their slot manifests resolves to a pack in the
+    theme. Roadmap 72 asked whether the theme EXISTS; cold run 9061 shipped a
+    package whose theme existed and whose card shop was untextured anyway,
+    because `delco_1997` mapped no `wood_panel` and no `slatwall`.
+    """
     from packages.tools import themes
     repos = (ws.load_tools_local() or {}).get("repositories", {})
-    res = themes.resolve(_theme_for(batch, model), repos)
+    res = themes.resolve(_theme_for(batch, model), repos,
+                         shells=_shells_for_theme_check(model, plan))
     return res, themes.summary_lines(res)
 
 
@@ -242,7 +293,7 @@ def cmd_plan(args) -> int:
         # graybox plan is exactly when a reader is deciding whether to add
         # `--art`.
         from packages.pipeline.planner import LAYER_ART
-        _res, _lines = _theme_report(ws, batch, model)
+        _res, _lines = _theme_report(ws, batch, model, plan)
         for line in _lines:
             print(f"  {line}")
         if LAYER_ART in plan.layers and not _res["ok"]:
@@ -1847,12 +1898,26 @@ def cmd_run(args) -> int:
     # an art layer is actually planned; graybox needs no theme.
     from packages.pipeline.planner import LAYER_ART
     if LAYER_ART in plan.layers:
-        _res, _lines = _theme_report(ws, batch, model)
+        _res, _lines = _theme_report(ws, batch, model, plan)
         if not _res["ok"]:
             for line in _lines:
                 print(f"  {line}", file=sys.stderr)
-            print("refusing to run an art layer against a theme that does not "
-                  "resolve. Nothing has been dispatched.", file=sys.stderr)
+            # WHICH of the two refusals this is, in the sentence. The theme
+            # not existing and the theme not answering a kind the shells ask
+            # for are different repairs -- one writes a profile, the other
+            # maps a grammar into the profiles levels run on -- and a reader
+            # who has to open the code to tell them apart is being handed the
+            # same defect one level up.
+            _kinds = _res.get("kinds") or {}
+            if _res["pixelcoat"]["ok"] and not _kinds.get("ok", True):
+                print("refusing to run an art layer whose shells ask for a "
+                      "material kind this theme maps no pack for: every such "
+                      "surface would ship flat. Nothing has been dispatched.",
+                      file=sys.stderr)
+            else:
+                print("refusing to run an art layer against a theme that does "
+                      "not resolve. Nothing has been dispatched.",
+                      file=sys.stderr)
             return EXIT_CONFIG
 
     specs = _job_specs_for_plan(ws, batch, model, plan)

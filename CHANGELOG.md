@@ -1,3 +1,151 @@
+## [0.92.0] - the theme existed, and the wall was still blank
+
+Roadmap 72 taught `plan` and `run` to ask whether a brief's theme has a
+Pixelcoat profile, because `cold_7002` spent the whole graybox leg and then
+died in two seconds on a missing file. Cold run 9061 had the profile.
+`delco_1997.json` was present, correct, and mapped 37 kinds. The pre-flight
+said `pixelcoat profile found`, every gate downstream passed, and the package
+shipped with the card shop's panelling, its pack walls and its display cases
+untextured.
+
+Pixelcoat 0.44.0 had added `wood_panel_delco` and `slatwall_retail` and mapped
+them in a new `card_shop` theme only. `delco_1997` mapped neither KIND, Zoo's
+`find_pack` returned None for both, and 21 modules in
+`lot/card_shop_a01/site.tscn` fell back to flat vertex colour. Measured in the
+shipped walk copy: of the 11 kinds that package's GLBs carry, `wood_panel` and
+`slatwall` are the only two whose kind-named material has no
+`baseColorTexture`. Nothing in this repo was in a position to notice, because
+nothing had ever asked what the BUILDINGS wanted -- only whether a file
+existed.
+
+The theme existing and the theme being able to dress what is being built are
+two questions. Only the first was being asked.
+
+### Added -- the pre-flight asks the second question too
+
+`packages/tools/themes.py`:
+
+  * `theme_kinds(repo, theme)` -- the kinds `<theme>.json` maps, or **None**.
+    None and `set()` are different answers and the caller must be able to tell
+    them apart. A profile that is absent, will not parse, or carries no
+    `materials` object has said NOTHING, not "maps nothing" -- and an empty
+    set would have made every kind read as missing and sent the reader after
+    17 grammars instead of after one bad JSON file.
+  * `shell_kinds(paths)` -- `(kind -> the shells asking for it, shells that
+    could not be read)`. Written against ONE real artefact rather than a
+    remembered schema: `deli_counter/build/card_shop_a01.slots.json`, top
+    level `slot_manifest_version / building_id / theme / module_library /
+    module_size / space / coverage / slots`, 189 slots, every slot's
+    `material` already a kind because Deli Counter ran it through
+    `material_kind.kind_for` before writing. 16 distinct kinds, 19 slots
+    `wood_panel` and 2 `slatwall` -- which is exactly the count of
+    `_mwood_panel` and `_mslatwall` modules 9061's scene instanced, so the
+    manifest and the scene agree about the same 21 surfaces.
+  * `kind_coverage(repo, theme, shells)` -- `checked`, `ok`, `missing`,
+    `unreadable`, and `why` when it could not ask.
+
+`resolve` takes an optional `shells=` and folds the result into `ok`; omitted,
+`ok` means exactly what it meant before, which is what every caller that has
+not been taught about shells still gets. `apps/cli/commands` passes the plan
+into `_theme_report`, and `_shells_for_theme_check` derives the shells from
+`building_library.lot_for_brief` -- THE SAME ONE RULE the compose spec and the
+site spec use, so the pre-flight asks its question of the buildings the run
+will actually place and not of the library at large.
+
+WHAT IT SAYS, run against the real repositories and the three shells cold run
+9061 actually placed. Against Pixelcoat 0.44.0, the version that shipped it:
+
+    theme:      delco_1997 - pixelcoat profile found
+                kinds: NO 'slatwall' PACK in theme 'delco_1997' - asked for by card_shop_a01
+                kinds: NO 'wood_panel' PACK in theme 'delco_1997' - asked for by card_shop_a01
+
+and against Pixelcoat 0.45.0, which maps them:
+
+    theme:      delco_1997 - pixelcoat profile found
+                kinds: all 17 asked for by 3 shell(s) resolve in 'delco_1997'
+
+A LIBRARY TOO SMALL FOR THE BRIEF STAYS THE PLANNER'S REFUSAL. `lot_for_brief`
+raises `ThemedShellsUnavailable` for it and two call sites already own that
+message; `_shells_for_theme_check` catches it, yields no shells and lets
+`kind_coverage` report the kind question as unasked, rather than turning a
+printable DAG into a traceback from the newest code in the file.
+
+`run` refuses the first with its own sentence rather than the theme one,
+because the two are different repairs -- one writes a profile, the other maps
+a grammar into the profiles levels are built in -- and a reader who has to
+open the code to tell them apart has been handed the same defect one level up.
+Nothing is dispatched either way.
+
+### Added -- eight cases in `tests/unit/test_theme_preflight.py`, nine to seventeen
+
+They pin the 9061 shape against a fixture built from the 37 kinds
+`delco_1997.json` carried at Pixelcoat 0.44.0, verbatim, so the test is red
+against the tree as it stood on the day and green after:
+
+  * `test_the_9061_package_is_refused_before_it_is_built` -- asserts
+    `pixelcoat.ok is True` first, because the profile existing was never the
+    gap, then that `ok` is False and both kinds and the shell are named;
+  * `test_the_same_shell_passes_once_the_theme_maps_the_two_kinds`;
+  * `test_a_shell_that_asks_for_nothing_recognisable_fails_rather_than_passes`
+    -- a manifest with no `slots` list. That is the `or []` shape that once
+    printed "closure verdict clean" three lines under
+    `EXPORT_CLOSURE_BROKEN: 21 unresolved`, and a shell that asks for nothing
+    passes any coverage check ever written;
+  * `test_a_missing_manifest_is_reported_and_not_skipped`;
+  * `test_no_shells_means_the_question_was_not_asked_not_that_it_passed`;
+  * `test_an_unparseable_theme_profile_does_not_read_as_a_theme_with_no_kinds`.
+
+And two on the WIRING, because a pre-flight connected to nothing is a check
+that cannot fail. `test_the_wiring_hands_the_preflight_the_shells_the_run_will_place`
+runs `_shells_for_theme_check` over the real `deli_counter/build` with cold run
+9061's own brief and asserts `card_shop_a01` comes back with a manifest that
+exists and asks for `wood_panel`; stubbing the function to return `[]` turns it
+red, which was checked rather than assumed. It finds Deli Counter by walking up
+from its own file with an `LF_DC_ROOT` override -- 0.91.0's fix, applied here
+from the start instead of after a worktree ate it.
+
+### Where this guard still cannot fire, said out loud rather than discovered
+
+THE SINGLE-SHELL PATH IS NOT CHECKED. `lot_for_brief` returns no lot when a
+brief sets no `lot_library` or asks for fewer than two buildings, and that
+mission's shell is built by Deli Counter DURING the run -- at pre-flight there
+is no `.slots.json` to read. `kind_coverage` reports `checked: False` and the
+line says `not checked`, which is the honest answer and not a pass. Of the
+seven briefs in `workspaces/` today, four are checked (`card_block_001`,
+`club_block_001`, `lot_demo_001`, `rockay_lot_demo_001`) and three are not
+(`art_probe_001` and `category5_baie_dore_001` set no library,
+`unlit_probe_001` asks for one building). Closing it means reading the
+archetype's own preset rather than a placed shell, which is Deli Counter's
+answer to give.
+
+IT IS A PRE-FLIGHT, NOT A POST-CONDITION. Nothing yet reads a built package
+and asks whether every `_m<kind>` stem in it resolved -- which is what would
+have caught 9061 at export instead of on the walk. The measurement is cheap
+(parse each module GLB's JSON chunk, look for a kind-named material with no
+`baseColorTexture`) and is not built here.
+
+### What this does not do
+
+It does not reduce interventions-per-level on its own; it converts one class
+of silent defect into a refusal, which makes the NEXT intervention cheaper
+rather than removing one. The intervention it removes is Pixelcoat 0.45.0's
+two lines, and that is the half of this pair that moved the number.
+
+### Also found, and not fixed here
+
+THREE UNIT TESTS CANNOT RUN FROM A WORKTREE, which is where this repo's own
+conventions say the work happens -- and it is the same defect 0.91.0 fixed in
+`test_dc_preset_registry` and did not sweep for.
+`test_signs_in_site_spec` (two cases) resolves Pixelcoat's signs profile as a
+sibling of the checkout, and
+`test_layer3_wiring::test_the_tracked_asset_set_file_names_the_four_clutter_species`
+resolves a tracked-asset path the same way. From
+`gabagool_factory/scratchpad/lf_kinds` the sibling is `scratchpad`, and all
+three FAIL rather than skip. Verified on this branch and on a pristine
+worktree of `main` at the same path, so they are not a regression from this
+release. 0.91.0's own fix -- walk up to the nearest match, with an env
+override -- applies unchanged to all three.
+
 ## [0.91.0] - the card shop, and a guard that skipped in the one place the work happens
 
 Deli Counter 0.139.0 adds a `card_shop` preset (the walker's nine photographs,
