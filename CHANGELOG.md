@@ -1,3 +1,183 @@
+## [0.89.0] - the game is on: a motion pass on the club's CRTs
+
+The walker, on Zoo 0.90.0's lit bracket TVs: "not sure if its possible to have
+the crts have a small animation (highly performant) that shows some motion on
+the screen?" No new texture and no Zoo change -- the import hangs a small
+shader off the screen material and keeps Zoo's picture underneath it.
+
+What the screens were, measured on a scratch copy of `_runs/walk_9059_rain`
+(Godot 4.7, GL Compatibility) before anything moved: `strip_club_a03` stands 7
+lit faces over 5 distinct `M_CRT_Screen_<art>_Face` StandardMaterial3D, each
+with emission on at energy 1.5, a 224x168 picture on both albedo and emission,
+albedo tint 0.6262, cull disabled. Two of the five are worn by TWO sets each.
+The glass is 0.4450 x 0.3328 m on five sets and 0.3953 x 0.2960 m on two, UV
+spanning the full 0..1, the closest two sets 5.52 m apart.
+
+### Added
+- **`_crt_motion` in `zoo_worldskin.gd`, run for every GLB** beside the mip and
+  glass passes -- a lit CRT arrives in a PROP glb, and the kit/non-kit branch
+  returns early for those. It gives each lit face a ShaderMaterial `next_pass`:
+  an NTSC-width sync bar drifting up the face once every 5 s, a two-rate
+  brightness flicker, and a shimmer grained to one picture pixel. On 9059's
+  club it reports 5 faces over 5 GLBs and touches 5 of the scene's 392
+  materials; the other 387 and every material class are untouched.
+- Every knob is a named constant. `ROLL_BAND_FRAC` is NTSC's 21 blanked lines
+  of a 262.5-line field. `ROLL_PERIOD_S` is `1 / VHOLD_ERROR_HZ`, and the 0.2 Hz
+  is set against the walker's own constraint -- a set that reads as BROKEN
+  tumbles at about 1 Hz, so this is five times below the slowest of that.
+  `ROLL_UP` is -1.0 because +1 measured as DOWN (below). The three depths are
+  taste and say so; what they produce is in `Measured` below.
+
+### Why it is a next pass and not a replacement material
+Lux's power cut finds lit faces by casting each material to BaseMaterial3D and
+zeroing `emission_energy_multiplier`. A ShaderMaterial is neither. Measured
+against the walk copy's own vendored binder (content-identical to lux's, 3181
+bytes against 3102 -- exactly its 79 CRLFs) over three materials all named to
+the lit-face contract:
+
+    shape                                   bound   set_fixtures_powered(false)
+    StandardMaterial3D (ships today)         yes     1.5 -> 0.0000
+    ShaderMaterial (full replacement)        NO      no such property
+    StandardMaterial3D + shader next_pass    yes     1.5 -> 0.0000
+
+`bind` collected 2 of 3 and said so in neither its count nor its message.
+Swapping the screen material would have left the club's TVs glowing through a
+power cut with nothing reporting it.
+
+Re-measured on the five materials the importer actually produces, in the walk
+scene, 2 m station, mean of 45 frames -- screen region against a control region
+beside it:
+
+    powered on                 screen  90.92   control  13.19   emission 1.5
+    power CUT                  screen  34.25   control  13.19   emission 0.0
+    power restored             screen  91.28   control  13.19   emission 1.5
+
+All five bind and all five go to zero. The overlay is DARKENING ONLY --
+`blend_mix` with ALBEDO 0, so the face is multiplied by (1 - ALPHA) -- which is
+a real gain modulation, is what a CRT's brightness is, and is what makes the
+power cut safe without the shader knowing anything about it. An additive pass
+would have glowed on a dead set.
+
+### The pass did not draw at all, and that is the finding
+A next_pass rasterises the SAME triangles at the SAME depth the base pass has
+already written, and GL Compatibility's depth test rejects it. Each variant
+painting the face solid black, mean luminance of the face's rect:
+
+    variant                              in front    from behind
+    no next pass (baseline)                99.15         39.55
+    unshaded                                  --     not drawn
+    unshaded, blend_mix                       --     not drawn
+    + depth_draw_never                        --     not drawn
+    + depth_test_disabled                   1.41          1.08   LEAKS
+    + VERTEX along NORMAL, 0.2 mm           2.18         39.59
+    + VERTEX along NORMAL, 0.5 mm           2.01         39.57
+    + VERTEX along NORMAL, 1 mm             1.78         39.53
+    + VERTEX along NORMAL, 2 mm             1.49         39.53
+
+`depth_test_disabled` draws and draws through the set's own cabinet, which on a
+level this size means faint rolling bands on walls with no TV behind them. So
+the depth test stays on and the overlay is lifted `SCREEN_PROUD_M` = 2 mm along
+the surface normal -- the ordinary decal offset, 3.2% of the 0.063 m glass box,
+about a tenth of a pixel of silhouette at 2 m.
+
+Two retractions on the way there, both kept in the probes that produced them.
+The first fix biased `VERTEX.z`, assuming vertex() works in view space; it works
+in MODEL space, so the pass drew from BEHIND the set and not from in front of
+it, at every magnitude tried. And the first attempt to see the pass at all
+differenced whole frames: it reported 91.925% of the frame changed over the full
+1600x900 bounding box, for a pass that can only touch five small faces, and
+reported the same figure for the shipping uniforms as for exaggerated ones. The
+scene has rain and Lux's dither; two captures at different times differ
+everywhere. A single-frame difference cannot see this effect.
+
+### Measured -- what it does
+Screen region against a control region, mean of 45 frames, 1600x900:
+
+    station                     off        on      screen      control
+    2 m                       95.21     90.79     -4.64%      +0.008
+    across the room, 6 m     106.82    101.86     -4.65%      -0.005
+    two sets, 8 m             79.58     76.12     -4.35%      -0.008
+    from behind the set       39.63     39.49     -0.34%      +0.041
+
+The control moves by under 0.05 codes everywhere; the screen moves by 3.5 to
+5.0. From behind, nothing is drawn.
+
+### Measured -- not in lockstep
+The phase is `NODE_POSITION_WORLD`, a per-instance built-in, because two of the
+five materials are worn by two sets each and a per-material seed would roll both
+together. With both of a shared-material pair in one frame at one instant, the
+bar sat at v = 0.381 on `wall_tv_r1d196568_10` and v = 0.714 on
+`wall_tv_ra07f4e1a_7`, and stayed apart across all four captures.
+
+### Measured -- the roll runs up, at the period it claims
+Four captures a quarter period apart, darkest row of the screen region:
+
+    t = 0.22 s   v = 0.514        t = 2.50 s   v = 0.067
+    t = 1.25 s   v = 0.305        t = 3.75 s   v = 0.829  (wrapped)
+
+advancing 0.21 to 0.24 of the face per 1.25 s against the 0.25 the 5 s period
+predicts, with v decreasing -- up the face. At `ROLL_UP` = +1 the same
+measurement ran 0.543 -> 0.762 -> 0.962 -> 0.276, which is down, so the sign is
+negative and was read off the frames rather than reasoned about.
+
+### Measured -- cost
+GPU time, one process, one camera, `next_pass` flipped between alternating
+blocks so drift falls on both conditions equally, 300 samples each, median,
+RTX 2060 at 1600x900 in GL Compatibility:
+
+    station                    on        off       delta
+    2 m                     1.4190    1.4490    -0.0300
+    across the room, 6 m    1.5610    1.5560    +0.0050
+    two sets, 8 m           1.5380    1.5390    -0.0010
+    no TV in frame          1.1510    1.1570    -0.0060
+
+**It is below what can be measured.** The no-TV station is the control -- the
+pass is not drawn there and its true delta is exactly zero -- and it reads
+-0.006, so +-0.03 ms is this instrument's floor and every station sits inside
+it, two of them negative, which an extra draw cannot be. The overlay covers
+15,225 px at 2 m (1.06% of the frame), 1,230 at 6 m and 672 per set at 8 m, and
+does about twenty ALU ops on each with no texture fetch. The honest statement is
+a bound: under a few hundredths of a millisecond, and not resolvable above zero.
+
+A first attempt put it at +0.45 ms by A/B-ing two project copies through
+`look_shots.py`. The same run moved `notv` by -1.33 ms and `spawn` by -5.34 ms,
+frames the pass cannot touch, so that figure was process-to-process variance
+wearing a result's clothes. Worse, it was measured before the depth finding
+above -- so it was timing a pass that was not drawing at all.
+
+### Tests
+`tests/unit/test_worldskin_crt_motion.py`, in the shape of the other worldskin
+tests -- they read the GDScript, the unit suite has no Godot. They hold the pass
+running for every GLB before the kit branch, all three halves of the lit-face
+test (`_Face` alone is the vending machine's lens too, and `CRT` alone is the
+dark stand-set glass), the screen material keeping its class, emission and
+texture with `next_pass` its only assignment, the overlay darkening and never
+adding, the normal lift with the depth test kept, the roll driven by TIME with a
+per-instance phase that reaches both the bar and the flicker, every declared
+uniform being one the material actually sets, and `surface_set_material` still
+having exactly one owner. 10 of the 11 fail on 0.88.0. Suite exits 0.
+
+### Unverified
+- **A still frame does not prove motion, and none of the frames under
+  `scratchpad/crtmotion/frames/` claims to.** What they carry is the same camera
+  and the same set with the bar measurably in a different place in each of four
+  captures, and the row positions above are how that was checked. Nobody has
+  watched it move.
+- **A set Lux has cut the power to is not perfectly inert.** The overlay still
+  modulates the light the dead glass reflects: with the power off the screen
+  region reads 34.25 with the pass and 36.85 without it, a 2.60-code difference
+  against a 13.19-code surround. It cannot glow, and the roll is on reflected
+  albedo rather than on a picture, but a dead CRT arguably ought to be still.
+  The shader cannot see the power state -- Lux writes to the base material only
+  -- so closing this needs Lux, and it is the walker's call whether it matters.
+- The three depths (0.10 roll, 0.035 flicker, 0.04 snow) are taste, set here and
+  measured after. Nobody has said at 2 m and across a room whether it reads as
+  "the game is on".
+- Occlusion was measured from directly behind one set. No sweep checked a set
+  behind a WALL from a distant camera; the depth test is on and the argument is
+  that this is the same test, but it was not run.
+- One club, one archetype, 7 sets. No other level has been imported with this.
+
 ## [0.88.0] - a storey the counterfactual cannot hold does not confirm a seal
 
 Cold run 9058 (2026-09-15) was refused at export by the Laser Tag pre-flight:

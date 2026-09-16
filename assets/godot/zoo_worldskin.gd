@@ -60,6 +60,226 @@ const TILED_SUFFIXES: Array = ["_dressing.glb"]
 ## untouched `Wear` corner as exactly 1.0.
 const VERTEX_WHITE: float = 0.99
 
+## ---------------------------------------------------------------------------
+## CRT MOTION (0.89.0)
+##
+## Zoo 0.90.0 lights the club's bracket TVs: a ballgame painted into a texture,
+## worn as albedo AND emission on a `M_CRT_Screen_<art>_Face` StandardMaterial3D
+## at emission energy 1.5. Measured on walk 9059_rain's strip_club_a03: 7 screen
+## surfaces, 5 distinct materials, 224x168 picture, face 0.4450 x 0.3328 m on
+## five sets and 0.3953 x 0.2960 m on two, UV spanning the full 0..1 on both
+## axes. A still picture reads as a photograph of a TV rather than a TV.
+##
+## WHY THIS IS A NEXT PASS AND NOT A REPLACEMENT MATERIAL, which is the whole
+## design and was settled by measurement, not by preference. Lux's power cut
+## (`LuxEmissiveBinder`, `LuxLighting.set_fixtures_powered`) finds lit faces by
+## walking the scene and casting each material to BaseMaterial3D, then zeroes
+## `emission_energy_multiplier`. A ShaderMaterial is not a BaseMaterial3D and
+## has no such property. MEASURED with the walk copy's own vendored binder --
+## content-identical to lux's -- over three materials all named to the lit-face
+## contract: `bind` collected 2 of 3, and the one it silently dropped was the
+## ShaderMaterial. Swapping the screen material for a shader would have left the
+## club's TVs glowing through a power cut, with nothing reporting it.
+##
+##     shape                                   bound   after set_fixtures_powered(false)
+##     StandardMaterial3D (ships today)         yes     energy 1.5 -> 0.0000
+##     ShaderMaterial (full replacement)        NO      no such property
+##     StandardMaterial3D + shader next_pass    yes     energy 1.5 -> 0.0000
+##
+## So the picture keeps its StandardMaterial3D untouched -- same textures, same
+## emission, same energy, still bound by Lux -- and the motion rides a second
+## pass over it. Two consequences worth stating:
+##
+##   * The picture is unchanged when time stands still in the strongest sense
+##     available: at ALPHA 0 the base material draws exactly the frame 0.88.0
+##     drew, because nothing about it moved.
+##   * The overlay DARKENS ONLY -- `blend_mix` with ALBEDO 0, so the face is
+##     multiplied by (1 - ALPHA). That is a real gain modulation, which is what
+##     a CRT's brightness actually does, and it is what makes the power cut
+##     safe without the shader having to know about it: a screen Lux has taken
+##     to black is still black after being multiplied down. An additive overlay
+##     would have glowed on a dead set.
+##
+## NOT IN LOCKSTEP, and a per-material seed cannot do it. Two of the five
+## materials are worn by two sets each (`wall_tv_r1d196568_7` with
+## `wall_tv_r420234d8_6`, and `wall_tv_r1d196568_10` with `wall_tv_ra07f4e1a_7`
+## -- the second pair 7.67 m apart on one wall run, so both can be in frame).
+## The phase therefore comes from `NODE_POSITION_WORLD`, a per-instance
+## built-in: same material, different set, different roll. The seven faces stand
+## at seven distinct positions, the closest two 5.520 m apart.
+
+## The sync bar's half-width as a fraction of the picture height. NTSC blanks 21
+## lines of a 262.5-line field, so the bar a vertical-hold error walks over the
+## picture is that fraction of it. Not a number anyone chose.
+const ROLL_BAND_FRAC: float = 21.0 / 262.5
+
+## A set rolls when its vertical oscillator misses the 59.94 Hz field rate, and
+## the bar crosses the face once per beat -- so the traverse period is one over
+## the error. THE CONSTRAINT IS THE WALKER'S: it must read as "the game is on",
+## never as a set rolling out of sync. A set a person calls broken tumbles at
+## about 1 Hz and up; 0.2 Hz is five times below the slowest of that, one
+## traverse every 5 s, and across the 0.3328 m face that is 0.0666 m/s -- 1.9
+## degrees per second at 2 m. Drift, not tumble.
+const VHOLD_ERROR_HZ: float = 0.2
+const ROLL_PERIOD_S: float = 1.0 / VHOLD_ERROR_HZ
+
+## Which sign walks the bar UP the face depends on the UV orientation Zoo
+## painted, so it was read off the frames rather than reasoned about. At +1 the
+## darkest row of the screen region, measured on four captures a quarter period
+## apart at the 2 m station, ran 0.543 -> 0.762 -> 0.962 -> 0.276 of the way
+## DOWN the face (row 0 is the top row of the region), advancing 0.20-0.31 per
+## 1.25 s against the 0.25 the period predicts. Down is not what was asked for,
+## so the sign is -1.
+const ROLL_UP: float = -1.0
+
+## How far the bar pulls the face down at its centre, and how far the flicker
+## and the snow do. These three are the taste knobs and none of them is derived
+## -- there is no physical quantity that says how visible "faint" is. They were
+## set here and then MEASURED in the frames; what they produce on the club's
+## brightest screen region at 2 m is in the 0.89.0 changelog entry, so a reader
+## who wants a different look knows what they are moving from. Their sum bounds
+## the worst dimming at ROLL_DEPTH + FLICKER_DEPTH + NOISE_DEPTH.
+const ROLL_DEPTH: float = 0.10
+const FLICKER_DEPTH: float = 0.035
+const NOISE_DEPTH: float = 0.04
+
+## Two flicker rates rather than one, so the brightness never settles into a
+## pulse a viewer can count. They share no short common period.
+const FLICKER_HZ_A: float = 1.3
+const FLICKER_HZ_B: float = 2.1
+
+## The snow is renewed this many times a second. A CRT renews it per field at
+## 59.94 Hz, which at a 60 Hz display beats against the refresh into a strobe
+## instead of a shimmer, so it is deliberately NOT the physical rate. 12 Hz is
+## one new grain field every five frames at 60 fps.
+const NOISE_HZ: float = 12.0
+
+## The picture size to assume when a face somehow carries no albedo texture, so
+## the snow's grain still lands at picture scale. Zoo paints 224x168.
+const PICTURE_PX_FALLBACK: Vector2 = Vector2(224.0, 168.0)
+
+## HOW FAR PROUD OF THE GLASS THE OVERLAY SITS, and it is not cosmetic -- without
+## it the pass does not draw at all.
+##
+## A next_pass rasterises the SAME triangles at the SAME depth the base pass has
+## already written, and in GL Compatibility the depth test rejects it. MEASURED
+## in the club at 1600x900, each variant painting the face solid black, mean
+## luminance of the face's projected rect against a control rect beside it:
+##
+##     variant                                   in front    from behind
+##     no next pass (baseline)                     99.15         39.55
+##     unshaded                                       --         (not drawn)
+##     unshaded, blend_mix                            --         (not drawn)
+##     + depth_draw_never                             --         (not drawn)
+##     + depth_test_disabled                        1.41          1.08  LEAKS
+##     + VERTEX along NORMAL, 0.2 mm                2.18         39.59
+##     + VERTEX along NORMAL, 0.5 mm                2.01         39.57
+##     + VERTEX along NORMAL, 1 mm                  1.78         39.53
+##     + VERTEX along NORMAL, 2 mm                  1.49         39.53
+##
+## `depth_test_disabled` draws, and draws through the set's own cabinet -- the
+## column on the right is a camera behind the TV, where it still blacked the
+## region out. A pass with no depth test hangs on whatever is in front of it,
+## which on a level this size means faint rolling bands on walls with no TV
+## behind them. So the depth test stays ON and the overlay is lifted a hair
+## along the surface normal instead, which is the ordinary decal offset: it
+## wins the depth test against its own picture and loses it, correctly, to a
+## wall.
+##
+## 2 mm: the largest of the four that changes nothing about occlusion (39.53
+## against a 39.55 baseline from behind) while leaving the least residue at the
+## curved face's silhouette, where the normal is across the view and no offset
+## helps. It is 3.2% of the 0.063 m glass box, so the overlay stays well inside
+## the cabinet's own volume, and at 2 m it moves the silhouette by about a tenth
+## of a pixel.
+##
+## REFUTED ON THE WAY, kept because the retraction is the useful part: the first
+## fix biased `VERTEX.z`, on the assumption that vertex() works in view space.
+## It works in MODEL space, so `.z` was the set's own axis -- the overlay drew
+## from behind the TV and not from in front of it, exactly backwards, at every
+## magnitude tried.
+const SCREEN_PROUD_M: float = 0.002
+
+## Exactly the lit bracket face and nothing else. Zoo's stand set wears
+## `M_CRT_screen` -- no `_Face`, lowercase, and deliberately dark because a set
+## on a surface is off -- and the vending machine's lit panel is `_Face` and
+## `_Lens` too, so `_Face` alone is not the test and neither is `CRT`.
+const CRT_FACE_MARK: String = "CRT_Screen"
+const CRT_FACE_SUFFIX: String = "_Face"
+const CRT_FACE_PREFIX: String = "M_"
+
+const MOTION_SHADER: String = """
+shader_type spatial;
+render_mode unshaded, blend_mix, depth_draw_never, cull_disabled,
+	shadows_disabled, fog_disabled;
+
+// A DARKENING PASS OVER A PICTURE THAT IS ALREADY DRAWN. ALBEDO is black and
+// blending is mix, so the face is multiplied by (1 - ALPHA): a gain, which is
+// what a CRT's brightness is, and which leaves a screen Lux has blacked out
+// black. Nothing here samples the picture -- a flat gain modulates it exactly.
+
+uniform float roll_period_s;
+uniform float roll_band_frac;
+uniform float roll_depth;
+uniform float roll_dir;
+uniform float flicker_depth;
+uniform float flicker_hz_a;
+uniform float flicker_hz_b;
+uniform float noise_depth;
+uniform float noise_hz;
+uniform vec2 picture_pixels;
+uniform float proud_m;
+
+const float TAU_ = 6.2831853;
+
+// A HAIR PROUD OF THE GLASS, or the depth test throws the whole pass away --
+// it draws the same triangles at the same depth as the picture under it. Along
+// the NORMAL, in model space, which is where vertex() works: that means "out
+// of the screen" from wherever anybody is standing, so the pass still loses
+// the depth test to a wall in front of the set.
+void vertex() {
+	VERTEX += NORMAL * proud_m;
+}
+
+float hash11(float x) {
+	return fract(sin(x) * 43758.5453123);
+}
+
+float hash21(vec2 p) {
+	return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453123);
+}
+
+void fragment() {
+	// ONE PHASE PER SET, not per material. NODE_POSITION_WORLD is a
+	// per-instance built-in, so the two sets that share a material still roll
+	// apart. Deterministic: the same set is the same phase every run.
+	float phase = hash11(dot(NODE_POSITION_WORLD, vec3(12.9898, 78.233, 37.719)));
+
+	// the sync bar, walking the face, wrapping at the edges
+	float bar = fract(TIME / roll_period_s * roll_dir + phase);
+	float d = abs(fract(UV.y - bar + 0.5) - 0.5);
+	float roll = roll_depth * smoothstep(roll_band_frac, 0.0, d);
+
+	// brightness flicker, two rates so it never reads as a pulse
+	float ph = phase * TAU_;
+	float fa = 0.5 + 0.5 * sin(TIME * flicker_hz_a * TAU_ + ph);
+	float fb = 0.5 + 0.5 * sin(TIME * flicker_hz_b * TAU_ + ph * 1.7);
+	float flicker = flicker_depth * 0.5 * (fa + fb);
+
+	// snow: one grain per PICTURE pixel, so it reads as the picture's own
+	// grain and not as the display's
+	vec2 cell = floor(UV * picture_pixels);
+	float snow = hash21(cell + vec2(floor(TIME * noise_hz) + phase * 977.0));
+
+	ALBEDO = vec3(0.0);
+	ALPHA = clamp(roll + flicker + noise_depth * snow, 0.0, 1.0);
+}
+"""
+
+## One Shader per imported GLB rather than one per material: the five club
+## materials would otherwise compile five identical pipelines.
+var _motion_shader: Shader = null
+
 
 func _post_import(scene: Node) -> Object:
 	var base: String = get_source_file().get_file()
@@ -74,6 +294,11 @@ func _post_import(scene: Node) -> Object:
 	if glass > 0:
 		print("[worldskin] %s  %d blended material(s) moved out of the shadow pass"
 			% [base, glass])
+	# EVERY GLB. A lit CRT face arrives in a prop GLB, which the kit/non-kit
+	# branch below returns early for, so this cannot sit after it.
+	var crt: int = _crt_motion(scene, {})
+	if crt > 0:
+		print("[worldskin] %s  %d CRT face(s) given a motion pass" % [base, crt])
 	var is_kit: bool = false
 	for p in KIT_PREFIXES:
 		if base.begins_with(p):
@@ -276,6 +501,70 @@ func _has_tint(cols: PackedColorArray) -> bool:
 		if col.r < VERTEX_WHITE or col.g < VERTEX_WHITE or col.b < VERTEX_WHITE:
 			return true
 	return false
+
+
+## A lit CRT face gets a darkening motion pass hung off its `next_pass`.
+##
+## The design, the measurement that settled it and the constants are all in the
+## CRT MOTION block at the top of this file. What happens here: the screen's own
+## StandardMaterial3D is not touched at all -- no texture, no emission, no
+## energy, no transparency -- and a ShaderMaterial is attached under it.
+##
+## IDEMPOTENT on a re-import: a face that already carries a next_pass is left
+## alone rather than given a second one.
+func _crt_motion(n: Node, seen: Dictionary) -> int:
+	var count: int = 0
+	var mi: MeshInstance3D = n as MeshInstance3D
+	if mi != null and mi.mesh != null:
+		for i in range(mi.mesh.get_surface_count()):
+			var bm: BaseMaterial3D = mi.mesh.surface_get_material(i) as BaseMaterial3D
+			if bm == null or seen.has(bm.get_instance_id()):
+				continue
+			seen[bm.get_instance_id()] = true
+			if not _is_crt_face(String(bm.resource_name)):
+				continue
+			if bm.next_pass != null:
+				continue
+			bm.next_pass = _motion_material(bm)
+			count += 1
+	for c in n.get_children():
+		count += _crt_motion(c, seen)
+	return count
+
+
+## All three tests, because no one of them is the contract on its own: the
+## vending machine's lit panel ends `_Face`, and Zoo's dark stand-set glass
+## carries `CRT` without being lit.
+func _is_crt_face(nm: String) -> bool:
+	return nm.begins_with(CRT_FACE_PREFIX) and nm.ends_with(CRT_FACE_SUFFIX) \
+		and nm.contains(CRT_FACE_MARK)
+
+
+func _motion_material(bm: BaseMaterial3D) -> ShaderMaterial:
+	if _motion_shader == null:
+		_motion_shader = Shader.new()
+		_motion_shader.code = MOTION_SHADER
+	var sm: ShaderMaterial = ShaderMaterial.new()
+	sm.shader = _motion_shader
+	sm.resource_name = String(bm.resource_name) + "_motion"
+	# The snow's grain is ONE PICTURE PIXEL, read off the picture rather than
+	# assumed, so a screen Zoo paints at another size grains at its own scale.
+	var px: Vector2 = PICTURE_PX_FALLBACK
+	if bm.albedo_texture != null:
+		px = Vector2(float(bm.albedo_texture.get_width()),
+			float(bm.albedo_texture.get_height()))
+	sm.set_shader_parameter("picture_pixels", px)
+	sm.set_shader_parameter("roll_period_s", ROLL_PERIOD_S)
+	sm.set_shader_parameter("roll_band_frac", ROLL_BAND_FRAC)
+	sm.set_shader_parameter("roll_depth", ROLL_DEPTH)
+	sm.set_shader_parameter("roll_dir", ROLL_UP)
+	sm.set_shader_parameter("flicker_depth", FLICKER_DEPTH)
+	sm.set_shader_parameter("flicker_hz_a", FLICKER_HZ_A)
+	sm.set_shader_parameter("flicker_hz_b", FLICKER_HZ_B)
+	sm.set_shader_parameter("noise_depth", NOISE_DEPTH)
+	sm.set_shader_parameter("noise_hz", NOISE_HZ)
+	sm.set_shader_parameter("proud_m", SCREEN_PROUD_M)
+	return sm
 
 
 func _is_tiled(base: String) -> bool:
