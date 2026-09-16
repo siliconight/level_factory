@@ -45,10 +45,11 @@ _DC_HARD_CODES = {
 # `tests/unit/test_dc_preset_registry.py` now compares this set with the
 # registry whenever Deli Counter sits beside this repo.
 _VALID_PRESETS = {
-    "auto_shop", "bank", "casino_tower", "compound", "corner_deli",
-    "facade_industrial", "facade_rowhome", "facade_storefront", "gas_station",
-    "hospital", "office", "parking_garage", "pawn_shop", "police_station",
-    "rowhome", "strip_club", "suburban_safehouse", "twin", "warehouse",
+    "auto_shop", "bank", "card_shop", "casino_tower", "compound",
+    "corner_deli", "facade_industrial", "facade_rowhome",
+    "facade_storefront", "gas_station", "hospital", "office",
+    "parking_garage", "pawn_shop", "police_station", "rowhome",
+    "strip_club", "suburban_safehouse", "twin", "warehouse",
 }
 # LF archetype -> DC preset aliases (extend as briefs introduce new archetypes).
 _ARCHETYPE_ALIASES = {
@@ -58,6 +59,15 @@ _ARCHETYPE_ALIASES = {
     "convenience_store": "gas_station", "highway_stop": "gas_station",
     "precinct": "police_station", "fortified_compound": "compound",
     "rowhouse": "rowhome", "safehouse": "suburban_safehouse",
+    # The card shop (Deli Counter 0.139.0). A brief is as likely to call it
+    # a hobby shop or a comic shop as a card shop, and `_preset_for`'s
+    # keyword fallback only fires when the archetype literally CONTAINS a
+    # preset's name -- "hobby_shop" contains none of them, so without these
+    # rows it raises. `trading_card_shop` resolves on the leading-qualifier
+    # rule already and is here anyway, because a reader looking for it
+    # should find it beside the others rather than have to derive it.
+    "trading_card_shop": "card_shop", "hobby_shop": "card_shop",
+    "comic_shop": "card_shop", "collectibles_shop": "card_shop",
 }
 
 

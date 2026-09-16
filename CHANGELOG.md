@@ -1,3 +1,55 @@
+## [0.91.0] - the card shop, and a guard that skipped in the one place the work happens
+
+Deli Counter 0.139.0 adds a `card_shop` preset (the walker's nine photographs,
+`docs/SET_DRESSING_REFERENCES.md`). `adapters.deli_counter._VALID_PRESETS` is a
+COPY of Deli Counter's registry, and 0.87.1 added
+`tests/unit/test_dc_preset_registry.py` to stop that copy drifting again after
+cold runs 9055 and 9056 were refused five stages in with an archetype the
+registry had and this set did not.
+
+### Added
+- `card_shop` in `_VALID_PRESETS`, and four aliases:
+  `trading_card_shop`, `hobby_shop`, `comic_shop`, `collectibles_shop`.
+  **`hobby_shop` is the one that matters.** `_preset_for`'s keyword fallback
+  only fires when the archetype literally CONTAINS a preset's name, and
+  "hobby_shop" contains none of the twenty, so without a row it is an
+  `UnknownArchetype` -- which is the correct behaviour and a refused cold run
+  all the same. `trading_card_shop` already resolved on the leading-qualifier
+  rule and is listed anyway, so a reader finds it beside the others instead of
+  having to derive it.
+- `test_the_card_shop_preset_resolves`, over the name and all four aliases.
+
+### Fixed -- THE GUARD COULD NOT FIRE FROM A WORKTREE
+
+`test_dc_preset_registry` located Deli Counter as `parents[3] / "deli_counter"`:
+correct for a checkout sitting beside it in `gabagool_factory`, and silently
+wrong for a git WORKTREE, which is where this work is done. From
+`gabagool_factory/scratchpad/lf_cardshop/tests/unit/`, `parents[3]` is
+`scratchpad`, there is no `deli_counter` in it, and the ONE test standing
+between this repo and a sixth refused cold run SKIPPED.
+
+Found by running it from a worktree while adding `card_shop` -- the preset it
+exists to catch -- and watching it report a pass it had not made. It walks up
+from its own file to the nearest `deli_counter/presets.py` now, and `LF_DC_ROOT`
+overrides for a checkout that is somewhere else entirely.
+`test_this_check_can_actually_find_deli_counter` is the new assertion that it
+found one: a skip is still allowed on a machine with no Deli Counter, and is
+not allowed on one where Deli Counter is two directories up.
+
+### Not fixed, and recorded rather than left to be rediscovered
+
+The same path assumption is in at least seven more tests, and the measurement
+is on the record: run from a worktree, this suite reports **8 failures** that
+are 0 on the checkout beside it --
+`test_archetype_resolution` x2 (`_ROOT = parents[2]`, which in a worktree is
+the scratchpad directory, so the brief corpus it walks is a different corpus),
+`test_dressing_jobs` x3, `test_layer3_wiring` x1, `test_signs_in_site_spec` x2.
+None is a regression and none is caused by this release; all of them mean the
+same thing, which is that "run the tests in a worktree" is not currently a
+supported workflow and nothing says so. Each wants the same three-line search
+this release gave the registry test, and each wants its own check that it
+found what it went looking for.
+
 ## [0.90.0] - is there a lamp where this light comes from?
 
 The walker, 2026-09-16, on cold run 9060's strip club: "awesome lighting in
