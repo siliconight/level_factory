@@ -87,6 +87,45 @@ def test_rooms_without_probes_and_refused_club_anchors_are_findings(driver, code
     assert code in driver
 
 
+# --- is there a lamp where the light comes from (0.90.0) -------------------
+
+
+def test_the_driver_measures_club_lights_against_zoos_hardware(driver):
+    """Walked 2026-09-16 on cold run 9060: "awesome lighting in the strip
+    club, but it doesn't look like that light is coming out of any viewable
+    light fixtures". Nothing in the pipeline could see it -- the fixture gate
+    only looks at emitter markers, and the club set deliberately has none."""
+    assert "_collect_hardware" in driver
+    assert "_box_distance" in driver
+    assert "LUX_CLUB_LIGHT_WITHOUT_HARDWARE" in driver
+
+
+def test_the_hardware_types_are_read_off_the_loader_not_spelled_here(driver):
+    """The same rule `CLUB_TYPES` follows, for the same reason: a third type
+    Zoo grows hardware for must be checked the day it lands, and a list
+    copied into this file is a schema guess that cannot fail."""
+    assert 'get("CLUB_HARDWARE_TYPES")' in driver
+    assert 'get("CLUB_HARDWARE_PREFIX")' in driver
+    assert '"stage_light"' not in driver
+    # ...and an older Lux that does not carry them says so rather than passing
+    assert "Lux < 0.40.0" in driver
+
+
+@pytest.mark.parametrize("key", [
+    '"club_hardware_checked"', '"club_hardware_worst_m"',
+    '"club_without_hardware"', '"club_hardware_msg"'])
+def test_the_quality_record_reports_the_hardware_measurement(driver, key):
+    assert key in driver, key
+
+
+def test_the_tolerance_is_a_named_constant_with_a_derivation(driver):
+    """Zoo mounts a club fixture with its lit lens ON the anchor, so the
+    right answer is 0 and this is float noise -- not an allowance, and not
+    the fixture gate's 0.25 m, which answers a different question."""
+    assert "CLUB_HARDWARE_TOLERANCE_M" in driver
+    assert "0.05" in driver
+
+
 def test_an_older_lux_is_named_not_defaulted(driver):
     assert "Lux < 0.38.0" in driver
     assert "Lux < 0.37.0" in driver

@@ -205,9 +205,11 @@ func _initialize() -> void:
 		await process_frame
 
 	# Light the club (Lux 0.37.0), only when the manifest carries one. The
-	# club types -- club_wash, stage_light, neon, room_ambient -- have no
-	# hardware and no marker, so like the windows they reach a level only
-	# through the manifest. The list of types is READ OFF THE LOADER, not
+	# club types have no emitter MARKER -- two of them have had Zoo hardware
+	# since 0.94.0, and it is built marker-less on purpose, because the
+	# marker path cannot carry a zone colour or a stage light's target -- so
+	# like the windows they reach a level only through the manifest, and a
+	# marker would double them. The list of types is READ OFF THE LOADER, not
 	# spelled here: a fifth type Lux adds is baked and counted the day it
 	# lands. `refused` names the anchors the loader would not build (an
 	# unknown colour, a stage light with no target); a refusal is a finding,
@@ -217,6 +219,10 @@ func _initialize() -> void:
 	var club_refused: Array = []
 	var club_msg := "no --lights given"
 	var club_ok := true
+	var club_dark: Array = []
+	var club_hw_checked := 0
+	var club_hw_max := 0.0
+	var club_hw_msg := "not evaluated"
 	if not lights_path.is_empty():
 		var club_loader: GDScript = load("res://addons/lux/runtime/lux_light_loader.gd")
 		var club_types: Variant = club_loader.get("CLUB_TYPES") if club_loader != null else null
@@ -238,6 +244,62 @@ func _initialize() -> void:
 			club_msg = "lux addon has no bake_club (Lux < 0.37.0)"
 		print("[lux] club: %s" % club_msg)
 		await process_frame
+
+		# IS THERE A LAMP WHERE THIS LIGHT COMES FROM? (0.90.0) Walked on
+		# cold run 9060: "awesome lighting in the strip club, but it doesn't
+		# look like that light is coming out of any viewable light fixtures".
+		# It did not: Lux 0.37.0 wrote the club set with no hardware, and
+		# nothing in the pipeline could tell, because the fixture gate only
+		# ever looks at emitter MARKERS and the club set deliberately has
+		# none (their tuning does not fit a marker payload -- Zoo 0.94.0's
+		# `core.fixtures`, `marker: False`).
+		#
+		# So measure it here, where both halves are in one tree: for every
+		# anchor of a type Zoo builds hardware for, the distance from the
+		# anchor to the nearest box of Zoo's hardware. WHICH TYPES those are
+		# is READ OFF THE LOADER (`CLUB_HARDWARE_TYPES`), never spelled
+		# here; an older Lux that does not carry it reports "not evaluated"
+		# rather than a pass, because a check that cannot find the field it
+		# wants has learned nothing.
+		var hw_types: Variant = club_loader.get("CLUB_HARDWARE_TYPES") \
+			if club_loader != null else null
+		var hw_prefix: Variant = club_loader.get("CLUB_HARDWARE_PREFIX") \
+			if club_loader != null else null
+		if typeof(hw_types) != TYPE_ARRAY or typeof(hw_prefix) != TYPE_STRING:
+			club_hw_msg = "lux addon names no CLUB_HARDWARE_TYPES (Lux < 0.40.0)"
+		else:
+			var boxes: Array[AABB] = []
+			_collect_hardware(scene, String(hw_prefix), boxes)
+			var worst := 0.0
+			for a in _anchors_of(lights_path, hw_types):
+				# PER LAMP, NOT PER ANCHOR. A `row` anchor is one entry and
+				# several lamps: Zoo expands it in `core.fixtures.row_points`
+				# and Lux's rig lays its lamps the same way, so the anchor's
+				# own `pos` is the row's CENTRE and there may be no hardware
+				# there at all. Measured before this was written: the club's
+				# 2-lamp stage row reported "1 with none within 0.05 m"
+				# against cans 0.6 m either side of it -- the instrument
+				# finding the instrument's own bug, which is the only reason
+				# it is worth writing this down.
+				for p in _row_points(a):
+					club_hw_checked += 1
+					var best := INF
+					for box in boxes:
+						best = minf(best, _box_distance(box, p))
+					if best > CLUB_HARDWARE_TOLERANCE_M:
+						club_dark.append({"id": String(a.get("id", "?")),
+							"type": String(a.get("type", "?")),
+							"nearest_m": (-1.0 if is_inf(best)
+								else snappedf(best, 0.001))})
+					elif best > worst:
+						worst = best
+			club_hw_max = snappedf(worst, 0.001)
+			club_hw_msg = ("%d club light(s) of a type Zoo builds hardware for; "
+				+ "%d with none within %.2f m; worst kept pair %.3f m "
+				+ "(%d hardware box(es) in the tree)") % [club_hw_checked,
+				club_dark.size(), CLUB_HARDWARE_TOLERANCE_M, club_hw_max,
+				boxes.size()]
+		print("[lux] club hardware: %s" % club_hw_msg)
 
 	# THE CENSUS THE LIGHT BUDGET IS WRITTEN FROM. `count_package_lights`
 	# counts `type="OmniLight3D"` declarations in scene text, and roadmap 56
@@ -320,6 +382,9 @@ func _initialize() -> void:
 		"room_probe_rooms_without_box": room_without, "room_probe_msg": room_msg,
 		"club_lights": club_lights, "club_anchors_in_manifest": club_in_manifest,
 		"club_refused": club_refused, "club_msg": club_msg,
+		"club_hardware_checked": club_hw_checked,
+		"club_hardware_worst_m": club_hw_max,
+		"club_without_hardware": club_dark, "club_hardware_msg": club_hw_msg,
 		"lights_in_tree": lights_in_tree}
 	_write_json(out_dir + "/lux.quality.json", quality)
 	var issues := []
@@ -337,6 +402,19 @@ func _initialize() -> void:
 		issues.append({"code": "LUX_CLUB_REFUSED", "severity": "moderate",
 			"category": "presentation",
 			"message": "club anchors did not all become light: %s" % club_msg})
+	# A club light with no hardware at it is the walker's own finding of
+	# 2026-09-16 turned into a number. Moderate: the level ships and it looks
+	# good, which is exactly why nothing caught it for three releases -- the
+	# light is there, the lamp it is supposed to come out of is not.
+	if not lights_path.is_empty() and not club_dark.is_empty():
+		var names := []
+		for d in club_dark:
+			names.append("%s (%s, nearest %.3f m)" % [d["id"], d["type"],
+				float(d["nearest_m"])])
+		issues.append({"code": "LUX_CLUB_LIGHT_WITHOUT_HARDWARE",
+			"severity": "moderate", "category": "presentation",
+			"message": ("club light(s) with no Zoo fixture at them: "
+				+ ", ".join(names))})
 	# The manifest asked for daylight and none was made -- or could not be
 	# read at all. Moderate: the level ships, darker than it was specified.
 	if not lights_path.is_empty() and (not daylight_ok or (daylight_in_manifest > 0 and daylight_count == 0)):
@@ -384,6 +462,95 @@ func _write_json(path: String, data: Dictionary) -> void:
 ## How many anchors of `path` carry one of `types`. Reads the manifest
 ## itself rather than asking the loader, so "no club anchors" can be told
 ## apart from "the loader refused every one".
+## HOW FAR A CLUB LIGHT MAY STAND FROM ITS OWN HARDWARE, metres. Zoo mounts
+## a club fixture `above` its emitter -- the lit lens ON the anchor, the
+## barrel rising behind it -- so the anchor is inside the fixture's box by
+## construction and the distance is 0. This is float noise plus the GLB
+## import's own rounding, not an allowance: the fixture gate's co-location
+## check uses 0.25 m for a lamp hung INSIDE a housing, which is a different
+## question.
+const CLUB_HARDWARE_TOLERANCE_M := 0.05
+
+
+## Every anchor of `path` whose type is in `types`, as dictionaries.
+func _anchors_of(path: String, types: Array) -> Array:
+	var out: Array = []
+	if not FileAccess.file_exists(path):
+		return out
+	var data: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+	if typeof(data) != TYPE_DICTIONARY or typeof(data.get("anchors")) != TYPE_ARRAY:
+		return out
+	for a in data["anchors"]:
+		if typeof(a) == TYPE_DICTIONARY and types.has(String(a.get("type", ""))) \
+				and typeof(a.get("pos")) == TYPE_ARRAY \
+				and (a.get("pos") as Array).size() >= 3:
+			out.append(a)
+	return out
+
+
+## Every LAMP POINT an anchor expands to, in GODOT coordinates.
+##
+## The row rule is Zoo's `core.fixtures.row_points` and LuxFluorescentRig's
+## `start = -(count - 1) / 2 * spacing`, laid along the anchor's `rot_y`
+## (measured from +X toward +Y, Deli Counter's convention). The axis swap to
+## Godot -- Blender Z-up (x, y, z) to (x, z, -y) -- is spelled out here
+## rather than imported from the loader, so a disagreement between them
+## shows up as a distance in this report instead of as a pass.
+func _row_points(a: Dictionary) -> Array[Vector3]:
+	var pos: Array = a.get("pos", [0.0, 0.0, 0.0])
+	var x := float(pos[0])
+	var y := float(pos[1])
+	var z := float(pos[2])
+	var row: Variant = a.get("row")
+	var count := 1
+	var spacing := 0.0
+	if typeof(row) == TYPE_DICTIONARY:
+		count = maxi(1, int((row as Dictionary).get("count", 1)))
+		spacing = float((row as Dictionary).get("spacing", 0.0))
+	var out: Array[Vector3] = []
+	if count == 1 or spacing <= 0.0:
+		out.append(Vector3(x, z, -y))
+		return out
+	var t := deg_to_rad(float(a.get("rot_y", 0.0)))
+	var start := -(count - 1) * 0.5 * spacing
+	for i in count:
+		var off := start + i * spacing
+		out.append(Vector3(x + off * cos(t), z, -(y + off * sin(t))))
+	return out
+
+
+## Every Zoo club-fixture mesh under `node`, as a GLOBAL AABB.
+##
+## The box, not the node's origin: Zoo bakes the placement into the
+## vertices, so every mesh it exports sits at the GLB's own origin and a
+## `global_position` comparison would measure the building's placement
+## rather than the fixture's. Matched by name PREFIX for the reason
+## LuxFixtureSpawner matches markers that way -- Blender dedupes repeats
+## and Godot's importer rewrites the dot.
+func _collect_hardware(node: Node, prefix: String, out: Array[AABB]) -> void:
+	var mi := node as MeshInstance3D
+	if mi != null and String(mi.name).begins_with(prefix) and mi.mesh != null:
+		# `transform * aabb`, not `transform * position` with the size kept:
+		# a par can is TILTED at its anchor, and moving one corner while
+		# holding the extent leaves the box somewhere the fixture is not.
+		# Measured before this line was written -- the two stage lamps came
+		# back 0.088 and 0.089 m from hardware they are standing inside.
+		out.append(mi.global_transform * mi.get_aabb())
+	for c in node.get_children():
+		_collect_hardware(c, prefix, out)
+
+
+## Distance from `p` to the nearest point of `box`; 0 when p is inside.
+func _box_distance(box: AABB, p: Vector3) -> float:
+	var lo := box.position
+	var hi := box.position + box.size
+	var d := Vector3(
+		maxf(maxf(lo.x - p.x, p.x - hi.x), 0.0),
+		maxf(maxf(lo.y - p.y, p.y - hi.y), 0.0),
+		maxf(maxf(lo.z - p.z, p.z - hi.z), 0.0))
+	return d.length()
+
+
 func _count_anchor_types(path: String, types: Array) -> int:
 	if not FileAccess.file_exists(path):
 		return 0

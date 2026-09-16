@@ -1,3 +1,77 @@
+## [0.90.0] - is there a lamp where this light comes from?
+
+The walker, 2026-09-16, on cold run 9060's strip club: "awesome lighting in
+the strip club, but it doesn't look like that light is coming out of any
+viewable light fixtures". He was right, and he was right for three releases:
+Lux 0.37.0 wrote the club set with no hardware, Zoo 0.94.0 builds it now, and
+NOTHING IN THIS PIPELINE COULD TELL either way. `lux_fixture_gate` looks only
+at emitter markers, and the club set deliberately has none -- its tuning
+(zone colour, pool radius, a stage light's target) does not fit a marker
+payload -- so the gate saw an empty question and answered it clean.
+
+The geometry is Zoo's and the light is Lux's. This is the number.
+
+### Added
+- **A hardware measurement in `run_lux_apply.gd`**, taken where both halves
+  are in one tree, right after `bake_club`. For every anchor of a type Zoo
+  builds hardware for, the distance from each of its LAMP POINTS to the
+  nearest box of Zoo's hardware. `club_hardware_checked`,
+  `club_hardware_worst_m`, `club_without_hardware` and `club_hardware_msg`
+  go into `lux.quality.json`; a lamp with nothing within
+  `CLUB_HARDWARE_TOLERANCE_M` raises `LUX_CLUB_LIGHT_WITHOUT_HARDWARE`
+  (moderate) in `lux.validation.json`.
+- On the shipped 9060 club, rebuilt against Lux 0.40.0 and Zoo 0.94.0:
+  `7 club light(s) of a type Zoo builds hardware for; 0 with none within
+  0.05 m; worst kept pair 0.000 m (21 hardware box(es) in the tree)`. Against
+  Lux 0.39.0 the same driver reports `lux addon names no
+  CLUB_HARDWARE_TYPES (Lux < 0.40.0)` and evaluates nothing, which is the
+  honest answer and not a pass.
+
+### Three things about it that are the point
+
+**The types are read off the loader, never spelled here.** `CLUB_HARDWARE_
+TYPES` and `CLUB_HARDWARE_PREFIX` come out of `lux_light_loader.gd` the same
+way `CLUB_TYPES` already does, so a third type Zoo grows hardware for is
+checked the day it lands and an older Lux says "not evaluated" instead of
+passing. A list copied into this file would be a schema guess that cannot
+fail -- the defect 0.87.1's own changelog is about.
+
+**The tolerance is 0.05 m and it is not an allowance.** Zoo mounts a club
+fixture with its emitter point inside the fixture's own box by construction,
+so the right answer is 0.000 and this is float noise plus the GLB import's
+rounding. The fixture gate's 0.25 m is a different question -- a lamp hung
+INSIDE a housing -- and borrowing it here would hide a fixture a quarter of a
+metre from its light.
+
+**Two bugs in the instrument, both found by the instrument.** It first
+measured per ANCHOR and reported the club's 2-lamp stage row as "1 with none
+within 0.05 m" against cans 0.6 m either side of it: a row anchor is one
+entry and several lamps, and `_row_points` expands it the way Zoo's
+`core.fixtures.row_points` and LuxFluorescentRig both do. It then reported
+the two par cans at 0.088 and 0.089 m from hardware they are standing inside,
+because it built the world box as `transform * aabb.position` with the extent
+kept -- which is only correct for an axis-aligned transform, and a par can is
+TILTED at its anchor. `transform * aabb` transforms all eight corners.
+Neither would have been visible without a real scene to run on.
+
+### Changed
+- `run_lux_apply.gd`: `_anchors_of`, `_row_points`, `_collect_hardware`,
+  `_box_distance`, `CLUB_HARDWARE_TOLERANCE_M`; the club block's comment,
+  which said the club types have no hardware and no longer do.
+- `tests/unit/test_lux_interior_dark.py`: the measurement exists, the types
+  are read off the loader and not spelled here, the four quality keys, and
+  the tolerance is a named constant. All fail on 0.89.0.
+
+### Not done
+- The fixture gate still only sees markers. A club fixture is hardware with
+  no marker on purpose, so the gate's co-location check does not cover it --
+  this driver's measurement does, and the two report in different files.
+  Unifying them means the gate reading a lights manifest it is not given.
+- Nothing here measures whether the fixture is VISIBLE, only whether it is
+  where the light is. A can flush inside a ceiling slab would pass this and
+  fail a person looking at the screen; Zoo 0.94.0 shipped exactly that on its
+  first build and a frame is what caught it (`PIPELINE_ROADMAP.md` item 18).
+
 ## [0.89.0] - the game is on: a motion pass on the club's CRTs
 
 The walker, on Zoo 0.90.0's lit bracket TVs: "not sure if its possible to have
