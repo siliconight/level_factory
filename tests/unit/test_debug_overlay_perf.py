@@ -63,7 +63,7 @@ def test_the_readout_answers_all_five_questions_asked_of_it():
     "gpu" over a number that came from somewhere else is exactly the failure
     this file is about.
     """
-    body = _func(_src(), "_perf_text")
+    body = _func(_src(), "_perf_refresh")
     assert "viewport_get_measured_render_time_gpu" in _src(), "no GPU figure"
     assert "RENDER_TOTAL_DRAW_CALLS_IN_FRAME" in body, "no draw calls"
     assert "RENDER_TOTAL_PRIMITIVES_IN_FRAME" in body, "no triangle count"
@@ -82,10 +82,41 @@ def test_frame_time_is_wall_clock_not_the_clamped_delta():
 
 def test_the_window_carries_a_worst_frame_and_not_only_a_mean():
     """A mean of 60 fps stutters. What the walker felt is the worst frame."""
-    text = _func(_src(), "_perf_text")
+    text = _func(_src(), "_perf_refresh")
     assert "worst frame" in text, "no worst-frame line"
     tick = _func(_src(), "_perf_tick")
     assert "_acc_worst" in tick, "nothing tracks the worst frame per bucket"
+
+
+def test_a_hitch_is_counted_and_not_only_averaged():
+    """The complaint was "chugging", not "slow".
+
+    Measured at cold run 9062's spawn, 600 frames after a 240-frame warmup:
+    mean 10.40 ms (96.2 fps) against a 1% low of 18.54 ms (53.9 fps) and a
+    worst frame of 34.07 ms. A panel that answered that with "96 fps" would be
+    telling the walker they imagined it. So: a count of frames that missed,
+    and a worst that does not age out of the window before they look down.
+    """
+    text = _func(_src(), "_perf_refresh")
+    assert "hitch" in text, "nothing counts hitches"
+    assert "held" in text, "the worst frame ages out and leaves no mark"
+    tick = _func(_src(), "_perf_tick")
+    assert "_acc_hitch += 1" in tick, "hitches are not counted per frame"
+    assert "_worst_held" in tick, "nothing holds the worst frame"
+
+
+def test_the_hitch_threshold_is_derived_from_the_window_not_pinned():
+    """A pinned millisecond threshold is right at one framerate and wrong at
+    the next -- the same defect as a pinned WP_RADIUS. It scales off the
+    window's own mean, so it means the same thing at 30 fps and at 144."""
+    src = _src()
+    assert re.search(r"^const HITCH_FACTOR :=", src, re.M)
+    refresh = _func(src, "_perf_refresh")
+    assert re.search(r"_hitch_at = HITCH_FACTOR \* mean", refresh), (
+        "the hitch threshold is not derived from the window's mean frame time")
+    assert "var _hitch_at := INF" in src, (
+        "the threshold must start at INF; a zero would count every frame of "
+        "the first window as a hitch")
 
 
 def test_the_expensive_half_runs_on_the_sample_clock_only():
@@ -99,7 +130,7 @@ def test_the_expensive_half_runs_on_the_sample_clock_only():
     m = re.search(r"if _acc_time \* PERF_HZ < 1\.0:\s*\n\s*return", tick)
     assert m, "no sample-period gate in _perf_tick"
     before = tick[:m.start()]
-    for costly in ("Performance.get_monitor", "_perf_text", "_perf.text",
+    for costly in ("Performance.get_monitor", "_perf_refresh", "_perf.text",
                    "viewport_get_measured_render_time", '" % ['):
         assert costly not in before, (
             f"{costly!r} runs on every frame, ahead of the sample gate")
@@ -147,7 +178,7 @@ def test_an_unmeasured_gpu_is_not_reported_as_zero():
     not, and a flat 0.00 ms would read as a measurement of nothing."""
     src = _src()
     assert "_gpu_seen" in src
-    assert "n/a" in _func(src, "_perf_text"), (
+    assert "n/a" in _func(src, "_perf_refresh"), (
         "an unavailable GPU timer must say so rather than print 0.00")
 
 
@@ -155,7 +186,7 @@ def test_the_worst_step_line_is_not_sold_as_a_frame_time():
     """TIME_PROCESS is a per-second maximum. Labelling it "cpu" would be the
     cheap observable standing in for the expensive truth, in the one file whose
     whole job is to not do that."""
-    text = _func(_src(), "_perf_text")
+    text = _func(_src(), "_perf_refresh")
     m = re.search(r'"([^"]*)" % \[\s*\n?\s*1000\.0 \* Performance\.get_monitor'
                   r'\(Performance\.TIME_PROCESS\)', text)
     assert m, "TIME_PROCESS is not formatted where this expects it"
@@ -176,6 +207,13 @@ def test_the_readout_says_whose_figures_these_are():
     assert "window_get_vsync_mode" in ctx, (
         "without vsync state, a capped 60 fps reads as headroom")
     assert "window_get_size" in ctx, "no resolution beside the frame time"
+    # Provenance, not a diagnosis. Measured on this package on 2026-09-16,
+    # killing all 12 shadow casters and capping lights per object at 8 each
+    # made the frame time WORSE. A bare "84 lights" beside a bad frame time
+    # reads as an accusation against the thing already ruled out.
+    assert "light budget" in ctx, (
+        "the light setting is labelled as a count rather than as the budget "
+        "it is")
 
 
 def test_the_debug_build_guard_still_covers_everything():

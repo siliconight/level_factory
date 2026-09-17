@@ -10,13 +10,22 @@ number it prints means what its label says.
 ### Added -- A PERF PANEL IN THE WALK OVERLAY, ON F4
 
 `assets/godot/debug_overlay.gd` grows a second panel, top right, beside the
-position panel that has been top left since 2026-08-08. Six lines: fps and
+position panel that has been top left since 2026-08-08. Seven lines: fps and
 frame time averaged over a rolling 2 s window; the WORST single frame in that
-window, in ms and as the rate it implies; GPU and rendering-CPU milliseconds;
-draw calls, triangles and objects this frame; the engine's worst idle and
-physics step in the last second; and a line naming the package, the renderer,
-the light budget, the vsync state and the resolution the other five were
-measured at.
+window, in ms and as the rate it implies; a count of hitches in the window
+beside the worst frame held since the panel came up, with its age; GPU and
+rendering-CPU milliseconds; draw calls, triangles and objects this frame; the
+engine's worst idle and physics step in the last second; and a line naming the
+package, the renderer, the light budget, the vsync state and the resolution
+the other six were measured at.
+
+    fps 162.5 avg    6.16 ms/frame   (2.0 s)
+    low 138.4 fps    7.23 ms worst frame
+    hitch 0 over 9.2 ms   held 509.39 ms  0:09
+    gpu  2.68 ms   render-cpu  5.24 ms
+    draw 1 396 calls  1 396 218 tris  1 264 objects
+    1 s worst step: main 7.0 ms  physics 0.43 ms
+    card_block_002 (shell)  gl_compatibility  light budget 84  vsync off  1152x648
 
 Two keys, not one. F3 keeps exactly the meaning it has always had. Position
 and cost get asked in the same breath -- "it stutters HERE" is one finding,
@@ -67,69 +76,135 @@ on with itself and off again with F4. Where it ever does read a flat zero the
 panel prints `n/a` rather than `0.00`, because a GPU time that never moved off
 zero is an unmeasured one.
 
-### WHAT THE PANEL COSTS, AND WHY THE OBVIOUS A/B COULD NOT SAY
+### THE READOUT IS BUILT AROUND THE TAIL, BECAUSE THAT IS THE COMPLAINT
 
-Priced on cold run 9062's card block, four stations, fixed view, 5 s of
-samples after a 2 s settle, vsync off, 1152x648.
+Measured on 9062's walk copy with a wall-clock probe standing at spawn, 600
+sampled frames after a 240-frame warmup, on the package's own renderer:
 
-**The on/off frame-time A/B failed, and that is the first result.** Run to
-run, with nothing changed, one station measured 23-96 ms of GPU time and
-14-100 ms a frame; a no-change control pair differed by 29%. A third of a
-millisecond cannot be read off that, and a number quoted from it would have
-been the noise wearing a result's clothes.
+    mean 10.40 ms (96.2 fps) | median 10.35 | 1% low 18.54 ms (53.9 fps)
+    worst 34.07 ms | 342 draw calls | 1,386,518 primitives | 395 objects
 
-So the overlay was made to time itself -- its own `_process` bracketed by
-`Time.get_ticks_usec()`, in a generated copy of the shipped file, in the real
-package, with the position panel switched off to isolate the new work:
+A 96 fps mean with a 54 fps 1% low is not a slow level; it is a hitching one,
+which is exactly what "chugging ... not staying smooth" describes and exactly
+what an average is incapable of showing. So three of the panel's seven lines
+are about the tail:
 
-    perf panel alone, ordinary frame          8.9 - 19.1 us
-    perf panel alone, sample frame (4/s)        215 - 385 us
-    F3 position panel, EVERY frame              268 - 351 us
+* **the worst single frame in the window**, in ms and as the rate it implies.
+  Not a 1% low -- a percentile needs every frame kept and sorted, and the
+  worst frame is both stricter and free.
+* **a hitch count**, frames over `HITCH_FACTOR` (1.5) x the window's own mean.
+  A count is what a walker can report -- "four times crossing the street" --
+  where one worst figure cannot say whether it happened once or constantly.
+  The factor is derived from what vsync does with a late frame rather than
+  picked: an overrun of half an interval is already a whole dropped frame on
+  screen. Checked against the numbers above, 1.5x counts that 1% low as
+  hitches; 2.0x would have counted none of them and read as a smooth level.
+* **a held worst, with its age**, because a hitch that ages out of a 2 s
+  window is gone before the walker has finished looking down, and then the
+  panel and the person disagree about what just happened. Standing at spawn
+  for nine seconds, the window reads 6.16 ms and the held worst reads 509 ms.
 
-Two control runs of the perf-panel arm, taken either side of the others,
-bracket every figure. The cost is `PERF_HZ * tick + fps * frame`: about 1.1 ms
-of CPU a second on the sample clock plus 14 us a frame, which at 60 fps is
-1.9 ms a second, 0.03 ms a frame, 0.2% of a 16.7 ms frame. Most of it does not
-scale with framerate, which is the property that matters -- it does not get
-louder as the level gets slower. In draw calls it is exactly +2, identical at
-all four stations (1392 -> 1394, 3419 -> 3421, 340 -> 342, 189 -> 191).
+**What is not the cause, recorded so the panel is not read as pointing at it:**
+disabling all 12 shadow casters made the frame time WORSE, and so did capping
+lights per object at 8; neither moved the primitive count. The light budget on
+the context line is labelled `light budget` rather than `84 lights` for that
+reason -- it is provenance, not a diagnosis.
 
-**The F3 panel is the expensive one, by a factor of 20**, and has been since it
-was written: it raycasts and rebuilds its Label every frame. It is not changed
-here -- that is a second change wearing this one's clothes -- but it is now
-measured, and a walker reading a frame time with F3 up is reading one about
-0.3 ms worse than the level's own. On this package that is 1% of the frame; on
-a fast one it would be 7%.
+**And the instrument that looked perfect and is not:** all five
+`PIPELINE_COMPILATIONS_*` monitors exist in Compatibility and stay at 0. They
+are the obvious way to attribute a 500 ms frame to shader compilation, and
+they are a RenderingDevice feature that this renderer does not feed -- measured
+warm and with `.godot` stripped, 0 both times. They are not on the panel: a
+counter reading zero because nothing writes it is indistinguishable from a
+level that compiled nothing, and the second is the answer a reader would take.
+
+### WHAT THE PANEL COSTS
+
+Priced on cold run 9062's card block -- fixed view, 6 s of samples after a 3 s
+settle, vsync off, 1152x648, RTX 2060, arms interleaved a-b-c-a-b-c so that
+drift shows up as a disagreement between one arm's two runs.
+
+**RETRACTED, AND KEPT BECAUSE IT WAS NEARLY SHIPPED AS FACT.** The first
+pricing was taken while a second Godot was on the same GPU -- the walker's own
+walk copy, open in front of them. Those runs measured one station at 14-100 ms
+a frame with a no-change control pair differing by 29%, and the conclusion
+drawn from that was "the on/off A/B cannot resolve an overlay, so time the
+script instead". The A/B was fine. The machine was busy. On a quiet machine
+the same station repeats to better than 0.5% and the A/B answers directly. A
+frame time is a measurement of a whole computer, and nothing in the artefact
+says who else was using it.
+
+    station     no overlay      F3 panel        F3 + perf panel
+    shop floor  5.945, 5.900    6.045, 6.110    6.105, 6.086 ms
+    spawn       1.528, 1.541    1.671, 1.671    1.677, 1.671 ms
+
+The F3 panel costs +0.14 to +0.16 ms a frame. **The perf panel adds +0.003 to
++0.02 ms on top of it** -- smaller than the 0.045 ms spread between the two
+runs of the no-overlay arm, so bounded by this rig's noise rather than
+resolved by it. Draw calls are exact and repeated identically in both rounds:
++2 per panel, 1392 -> 1394 -> 1396 and 340 -> 342 -> 344.
+
+The same file timing itself -- its own `_process` bracketed by
+`Time.get_ticks_usec()` in a generated copy of the shipped script -- splits
+that between the two panels:
+
+    perf panel alone, ordinary frame           2.1 - 4.0 us
+    perf panel alone, sample frame (4/s)        94 - 110 us
+    F3 position panel, EVERY frame            49.3 - 107.6 us
+
+So the perf panel is `PERF_HZ * tick + fps * frame`: about 0.4 ms of CPU a
+second, mostly on the sample clock rather than the framerate, which is the
+property that matters -- it does not get louder as the level gets slower. At
+60 fps that is 0.006 ms a frame, 0.04% of a 16.7 ms frame.
+
+The self-timing is smaller than the A/B for both panels, and the gap is real
+work rather than an error: the Label reshape, the CanvasLayer redraw and the
+two extra draw calls all happen outside `_process` and only the A/B counts
+them. Quote the A/B for what a frame costs and the self-timing for which panel
+to blame.
+
+**The F3 panel is the expensive one**, by a factor of 25 in script time, and
+has been since it was written: it raycasts and rebuilds its Label every frame,
+and it costs more indoors (107.6 us in the shop against 49.3 at spawn) because
+that is where the raycast has something to hit. Not changed here -- that is a
+second change wearing this one's clothes -- but now measured, and a walker
+reading a frame time with F3 up is reading one about 0.15 ms worse than the
+level's own.
 
 ### WHAT IT SAYS IN THE CARD SHOP
 
-Standing on the sales floor of each card shop, same rig, same resolution,
-vsync off, four readings each:
+Standing on the sales floor of each card shop, quiet machine, three runs each,
+same rig, vsync off, 1152x648. The first attempt at this table was taken on
+the contended machine and reported both shops at 20-34 fps; those figures are
+withdrawn, and the ordering they implied was wrong as well as the magnitude.
 
                         9061 card_block_001     9062 card_block_002
-    fps (avg)             20.9 - 27.1             22.6 - 33.9
-    worst frame          53.6 - 64.3 ms          49.3 - 71.2 ms
-    gpu                   9.7 - 14.4 ms          10.2 - 17.6 ms
-    render-cpu           29.8 - 41.1 ms          24.6 - 34.7 ms
-    draw calls               2 042                   1 396
-    triangles              1 144 702               1 396 152
-    light budget              57                      84
+    mean frame          7.03 - 7.20 ms          6.15 - 6.17 ms
+    worst frame        10.1 - 15.1 ms           8.1 - 10.9 ms
+    gpu                 2.65 - 2.80 ms          2.51 - 2.87 ms
+    render-cpu          6.09 - 6.26 ms          5.38 - 5.57 ms
+    draw calls              2 042                   1 396
+    triangles             1 144 782               1 396 218
+    objects                  2 254                   1 264
 
-Both card shops run 20-34 fps on an RTX 2060 at 1152x648, and both are
-CPU-bound in the renderer rather than GPU-bound: render-cpu is twice the GPU
-time indoors. The density the walker was looking at is not what separates the
-two runs -- 9062's shop is, if anything, the faster of the two. The difference
-is outdoors: from the two packages' own `player_start` anchors, 9061's street
-reads 67.5 fps / 14.8 ms with 3.2 ms of GPU, and 9062's reads 34.1 fps /
-29.4 ms with 25.5 ms of GPU. Those are different views of different blocks and
-are not a controlled comparison; they are the first numbers anyone here has
-had, and the panel is how the next ones get taken.
+**The card shop the walker called chugging is the faster of the two**, 6.16 ms
+against 7.10 ms, despite drawing 250,000 more triangles -- because it draws
+them in 646 fewer calls and 990 fewer objects. Both shops are CPU-bound in the
+renderer, not GPU-bound: render-cpu is about twice the GPU time in both. That
+is the shape that says the cost is in the number of things submitted rather
+than in what they are made of, and it is the first time anyone here has had
+the number.
+
+Neither figure explains what the walker felt, and that is the finding: at
+162 fps average, this readout still held a 509 ms frame. The complaint is
+the tail, the panel now shows the tail, and the next report can carry a
+coordinate and a hitch count in the same screenshot.
 
 ### Added -- tests/unit/test_debug_overlay_perf.py
 
-Twelve shape tests over the GDScript, in the manner of
+Fourteen shape tests over the GDScript, in the manner of
 `test_worldskin_crt_motion.py` -- the unit suite has no Godot, so they hold the
-shape the measurements above depend on. Ten of the twelve fail against
+shape the measurements above depend on. Twelve of the fourteen fail against
 0.94.0's overlay; the two that pass are the debug-build guard and the
 string-literal trap, which are rules this release did not change. The
 sample-gate test is positional: every costly call must appear AFTER the early

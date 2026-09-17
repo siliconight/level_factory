@@ -69,6 +69,15 @@ extends Node
 ##   * `RENDER_TOTAL_DRAW_CALLS_IN_FRAME`, `..._PRIMITIVES_...` and
 ##     `..._OBJECTS_...` DO work in Compatibility -- verified moving 2 -> 2900
 ##     objects and 24 -> 34,800 primitives under load.
+##   * THE `PIPELINE_COMPILATIONS_*` MONITORS EXIST AND STAY ZERO. All five are
+##     in the enum, and they are the obvious instrument for a hitch caused by
+##     shader compilation -- which is what a 491 ms frame during load looks
+##     like. Measured in the card block, warm and with `.godot` stripped, both
+##     runs reported 0 across all five: they are a RenderingDevice feature and
+##     Compatibility does not feed them. So they are NOT on the panel. A
+##     counter that reads zero because nothing writes it is indistinguishable
+##     from a level that compiled nothing, and the second is the answer a
+##     reader would take.
 ##   * `RenderingServer.viewport_get_measured_render_time_gpu` RETURNS A REAL
 ##     GPU FIGURE in Compatibility, contrary to the usual expectation that GPU
 ##     timing is a Forward+/RenderingDevice feature: 0.020 ms on an empty view,
@@ -76,52 +85,99 @@ extends Node
 ##     (`viewport_set_measure_render_time`), which this does only while the
 ##     panel is visible.
 ##
-## THE ROLLING MINIMUM IS THE POINT. "Chugging" is not a mean -- a mean of 60
-## stutters badly -- so the second line is the WORST SINGLE FRAME in the
-## window, in ms and as the instantaneous rate it implies. It is not a 1% low:
-## a percentile needs every frame time kept and sorted, and the worst frame is
-## both stricter and free. `PERF_WINDOW` is short enough that the number the
-## walker reads is the stutter they just felt, and long enough to survive the
-## moment it takes to look down.
+## THE ROLLING MINIMUM IS THE POINT, and the measurement that prompted the
+## panel says why. Cold run 9062's walk copy, wall-clock probe at spawn, 600
+## frames after a 240-frame warmup:
+##
+##     mean 10.40 ms (96.2 fps)   median 10.35   1% low 18.54 ms (53.9 fps)
+##     worst 34.07 ms   342 draw calls   1,386,518 primitives   395 objects
+##
+## The absolute figure moved afterwards -- the same station on a quiet machine
+## is 1.53 ms, and the draw calls, primitives and objects match to the digit,
+## so the two probes were looking at the same view on a differently loaded
+## computer. THE SHAPE DID NOT MOVE, which is the part the panel is built on:
+## on the quiet machine the mean was 1.9 ms and the worst frame the panel held
+## was 491.72 ms. Whatever the average is, this level's problem is the tail.
+##
+## The level does not run slowly. It HITCHES -- a 96 fps mean with a 54 fps 1%
+## low -- which is exactly the shape a mean cannot carry and exactly what the
+## walker meant by "not staying smooth". So three of the panel's numbers are
+## about the tail and only one is about the average:
+##
+##   * the WORST SINGLE FRAME in the window, in ms and as the rate it implies.
+##     Not a 1% low: a percentile needs every frame kept and sorted, and the
+##     worst frame is both stricter and free.
+##   * a HITCH COUNT, frames over `HITCH_FACTOR` x the window's own mean. A
+##     count is what a walker can report -- "it did it four times crossing the
+##     street" -- where a single worst figure cannot say whether it happened
+##     once or constantly.
+##   * a HELD WORST, with its age, because a hitch that ages out of a 2 s
+##     window is gone before the walker has finished looking down, and then
+##     the panel and the person disagree about what just happened.
+##
+## WHAT IS NOT THE CAUSE, recorded here so the panel is not read as pointing at
+## it: measured on this package on 2026-09-16, disabling all 12 shadow casters
+## made the frame time WORSE, and so did capping lights per object at 8.
+## Neither moved the primitive count. The light budget on the context line is
+## provenance, not a diagnosis.
 ##
 ## VSYNC IS ON THE CONTEXT LINE because without it the fps figure lies by
 ## omission: capped at the refresh rate, 60 fps means "not worse than the
 ## monitor" and says nothing about headroom. When vsync is on, the gpu and
 ## render-cpu figures are the ones that carry information.
 ##
-## WHAT IT COSTS. Priced on cold run 9062's card block -- four stations, fixed
-## view, 5 s of samples after a 2 s settle, vsync off, 1152x648, RTX 2060.
+## WHAT IT COSTS. Priced on cold run 9062's card block -- fixed view, 6 s of
+## samples after a 3 s settle, vsync off, 1152x648, RTX 2060, arms interleaved
+## a-b-c-a-b-c so drift shows up as a disagreement between the two runs of one
+## arm.
 ##
-## THE ON/OFF FRAME-TIME A/B COULD NOT ANSWER IT, and that is a result rather
-## than a failure of nerve. Run to run, with nothing changed, the same station
-## in this package measured 23-96 ms of GPU time and 14-100 ms a frame: a
-## no-change control pair differed by 29%. An effect of a third of a
-## millisecond cannot be read off that, and a difference quoted from it would
-## have been the noise, dressed up.
+## RETRACTED, AND KEPT HERE BECAUSE IT WAS NEARLY SHIPPED AS FACT: the first
+## pricing of this panel was taken while a SECOND Godot was on the same GPU --
+## the walker's own walk copy, open in front of them. Those runs measured this
+## station at 14-100 ms a frame with a no-change control pair differing by 29%,
+## and the conclusion drawn was "the A/B cannot resolve an overlay, so time the
+## script instead". The A/B was fine. The machine was busy. On a quiet machine
+## the same station repeats to better than 0.5%, and the A/B answers directly.
+## A frame time is a measurement of a whole computer, and nothing in the
+## artefact says who else was using it.
 ##
-## So the overlay was made to time ITSELF instead -- its own `_process` bracket-
-## ed by `Time.get_ticks_usec()`, in a generated copy of this exact file, in
-## the real package. That measures the thing, not the level around it:
+##     station     no overlay      F3 panel        F3 + perf panel
+##     shop floor  5.945, 5.900    6.045, 6.110    6.105, 6.086 ms
+##     spawn       1.528, 1.541    1.671, 1.671    1.677, 1.671 ms
 ##
-##     perf panel alone, ordinary frame         8.9 - 19.1 us
-##     perf panel alone, sample frame (4/s)      215 - 385 us
-##     F3 position panel, EVERY frame            268 - 351 us
+## So the F3 panel costs +0.14 to +0.16 ms a frame, and THE PERF PANEL ADDS
+## +0.003 to +0.02 ms on top of it -- smaller than the 0.045 ms spread between
+## the two runs of the no-overlay arm, which is to say bounded by this rig's
+## noise rather than resolved by it. In draw calls it is exactly +2, and that
+## one IS exact: 1392 -> 1394 -> 1396 and 340 -> 342 -> 344, identical in both
+## rounds.
 ##
-## Two control runs of the perf-panel arm, taken either side of the others,
-## bracket every figure above.
+## The same file timing ITSELF -- its own `_process` bracketed by
+## `Time.get_ticks_usec()` in a generated copy -- splits that between the two
+## panels, on the same quiet machine, control runs either side:
 ##
-## So the panel costs `PERF_HZ * tick + fps * frame` -- about 1.1 ms of CPU a
-## SECOND on the sample clock plus 14 us a frame, which at 60 fps is 1.9 ms a
-## second, 0.03 ms a frame, 0.2% of a 16.7 ms frame. Most of it does not scale
-## with framerate, which is the property that matters: it does not get louder
-## as the level gets slower. In draw calls it is exactly +2, measured identical
-## at all four stations (1392 -> 1394, 3419 -> 3421, 340 -> 342, 189 -> 191).
+##     perf panel alone, ordinary frame          2.1 - 4.0 us
+##     perf panel alone, sample frame (4/s)       94 - 110 us
+##     F3 position panel, EVERY frame           49.3 - 107.6 us
 ##
-## THE F3 PANEL IS THE EXPENSIVE ONE, by a factor of 20, and it has been since
-## 2026-08-08: it raycasts and rebuilds its Label every frame. That is not
-## changed here -- it would be a second change wearing this one's clothes --
-## but it is now measured, and a walker reading a frame time with F3 up is
-## reading one about 0.3 ms worse than the level's own.
+## The perf panel is therefore `PERF_HZ * tick + fps * frame`: about 0.4 ms of
+## CPU a SECOND, mostly on the sample clock rather than the framerate, which is
+## the property that matters -- it does not get louder as the level gets
+## slower. At 60 fps that is 0.006 ms a frame, 0.04% of a 16.7 ms frame.
+##
+## The self-timing is smaller than the A/B for both panels, and the gap is
+## real work rather than an error: the Label reshape, the CanvasLayer redraw
+## and the two extra draw calls all happen outside `_process` and are counted
+## by the A/B alone. Quote the A/B when the question is what a frame costs, and
+## the self-timing when the question is which panel to blame.
+##
+## THE F3 PANEL IS THE EXPENSIVE ONE, by a factor of 25 in script time, and it
+## has been since 2026-08-08: it raycasts and rebuilds its Label every frame,
+## and it costs more indoors (107.6 us in the shop against 49.3 at spawn)
+## because that is where the raycast has something to hit. That is not changed
+## here -- it would be a second change wearing this one's clothes -- but it is
+## now measured, and a walker reading a frame time with F3 up is reading one
+## about 0.15 ms worse than the level's own.
 ##
 ## The numbers are this rig's, not a client's. Measure again before quoting
 ## them anywhere a decision hangs on them.
@@ -140,6 +196,19 @@ const PERF_HZ := 4.0
 ## the street is gone by the time they are somewhere else.
 const PERF_BUCKETS := 8
 
+## A frame counts as a HITCH when it costs this multiple of the prevailing
+## frame time. Derived from what vsync does with a late frame rather than
+## picked: a frame that overruns its interval does not arrive late, it arrives
+## at the NEXT interval, so an overrun of half an interval is already a whole
+## dropped frame on screen. 1.5x is the smallest overrun that is certainly
+## visible, and it scales itself -- the threshold is recomputed from the
+## window's own mean every tick, so it means the same thing at 30 fps and at
+## 144. Checked against the measurement that prompted the panel: cold run
+## 9062's spawn, mean 10.40 ms with a 1% low of 18.54 ms, gives a threshold of
+## 15.6 ms and counts that 1% as hitches, which is the point. At 2.0x it would
+## have counted none of them and read as a smooth level.
+const HITCH_FACTOR := 1.5
+
 var _label: Label
 var _perf: Label
 var _shown := true
@@ -149,6 +218,20 @@ var _perf_shown := true
 var _acc_time := 0.0
 var _acc_frames := 0
 var _acc_worst := 0.0
+var _acc_hitch := 0
+
+## The worst frame the panel has seen since it came up or was last reset, and
+## how long it has been watching. The 2 s window is what the walker felt; this
+## is what they felt a minute ago and have already stopped being able to
+## describe. A hitch that ages out of the window leaves its mark here.
+var _worst_held := 0.0
+var _held_secs := 0.0
+
+## The hitch threshold in seconds, recomputed each tick from the window's own
+## mean. INF until there is a window to derive it from -- a threshold of zero
+## would count every frame of the first quarter-second as a hitch and open the
+## panel on a number that means nothing.
+var _hitch_at := INF
 
 # The ring of finished buckets. Fixed-size and preallocated: a window that
 # appends and trims would allocate on every tick, which is a cost the thing
@@ -156,6 +239,7 @@ var _acc_worst := 0.0
 var _b_time := PackedFloat32Array()
 var _b_frames := PackedFloat32Array()
 var _b_worst := PackedFloat32Array()
+var _b_hitch := PackedFloat32Array()
 var _b_gpu := PackedFloat32Array()
 var _b_rcpu := PackedFloat32Array()
 var _b_at := 0
@@ -227,6 +311,7 @@ func _ready() -> void:
 	_b_time.resize(PERF_BUCKETS)
 	_b_frames.resize(PERF_BUCKETS)
 	_b_worst.resize(PERF_BUCKETS)
+	_b_hitch.resize(PERF_BUCKETS)
 	_b_gpu.resize(PERF_BUCKETS)
 	_b_rcpu.resize(PERF_BUCKETS)
 	_vp_rid = get_viewport().get_viewport_rid()
@@ -276,9 +361,13 @@ func _reset_window() -> void:
 	_acc_time = 0.0
 	_acc_frames = 0
 	_acc_worst = 0.0
+	_acc_hitch = 0
 	_b_at = 0
 	_b_filled = 0
 	_last_usec = 0
+	_hitch_at = INF
+	_worst_held = 0.0
+	_held_secs = 0.0
 
 
 func _process(_delta: float) -> void:
@@ -327,10 +416,10 @@ func _process(_delta: float) -> void:
 
 
 func _perf_tick() -> void:
-	## The per-frame half: one clock read, three accumulations and a compare.
+	## The per-frame half: one clock read, three accumulations and two compares.
 	## No allocation, no monitor reads, no string. Everything that costs
-	## anything is behind the period test. Measured at 13 us a frame on this
-	## rig -- see the header.
+	## anything is behind the period test. Measured at 2-4 us a frame on this
+	## rig, against 94-110 us on the tick -- see the header.
 	if not _perf_shown or _perf == null:
 		return
 	var now := Time.get_ticks_usec()
@@ -343,11 +432,17 @@ func _perf_tick() -> void:
 	_acc_frames += 1
 	if frame > _acc_worst:
 		_acc_worst = frame
+	if frame > _hitch_at:
+		_acc_hitch += 1
 	if _acc_time * PERF_HZ < 1.0:
 		return
+	if _acc_worst > _worst_held:
+		_worst_held = _acc_worst
+	_held_secs += _acc_time
 	_b_time[_b_at] = _acc_time
 	_b_frames[_b_at] = float(_acc_frames)
 	_b_worst[_b_at] = _acc_worst
+	_b_hitch[_b_at] = float(_acc_hitch)
 	# The render times are read once per tick rather than once per frame, and
 	# averaged across the window. Per frame they swing by an order of magnitude
 	# on an unchanged view (0.020 -> 0.262 ms measured), so an instantaneous
@@ -363,30 +458,49 @@ func _perf_tick() -> void:
 	_acc_time = 0.0
 	_acc_frames = 0
 	_acc_worst = 0.0
-	_perf.text = _perf_text()
+	_acc_hitch = 0
+	_perf.text = _perf_refresh()
 
 
-func _perf_text() -> String:
+func _perf_refresh() -> String:
+	## The panel's text, AND the hitch threshold for the next window -- which is
+	## why this is not called `_perf_text`. The threshold is a function of the
+	## window mean, the window mean is summed here, and a second pass over the
+	## ring to keep this function pure would cost more than the honesty of the
+	## name does.
 	var secs := 0.0
 	var frames := 0.0
 	var worst := 0.0
+	var hitches := 0.0
 	var gpu := 0.0
 	var rcpu := 0.0
 	for i in range(_b_filled):
 		secs += _b_time[i]
 		frames += _b_frames[i]
+		hitches += _b_hitch[i]
 		gpu += _b_gpu[i]
 		rcpu += _b_rcpu[i]
 		if _b_worst[i] > worst:
 			worst = _b_worst[i]
 	if secs <= 0.0 or frames <= 0.0:
 		return "perf: sampling"
+	var mean := secs / frames
+	_hitch_at = HITCH_FACTOR * mean
 	var n := float(_b_filled)
 	var lines: Array[String] = []
 	lines.append("fps %5.1f avg   %5.2f ms/frame   (%.1f s)"
-		% [frames / secs, 1000.0 * secs / frames, secs])
+		% [1.0 / mean, 1000.0 * mean, secs])
 	lines.append("low %5.1f fps   %5.2f ms worst frame"
 		% [1.0 / worst if worst > 0.0 else 0.0, 1000.0 * worst])
+	# THE LINE THE PANEL WAS ASKED FOR. The complaint was "chugging ... not
+	# staying smooth", and a mean cannot carry that: measured at 9062's spawn,
+	# 96.2 fps mean with a 1% low of 53.9 fps and single frames at 34.07 ms. A
+	# count of frames that missed, and the worst one since the panel came up,
+	# are what a walker can report; an average of 96 is what makes them doubt
+	# what they felt.
+	lines.append("hitch %d over %.1f ms   held %.2f ms  %s" % [
+		int(hitches), 1000.0 * _hitch_at, 1000.0 * _worst_held,
+		_mmss(_held_secs)])
 	var gpu_txt := "%5.2f ms" % (gpu / n)
 	if not _gpu_seen:
 		# Not "0.00". A GPU figure that never moved off zero is an unmeasured
@@ -427,8 +541,22 @@ func _context_line() -> String:
 	var vsync := "on"
 	if DisplayServer.window_get_vsync_mode() == DisplayServer.VSYNC_DISABLED:
 		vsync = "off"
-	return "%s  %s  %s lights  vsync %s  %dx%d" % [name_s, method, lights,
-		vsync, size.x, size.y]
+	# "light budget", not "lights": it is the project's `max_renderable_lights`
+	# setting, which is provenance and not a diagnosis. Measured 2026-09-16 on
+	# this same package, disabling all 12 shadow casters and capping lights per
+	# object at 8 each made the frame time WORSE, and neither moved the
+	# primitive count -- so a panel that let this number read as the cause
+	# would be pointing the next person at the thing already ruled out.
+	return "%s  %s  light budget %s  vsync %s  %dx%d" % [name_s, method,
+		lights, vsync, size.x, size.y]
+
+
+func _mmss(secs: float) -> String:
+	## How long the held worst has been held. A worst frame with no age on it is
+	## ambiguous between "just now" and "four minutes ago", and those are
+	## different findings.
+	var t := int(secs)
+	return "%d:%02d" % [t / 60, t % 60]
 
 
 func _grouped(n: int) -> String:
