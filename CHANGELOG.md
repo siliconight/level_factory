@@ -1,3 +1,140 @@
+## [0.95.0] - a frame counter that can be believed
+
+The walker, walking cold run 9062's card shop on 2026-09-16, reported it
+"chugging" -- framerate dropping and not staying smooth -- and asked that
+"godot should have the ability to show us performance and framerate for us to
+start taking into consideration as we add more stuff". The walk overlay now
+shows it. What took the day was not the counter; it was establishing that each
+number it prints means what its label says.
+
+### Added -- A PERF PANEL IN THE WALK OVERLAY, ON F4
+
+`assets/godot/debug_overlay.gd` grows a second panel, top right, beside the
+position panel that has been top left since 2026-08-08. Six lines: fps and
+frame time averaged over a rolling 2 s window; the WORST single frame in that
+window, in ms and as the rate it implies; GPU and rendering-CPU milliseconds;
+draw calls, triangles and objects this frame; the engine's worst idle and
+physics step in the last second; and a line naming the package, the renderer,
+the light budget, the vsync state and the resolution the other five were
+measured at.
+
+Two keys, not one. F3 keeps exactly the meaning it has always had. Position
+and cost get asked in the same breath -- "it stutters HERE" is one finding,
+not two -- so folding perf into F3 would have made each readout cost the
+other. Both are on by default, for the reason the overlay has always been on
+by default: an overlay you have to remember to enable is off in the screenshot
+you needed it in. The debug-build guard is unchanged and still the first thing
+`_ready` does: walk copies only, never a player export.
+
+Both walk tools read this file from Level Factory (`tools/walk_export.py`,
+`tools/walk_themed.py`), so both got the panel without being touched.
+
+### THE MONITORS THAT DO NOT MEAN WHAT THEY ARE CALLED
+
+Measured on this machine, Godot 4.7.stable, gl_compatibility, RTX 2060, with
+throwaway probes that stalled one known frame by 60 ms:
+
+* **`Engine.get_frames_per_second()` and `Performance.TIME_FPS` refresh at
+  1 Hz.** They held one value across 300 consecutive frames and then stepped.
+  A stutter meter built on them cannot show a stutter, which is the only thing
+  that was asked for -- so fps and frame time are measured in the overlay
+  itself and everything else is read off the engine.
+* **`Performance.TIME_PROCESS` is not this frame's CPU time.** It is the worst
+  idle step within the last completed SECOND: the deliberate 60 ms stall came
+  back as 68.317 ms and was still being reported 285 frames later, while every
+  frame in between measured 1-4 ms. It is shown, on its own line, labelled as
+  the hitch it is.
+* **`_process`'s delta is CLAMPED.** Three stations in the card block reported
+  150.000 ms on the nose as their worst frame while the same frames, timed
+  between two `Time.get_ticks_usec()` calls, were 191, 356 and 527 ms. The
+  panel times frames off the wall clock. A meter on the delta would have told
+  the walker their half-second hitch was 0.15 s, and told it consistently.
+
+### WHAT GL COMPATIBILITY ACTUALLY PROVIDES
+
+Enumerated from `ClassDB.class_get_enum_constants("Performance", "Monitor")`
+in a running Compatibility build rather than recalled: all 59 monitors are
+present, and the three this needs move under load --
+`RENDER_TOTAL_OBJECTS_IN_FRAME` 2 -> 2900, `..._PRIMITIVES_...` 24 -> 34,800,
+`..._DRAW_CALLS_...` 2 -> 2900.
+
+**`RenderingServer.viewport_get_measured_render_time_gpu` returns a real GPU
+figure in Compatibility**, against the usual expectation that GPU timing is a
+Forward+/RenderingDevice feature: 0.020 ms on an empty view, 0.24-0.62 ms
+under that load, and 3-25 ms in the card block. It needs
+`viewport_set_measure_render_time` on the viewport, which the panel switches
+on with itself and off again with F4. Where it ever does read a flat zero the
+panel prints `n/a` rather than `0.00`, because a GPU time that never moved off
+zero is an unmeasured one.
+
+### WHAT THE PANEL COSTS, AND WHY THE OBVIOUS A/B COULD NOT SAY
+
+Priced on cold run 9062's card block, four stations, fixed view, 5 s of
+samples after a 2 s settle, vsync off, 1152x648.
+
+**The on/off frame-time A/B failed, and that is the first result.** Run to
+run, with nothing changed, one station measured 23-96 ms of GPU time and
+14-100 ms a frame; a no-change control pair differed by 29%. A third of a
+millisecond cannot be read off that, and a number quoted from it would have
+been the noise wearing a result's clothes.
+
+So the overlay was made to time itself -- its own `_process` bracketed by
+`Time.get_ticks_usec()`, in a generated copy of the shipped file, in the real
+package, with the position panel switched off to isolate the new work:
+
+    perf panel alone, ordinary frame          8.9 - 19.1 us
+    perf panel alone, sample frame (4/s)        215 - 385 us
+    F3 position panel, EVERY frame              268 - 351 us
+
+Two control runs of the perf-panel arm, taken either side of the others,
+bracket every figure. The cost is `PERF_HZ * tick + fps * frame`: about 1.1 ms
+of CPU a second on the sample clock plus 14 us a frame, which at 60 fps is
+1.9 ms a second, 0.03 ms a frame, 0.2% of a 16.7 ms frame. Most of it does not
+scale with framerate, which is the property that matters -- it does not get
+louder as the level gets slower. In draw calls it is exactly +2, identical at
+all four stations (1392 -> 1394, 3419 -> 3421, 340 -> 342, 189 -> 191).
+
+**The F3 panel is the expensive one, by a factor of 20**, and has been since it
+was written: it raycasts and rebuilds its Label every frame. It is not changed
+here -- that is a second change wearing this one's clothes -- but it is now
+measured, and a walker reading a frame time with F3 up is reading one about
+0.3 ms worse than the level's own. On this package that is 1% of the frame; on
+a fast one it would be 7%.
+
+### WHAT IT SAYS IN THE CARD SHOP
+
+Standing on the sales floor of each card shop, same rig, same resolution,
+vsync off, four readings each:
+
+                        9061 card_block_001     9062 card_block_002
+    fps (avg)             20.9 - 27.1             22.6 - 33.9
+    worst frame          53.6 - 64.3 ms          49.3 - 71.2 ms
+    gpu                   9.7 - 14.4 ms          10.2 - 17.6 ms
+    render-cpu           29.8 - 41.1 ms          24.6 - 34.7 ms
+    draw calls               2 042                   1 396
+    triangles              1 144 702               1 396 152
+    light budget              57                      84
+
+Both card shops run 20-34 fps on an RTX 2060 at 1152x648, and both are
+CPU-bound in the renderer rather than GPU-bound: render-cpu is twice the GPU
+time indoors. The density the walker was looking at is not what separates the
+two runs -- 9062's shop is, if anything, the faster of the two. The difference
+is outdoors: from the two packages' own `player_start` anchors, 9061's street
+reads 67.5 fps / 14.8 ms with 3.2 ms of GPU, and 9062's reads 34.1 fps /
+29.4 ms with 25.5 ms of GPU. Those are different views of different blocks and
+are not a controlled comparison; they are the first numbers anyone here has
+had, and the panel is how the next ones get taken.
+
+### Added -- tests/unit/test_debug_overlay_perf.py
+
+Twelve shape tests over the GDScript, in the manner of
+`test_worldskin_crt_motion.py` -- the unit suite has no Godot, so they hold the
+shape the measurements above depend on. Ten of the twelve fail against
+0.94.0's overlay; the two that pass are the debug-build guard and the
+string-literal trap, which are rules this release did not change. The
+sample-gate test is positional: every costly call must appear AFTER the early
+return, or it is running every frame whatever the constant claims.
+
 ## [0.94.0] - a base nobody names, and a repo nobody finds
 
 Two defects found on 2026-09-16, unrelated except that both are a check
