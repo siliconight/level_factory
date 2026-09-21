@@ -98,8 +98,43 @@ def main():
         print("[fixture_gate] markers=4 spawned=4 colocation_errors=0")
         return 0
 
-    # Bare import pass on a staged project: nothing to do headlessly.
+    # Bare import pass on a staged project. It leaves a `.godot` cache
+    # because the REAL one does, and because the occluder bake's precondition
+    # is that directory existing -- a stub that returned 0 and created nothing
+    # is a Godot that imported nothing, and the export is right to refuse it.
     if "--import" in argv:
+        proj = Path(argv[argv.index("--path") + 1]) if "--path" in argv else Path(".")
+        (proj / ".godot" / "imported").mkdir(parents=True, exist_ok=True)
+        return 0
+
+    if script.endswith("bake_occluders.gd") or (
+            "--script" in argv
+            and str(argv[argv.index("--script") + 1]).endswith(
+                "bake_occluders.gd")):
+        # Mirror the real bake's RULE rather than rubber-stamping a count:
+        # a module is an occluder when its GLB's basename starts with a solid
+        # prefix. The staged fixture packages carry none, so this reports a
+        # legitimate zero and the export ships with the culler off -- which
+        # is the consistent package, and the state the audit then checks.
+        uargs2 = _uargs(argv)
+        proj = Path(argv[argv.index("--path") + 1]) if "--path" in argv else Path(".")
+        scene = proj / str(uargs2[0]).replace("res://", "")
+        text = scene.read_text(encoding="utf-8", errors="replace") if scene.exists() else ""
+        solid = sum(
+            1 for ln in text.splitlines()
+            if ln.startswith("[ext_resource ") and any(
+                ('/' + p) in ln or ('"' + p) in ln
+                for p in ("wall_", "roof_", "floor_", "ceiling_")))
+        Path(uargs2[1]).write_text(json.dumps({
+            "schema": "lf.occluders.v1", "ok": True, "scene": str(uargs2[0]),
+            "occluders": 0, "shrink_m": 0.02, "min_extent_m": 0.5,
+            "round_dp": 4,
+            "classified": {"solid": solid, "porous": 0, "glass": 0,
+                           "filler": 0, "other": 0, "no_bounds": 0,
+                           "too_small": solid},
+            "modules": [],
+        }, sort_keys=True))
+        print("[occluders] measured=0 solid=%d" % solid)
         return 0
 
     if "--lf-portability-check" in argv:

@@ -1,3 +1,175 @@
+## [0.98.0] - the occluder bake never ran in a real export
+
+0.96.0 shipped occluders and measured them on packages a person had already
+imported by hand. No export has ever produced one. Cold run 9065 shipped
+`LF_club_block_004.portable-godot` with
+`occlusion_culling/use_occlusion_culling=true` in its `project.godot` and zero
+`OccluderInstance3D` anywhere in it -- the flag on, the culling absent, which
+is worse than neither, because the recipient pays the culler's fixed
+per-frame cost and gets nothing back for it.
+
+### The cause, reproduced rather than reasoned about
+
+`export.py` ran the bake straight after `_write_import_sidecars`, and the last
+thing that function did was delete `.godot`. A Godot project cannot `load()`
+anything until that cache exists -- sidecars are the import SETTINGS, not the
+imported resources -- so the bake was handed a project Godot had never
+imported, one line after the import that would have satisfied it.
+
+Two clean copies of the SHIPPED 9065 package, same script, same engine
+(4.7.stable), the only difference being whether `--import` had run first:
+
+    cache absent    [occluders] FAILED: cannot load res://site.tscn
+                    preceded by `Failed loading resource` on every GLB and
+                    `referenced non-existent resource` on every PNG
+    cache present   measured=414 solid=414 porous=41 glass=35 filler=85
+                    other=483, exit 0
+
+Re-exporting the same mission on 0.97.0 reproduces it from scratch:
+`WARNING no occluders in this package: bake failed: cannot load
+res://site.tscn`, exit 0, package shipped.
+
+### The import now happens where it already was
+
+Nowhere new. `_write_import_sidecars` no longer deletes the cache; the
+occluder step does, once it has finished with it and before
+`build_resource_manifest` walks the tree. The import pass that produces the
+cache is the one the export was already running.
+
+Priced by exporting `club_block_004` from cold run 9065's workspace both
+ways: **98.9 s on 0.97.0, 98.6 s here**. The fix costs no export time at all
+-- the 18.3 s import was always being paid and always being thrown away. The
+package is still cache-free (75.2 MB of `.godot` against 1.4 MB of sidecars),
+and `occluders.tscn` is byte-identical across two full exports.
+
+`occluders.ensure_imported` is the belt to that braces: any caller that hands
+`emit()` a directory with no `.godot` gets one import rather than a bake that
+cannot load anything, and an import pass that produces no cache FAILS instead
+of baking into the dark. On the export path it is an `is_dir()` call.
+
+### A warning nobody reads is how this shipped
+
+Both halves are closed.
+
+**The flag is now a function of the count, so the two cannot disagree.**
+`rendering_block` takes an occluder count and has no default for it; every
+caller has to have an answer, and a walk preview's honest answer is 0. The
+export writes `project.godot` with the culler OFF -- the import pass needs
+`[importer_defaults]` in place before the bake can run, so the count is not
+known yet -- and settles the one line afterwards with
+`set_occlusion_culling`, which refuses a file that does not carry exactly one
+line to settle rather than appending a second one under whatever section
+header came last. A build that dies between the two ships no flag and no
+occluders, which is a consistent package. 9065's state is no longer
+representable.
+
+**A bake that fails with a Godot present now fails the build.**
+`OCCLUDERS_ENFORCED`, same shape as `CLOSURE_ENFORCED` and for the same
+reason. The two cases are not one defect and are no longer treated as one: a
+missing Godot is a setup problem and the package that comes out of it ships
+honestly with the culler off; a Godot that was there and could not measure is
+this build failing, and it says so on stderr with a non-zero exit.
+
+**And it is checked against the files, not against the intent.**
+`occluders.audit` reads the flag out of the shipped `project.godot` and
+counts `OccluderInstance3D` in the shipped scenes -- never `occluders.json`,
+because the gap between what the bake reported and what shipped is exactly
+where 9065 lived. It refuses both directions: the flag on with nothing to
+cull, and occluders present with the flag off, which is 414 nodes the engine
+will never consult. Run against the actual shipped package:
+
+    OccluderDisagreement: use_occlusion_culling=true and 0
+    OccluderInstance3D nodes in the package: the culler is switched on with
+    nothing to cull. occluders.json ok=False. This is cold run 9065's state.
+
+A package with no solid modules now gets no `occluders.tscn` and no holder
+node at all. An instanced scene of nothing is a node the tree carries and a
+file the resource manifest lists; the bake SUCCEEDED, the count is 0, and the
+flag goes off to match.
+
+### Measured on a package the exporter produced
+
+`club_block_004` exported from cold run 9065's workspace, 414 occluders from
+414 solid modules over 19 shared `BoxOccluder3D` sub-resources, 58.0 MB.
+Godot 4.7.stable, gl_compatibility, 1280x720, 120 warmup and 300 sampled
+frames a station. BEFORE is the package cold run 9065 actually shipped;
+AFTER is the package this version exports. Both were imported once by the
+recipient's own command, as `HANDOFF.md` says to.
+
+    station        draw calls        mean ms          p95 ms
+    exterior_ne   2142 >  1356 -37%   7.87 > 4.81 -39%   9.41 >  5.81 -38%
+    exterior_sw   4266 >  2184 -49%  16.57 > 8.57 -48%  18.60 > 10.26 -45%
+    interior_c    2971 >   679 -77%  10.71 > 2.75 -74%  11.82 >  3.39 -71%
+    interior_x    3242 >   676 -79%  12.47 > 2.79 -78%  14.26 >  3.50 -75%
+    interior_z    1244 >   516 -59%   3.82 > 2.14 -44%   4.53 >  2.70 -40%
+    wall_close     945 >   298 -68%   3.04 > 1.62 -47%   3.63 >  2.09 -42%
+
+Objects in frame move with the draw calls one for one (2,142 > 1,356 at
+exterior_ne, 2,971 > 679 at interior_c), and render-CPU carries the saving:
+10.12 > 2.34 ms at interior_c against GPU's 3.62 > 0.33. Submission cost,
+as the draw-call rule says. **Nothing measured slower at any station,
+including the two open exterior views that pay the culler's fixed price.**
+
+THE CONTROL IS THE PART WORTH READING. A third condition, the new package
+with the culling line flipped to false -- same geometry, same 414 occluder
+nodes, one line different -- read **2142, 4266, 2971, 3242, 1244, 945 draw
+calls**: identical to the shipped 9065 package at all six stations, to the
+call. That is the defect stated as a measurement. `use_occlusion_culling=true`
+with no occluders in the package is indistinguishable from the culler being
+off, and the flag cost 0.127 ms a frame on average to say nothing, in the
+same direction at five of the six stations. The same instrument then reads a
+4.8x difference between that condition and this one, so it can both move and
+sit still.
+
+These are NOT 0.96.0's figures and are not comparable to them. 0.96.0's
+interior_c 4,635 > 422 was cold run 9062's package, a different level; the
+stations are built the same way from `b0`'s bounds but they stand in a
+different building. What holds is the shape: interiors collapse by three to
+five times, an open exterior view roughly halves, nothing gets slower.
+
+### Tests
+
+Every rule has one that fails on 0.97.0, checked by running them against a
+0.97.0 checkout:
+
+* `test_the_sidecar_pass_leaves_the_cache_for_the_bake` -- the line that
+  shipped 9065. Fails on 0.97.0 against 0.97.0's own API.
+* `test_rendering_block_refuses_to_claim_culling_with_no_occluders` -- 9065's
+  state written at its source. Fails on 0.97.0, which wrote `=true`
+  unconditionally.
+* `test_audit_catches_the_exact_state_cold_run_9065_shipped` -- flag true,
+  zero occluder nodes, `occluders.json` carrying `cannot load res://site.tscn`
+  beside them.
+* `test_audit_catches_occluders_the_engine_will_never_consult` -- the other
+  direction, which is a defect too.
+* `test_audit_passes_a_package_where_the_two_agree` and
+  `..._that_decided_against_the_culler` -- because a check that cannot fail is
+  indistinguishable from one that passed, and so is one that cannot pass.
+* `test_measure_imports_the_project_when_there_is_no_cache`, and its partner
+  pinning that it does NOT re-import when the cache is there, so the export
+  path keeps paying nothing.
+* `test_an_import_that_produces_no_cache_fails_rather_than_baking`.
+* `test_settling_refuses_a_file_with_no_line_to_settle`, and
+  `test_audit_refuses_a_package_that_makes_no_single_statement` -- two
+  `use_occlusion_culling` lines is not a package with an answer.
+
+The `godot` stub grew the two behaviours it was missing: `--import` leaves a
+`.godot` directory because the real one does, and `bake_occluders.gd` writes
+a report by the real bake's own rule rather than a rubber stamp. Both
+integration exports failed honestly until it did -- a stub that returns 0 and
+creates nothing IS a Godot that imported nothing, and the export is right to
+refuse it.
+
+### What this does not answer
+
+Nothing here measures interventions-per-level, and this is a defect fix
+rather than a capability: it removes one silent failure from every export,
+which is worth one intervention only if somebody was going to catch it. The
+open question it leaves is how many other best-effort steps in `export.py`
+print a warning and exit 0 over a package that then ships -- this one was
+found because a person read a package, not because anything in the toolchain
+said so.
+
 ## [0.97.0] - what Level Factory knew about Zoo was two contracts out of date
 
 Cold run 9064 was refused at export over a package that was correct, and the

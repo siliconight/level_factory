@@ -378,8 +378,11 @@ def build_walk_preview(content_dir, player_src, dest, *, name="level"):
     # 5. the preview project (main scene = walk.tscn).
     (dest / "project.godot").write_text(
         _PROJECT.format(name=name, level=level,
+                        # No occluder bake runs for a preview, so the culler
+                        # has nothing to reject and would cost its fixed
+                        # per-frame CPU price for it. 0 is the honest answer.
                         rendering=rendering_block(
-                            package_light_budget(dest))), encoding="utf-8")
+                            package_light_budget(dest), 0)), encoding="utf-8")
 
     # 6. WHAT THIS WAS BUILT FROM. `walk` rmtree's and rebuilds, so a preview
     # is current at the moment it is made -- and nothing recorded that, so

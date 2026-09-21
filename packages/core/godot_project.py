@@ -132,11 +132,63 @@ def package_light_budget(root: Path) -> int:
     return text if census is None else max(text, census)
 
 
-def rendering_block(light_count: int) -> str:
+#: The setting's key inside `[rendering]`. One constant, because the writer
+#: below and `set_occlusion_culling` have to spell it the same way or the
+#: rewrite silently appends a second line and the last one wins.
+OCCLUSION_KEY = "occlusion_culling/use_occlusion_culling"
+
+
+def occlusion_line(occluders: int) -> str:
+    """The culling line for a package that ships `occluders` occluders.
+
+    ON IS NOT A CONSTANT, and cold run 9065 is why. That package shipped
+    `use_occlusion_culling=true` with zero occluder nodes in it: the bake had
+    failed, the export printed a warning and exited 0, and the recipient got
+    the culler's fixed per-frame CPU cost -- about 0.27 ms at 1280x720 with
+    nothing to cull, measured on this renderer -- in exchange for nothing at
+    all. That is strictly worse than leaving the engine default alone.
+
+    So the line is a FUNCTION of the count, and the two cannot disagree.
+    """
+    return f"{OCCLUSION_KEY}={'true' if occluders > 0 else 'false'}"
+
+
+def set_occlusion_culling(text: str, occluders: int) -> str:
+    """Rewrite an existing `project.godot`'s culling line for `occluders`.
+
+    The export writes `project.godot` BEFORE it knows the count -- the import
+    pass needs `[importer_defaults]` in place, and the bake needs the import.
+    So the file is written with the culler off and settled here once the bake
+    has answered, which means a build that dies between the two ships the
+    consistent state (no flag, no occluders) rather than the 9065 one.
+
+    Refuses a text with no line to rewrite instead of appending one: an
+    appended `[rendering]` key landing after some later section header is a
+    setting that does nothing, and a writer that cannot find what it is
+    editing has learned nothing about the file.
+    """
+    lines = text.splitlines()
+    hits = [i for i, ln in enumerate(lines)
+            if ln.split("=", 1)[0].strip() == OCCLUSION_KEY]
+    if len(hits) != 1:
+        raise ValueError(
+            f"project.godot carries {len(hits)} `{OCCLUSION_KEY}` lines, "
+            "expected exactly 1")
+    lines[hits[0]] = occlusion_line(occluders)
+    return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
+
+
+def rendering_block(light_count: int, occluders: int) -> str:
     """The `[rendering]` section, ending with a blank line.
 
     Each cap is written only when the package exceeds the engine's own default
-    for it, so a small or unlit package carries no override.
+    for it, so a small or unlit package carries no override. The culling line
+    is the exception and is always written, even when it agrees with the
+    engine default -- see `occlusion_line`; a reader has to be able to tell a
+    package that decided against the culler from one that forgot it.
+
+    `occluders` has no default ON PURPOSE. Every caller has to have an answer,
+    and a walk preview's honest answer is 0.
     """
     out = ['[rendering]', 'renderer/rendering_method="gl_compatibility"']
 
@@ -154,7 +206,7 @@ def rendering_block(light_count: int) -> str:
     # the open view at exterior_sw 16.92 ms down to 7.96. Nothing measured
     # slower. If a package ever appears where it does, this line is the
     # switch, and `occluders.json` says what it was paying for.
-    out.append("occlusion_culling/use_occlusion_culling=true")
+    out.append(occlusion_line(occluders))
 
     if light_count > ENGINE_DEFAULT_RENDERABLE_LIGHTS:
         out += [

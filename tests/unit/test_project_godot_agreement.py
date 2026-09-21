@@ -59,7 +59,7 @@ def _exported(tmp_path, lights, godot_version="4.7"):
 def _preview(tmp_path, lights):
     _package(tmp_path, lights)
     return _PROJECT.format(name="m", level="mission.tscn",
-                           rendering=rendering_block(count_package_lights(tmp_path)))
+                           rendering=rendering_block(count_package_lights(tmp_path), 0))
 
 
 # --- the count is real -----------------------------------------------------

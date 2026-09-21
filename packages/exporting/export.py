@@ -23,7 +23,8 @@ from pathlib import Path
 
 from packages.core.canonical import pretty_dumps
 from packages.core.godot_project import (package_light_budget,
-                                          rendering_block)
+                                          rendering_block,
+                                          set_occlusion_culling)
 from packages.core.hashing import hash_file
 from packages.core.ids import (export_archive_name,
                                export_build_dir_name,
@@ -126,8 +127,22 @@ HANDOFF_LANGUAGE = (
 CLOSURE_ENFORCED = True
 
 
+#: Whether a failed occluder bake fails the build. Same shape as
+#: CLOSURE_ENFORCED above and for the same reason: cold run 9065 shipped a
+#: package with `use_occlusion_culling=true` and zero occluders because this
+#: step printed a warning and exited 0. Only consulted when the build HAD a
+#: Godot to bake with -- a missing Godot is a setup problem and the package
+#: that comes out of it is consistent, with the culler off.
+OCCLUDERS_ENFORCED = True
+
+
 class ExportClosureError(RuntimeError):
     """A portable export references resources it does not contain."""
+
+
+class ExportOccluderError(RuntimeError):
+    """The package's occluders could not be measured, or the culling flag and
+    the occluders that shipped do not agree."""
 
 
 # Files that carry presentation only (dropped in pure-shell mode).
@@ -393,9 +408,18 @@ def _write_import_sidecars(export_dir: Path, godot_executable) -> int:
         _shutil.rmtree(export_dir / ".godot", ignore_errors=True)
         _import_pass()
 
-    cache = export_dir / ".godot"
-    if cache.is_dir():
-        _shutil.rmtree(cache, ignore_errors=True)
+    # THE CACHE IS LEFT IN PLACE, and this is the fix for cold run 9065.
+    # It used to be removed here -- one line before the occluder bake, which
+    # is the only step in the export that has to `load()` a scene and
+    # therefore the only one that needs it. The bake failed with `cannot load
+    # res://site.tscn` on every real export, the export printed a warning and
+    # exited 0, and the package shipped `use_occlusion_culling=true` with zero
+    # occluders in it.
+    #
+    # `occluders.drop_cache` removes it after that step and before
+    # `build_resource_manifest` walks the tree, so the shipped package is
+    # cache-free exactly as before. Nothing here got slower: the import pass
+    # this function already ran is the one the bake now uses.
     return len(list(export_dir.rglob("*.import")))
 
 
@@ -490,7 +514,11 @@ def _write_project_godot(export_dir: Path, entry_scene: str, mission_id: str,
         f'config/name="{mission_id} (shell)"\n'
         f'config/features=PackedStringArray("{godot_version}")\n'
         f'run/main_scene="res://{entry_scene}"\n\n'
-        + rendering_block(package_light_budget(export_dir))
+        # The culler goes out OFF here and is settled by the occluder step
+        # once the bake has answered -- see `set_occlusion_culling`. A build
+        # that dies between the two then ships no flag and no occluders,
+        # which is a consistent package; the other ordering ships 9065's.
+        + rendering_block(package_light_budget(export_dir), 0)
         + _importer_defaults_block(export_dir) +
         "[debug]\n"
         "; Localized tool scripts are strict-clean under their home projects'\n"
@@ -1054,23 +1082,69 @@ def export_mission(
     _write_import_sidecars(export_dir, godot_executable)
 
     # Occluders. AFTER the sidecar pass, because the bake measures the GLBs'
-    # real extents and cannot until Godot has imported them; BEFORE the
-    # resource manifest, so `occluders.tscn` is in it like any other scene.
+    # real extents and cannot until Godot has imported them AND left the
+    # `.godot` cache in place for it; BEFORE the resource manifest, so
+    # `occluders.tscn` is in it like any other scene.
     #
-    # Best-effort, the same way the sidecars are: a missing Godot is a setup
-    # problem and not an export failure. It is SAID, not skipped -- a package
-    # that ships without occluders reads as one that could not measure them,
-    # never as one that had nothing to hide.
+    # NO LONGER BEST-EFFORT WHEN GODOT IS THERE, and cold run 9065 is why.
+    # This step used to print a warning and exit 0, and a warning nobody reads
+    # is how a package shipped with the culling flag on and nothing to cull.
+    # The two cases are not the same defect and are no longer treated as one:
+    #
+    #   no Godot     nothing could be measured; a setup problem, not an export
+    #                failure. The package ships with the culler OFF, which is
+    #                a consistent and honest package.
+    #   bake failed  Godot was there, the measurement was asked for, and it
+    #                broke. That is this build failing, and it says so.
+    #
+    # Either way the flag is settled from the count that actually shipped, so
+    # the flag and the occluders cannot disagree.
+    from packages.exporting.occluders import (OccluderDisagreement,
+                                              OccluderError, audit,
+                                              drop_cache, emit)
+    occluder_count = 0
     try:
-        from packages.exporting.occluders import OccluderError, emit
         occ = emit(export_dir, godot_executable)
+        occluder_count = int(occ["occluders"])
         print("[export] %d occluder(s) from %d solid module(s); "
               "%d glass, %d porous and %d filler left open"
               % (occ["occluders"], occ["classified"]["solid"],
                  occ["classified"]["glass"], occ["classified"]["porous"],
                  occ["classified"]["filler"]))
     except OccluderError as exc:
+        if godot_executable and OCCLUDERS_ENFORCED:
+            drop_cache(export_dir)
+            raise ExportOccluderError(
+                "the occluder bake failed and this build had a Godot to run "
+                "it with: %s\n  report: %s\n  a package that cannot be "
+                "measured must not be shipped claiming it was"
+                % (exc, export_dir / "occluders.json"))
         print("[export] WARNING no occluders in this package: %s" % exc)
+        print("[export]   occlusion culling stays OFF in project.godot; "
+              "the package is consistent and buys nothing from the culler")
+
+    # Settle the flag against what shipped, then drop the cache the bake
+    # needed -- before `build_resource_manifest` walks the tree, so the
+    # manifest cannot list a cache entry and the package stays cache-free.
+    proj = export_dir / "project.godot"
+    proj.write_text(
+        set_occlusion_culling(proj.read_text(encoding="utf-8"),
+                              occluder_count), encoding="utf-8")
+    if drop_cache(export_dir):
+        print("[export] import cache removed; the package ships sidecars, "
+              "not %s" % ".godot")
+
+    # The backstop, read back off the files that are about to be zipped rather
+    # than off the counts above. A check written against what the code
+    # believes it wrote is indistinguishable from one that passed.
+    try:
+        verdict = audit(export_dir)
+    except OccluderDisagreement as exc:
+        raise ExportOccluderError(str(exc)) from exc
+    print("[export] occlusion: use_occlusion_culling=%s with %d occluder "
+          "node(s) in %d scene(s)"
+          % (str(verdict["use_occlusion_culling"]).lower(),
+             verdict["occluder_nodes"], verdict["scenes_with_occluders"]))
 
     # Dispatch's node addresses, checked against what actually shipped, now
     # that every scene is in place (roadmap 101).

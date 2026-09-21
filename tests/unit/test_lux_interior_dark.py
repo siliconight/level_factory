@@ -208,7 +208,7 @@ def test_the_preview_writes_the_same_cap_as_the_export(tmp_path):
     _write_project_godot(tmp_path, "mission.tscn", "m", "4.7")
     exported = _cap((tmp_path / "project.godot").read_text(encoding="utf-8"))
     preview = _cap(_PROJECT.format(name="m", level="mission.tscn",
-                                   rendering=rendering_block(package_light_budget(tmp_path))))
+                                   rendering=rendering_block(package_light_budget(tmp_path), 0)))
     assert exported == preview == n
 
 
