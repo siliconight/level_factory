@@ -1,4 +1,8 @@
-"""Zoo adapter (TDD 24.5) — bound to the REAL Zoo 0.27.0 CLI.
+"""Zoo adapter (TDD 24.5) — bound to the REAL Zoo CLI, grounded against 1.1.1.
+
+The invocation below is the 0.27.0 shape and still the current one; what HAS
+moved since is the fixtures index, whose 0.94 contract `normalize_validation`
+reads at the bottom of this file.
 
 Real invocation (verified against the uploaded repo):
 

@@ -1,7 +1,9 @@
 """Lux adapter (TDD 24.7).
 
-Lux (v0.13.0) is an IN-ENGINE Godot 4.7 addon, not a headless CLI like the other
-tools. So this adapter stages the Lux addon into the generated Godot project and
+Lux is an IN-ENGINE Godot 4.7 addon, not a headless CLI like the other
+tools -- grounded against 0.40.0; this file was written against 0.13.0, and
+what has or has not moved between the two is not recorded here.
+So this adapter stages the Lux addon into the generated Godot project and
 drives a headless Godot "lux apply" entry that:
   * applies the LEVEL/PROP/CHARACTER/GUN roles + the selected preset
   * applies mission-level overrides

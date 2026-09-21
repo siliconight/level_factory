@@ -34,10 +34,18 @@ def test_lock_overrides_grounded():
 
 
 def test_verify_flags_drift_and_incompat():
+    # DERIVED FROM THE TABLE, NOT COPIED OUT OF IT. These were literals
+    # ("Deli Counter 0.75.0", "0.27.0"), so re-grounding broke a test that is
+    # about `compare`'s arithmetic and has no opinion about which versions are
+    # pinned -- 2026-09-21's re-grounding failed both of them for that reason.
+    def _bump(adapter_id, major=0, minor=0):
+        maj, mnr, pat = C.parse_semver(C.GROUNDED[adapter_id]["version"])
+        return f"{maj + major}.{mnr + minor}.{pat}"
+
     installed = {
-        "deli_counter": "Deli Counter 0.75.0",  # OK (re-grounded v0.9.0)
-        "zoo": "0.27.0",                          # DRIFT vs grounded 0.30.1
-        "dispatch": "1.0.0",                      # INCOMPATIBLE vs 0.3.0
+        "deli_counter": C.GROUNDED["deli_counter"]["version"],  # OK: equal
+        "zoo": _bump("zoo", minor=1),             # DRIFT: same major
+        "dispatch": _bump("dispatch", major=1),   # INCOMPATIBLE: major bump
         "laser_tag": None,                        # UNKNOWN (nothing installed to read)
     }
     results = {r.adapter_id: r.status for r in C.verify(installed)}
@@ -78,13 +86,46 @@ def test_laser_tag_reports_a_version_now(tmp_path):
     """
     from adapters.laser_tag import LaserTagAdapter
 
-    (tmp_path / "VERSION").write_text("Laser Tag 0.8.0\n", encoding="utf-8")
+    pinned = C.GROUNDED["laser_tag"]["version"]
+    (tmp_path / "VERSION").write_text(f"Laser Tag {pinned}\n", encoding="utf-8")
     probe = LaserTagAdapter().probe({"repository": str(tmp_path)})
     assert probe.available
-    assert C.parse_semver(probe.tool_version) == (0, 8, 0)
+    assert C.parse_semver(probe.tool_version) == C.parse_semver(pinned)
     # And the grounded pin agrees, so verify-contracts reads OK rather than
     # UNKNOWN for a tool that is in fact perfectly identifiable.
-    assert C.compare(C.GROUNDED["laser_tag"]["version"], probe.tool_version) == C.OK
+    assert C.compare(pinned, probe.tool_version) == C.OK
+
+
+def test_the_stub_repos_declare_the_grounded_versions():
+    """`tests/fixtures/repos/*` impersonate the real tools for the integration
+    and service suites, and `doctor` probes them like any other installation.
+    When they declare a version GROUNDED no longer names, `doctor` reads
+    DRIFT -- or INCOMPATIBLE once a major moves, which is what zoo 0.30.2 ->
+    1.1.1 did -- and `tests/service/test_facade.py::test_doctor_passes` fails
+    with `assert 'FAIL' in ('PASS', 'WARN')`, naming nothing. This says what
+    to do instead.
+
+    The real tools' versions are asserted by the real-tool smoke
+    (`tests/real_tools/test_grounded_table.py`), which is where a claim about
+    an actual tool belongs. This is only about the stand-ins.
+    """
+    from pathlib import Path as _P
+    repos = _P(__file__).resolve().parents[1] / "fixtures" / "repos"
+    wrong = []
+    for adapter_id, entry in sorted(C.GROUNDED.items()):
+        vf = repos / adapter_id / "VERSION"
+        declared = vf.read_text(encoding="utf-8").strip() if vf.is_file() else None
+        if C.compare(entry["version"], declared) != C.OK:
+            wrong.append(f"  {adapter_id:<14} stub declares {declared!r}, "
+                         f"GROUNDED says {entry['version']}")
+    assert not wrong, (
+        "the stub tool repos disagree with contracts.GROUNDED:\n"
+        + "\n".join(wrong)
+        + "\n\nRe-grounding moves the pins; the stand-ins have to follow or "
+          "`doctor` reads drift against tools that do not exist. Update "
+          "tests/fixtures/repos/<tool>/VERSION (and deli_counter's stub "
+          "`contract` command, whose reported tool_version the adapter "
+          "prefers over the file).")
 
 
 def test_a_tool_without_a_version_file_still_degrades_to_unknown(tmp_path):

@@ -1,3 +1,177 @@
+## [0.97.0] - what Level Factory knew about Zoo was two contracts out of date
+
+Cold run 9064 was refused at export over a package that was correct, and the
+run before it (9063) was abandoned before it started. Both were the same
+disease in two places: LF's record of the tools beside it had stopped being
+updated, and nothing anywhere made that loud.
+
+### The refusal
+
+    ZOO_FIXTURES_MARKER_MISMATCH at zoo_fixtures_build:
+    emitter_markers (18) != fixtures_built (25)
+
+`strip_club_a02_fixtures.built.json` says, in the same file, one line apart:
+
+    fixtures_built        25
+    emitter_markers       18
+    markerless_fixtures    7
+
+18 + 7 = 25. The generator was right and the gate was reading two of the three
+numbers Zoo writes. The same shell one stack earlier (cold run 9060, Zoo
+0.92.0) read 18 and 18 -- the markers did not fall, the fixtures rose by
+seven, because the club anchors that used to be skipped as "no fixture
+species" now build.
+
+Zoo 0.94 did this on purpose and left a comment saying so. A club fixture is
+hardware with no emitter marker: `core.fixtures` marks `club_wash` and
+`stage_light` `marker: False` because the spawner hands `rig_for_anchor` only
+{type, id, drop}, so a marker would lose the zone colour and pool radius Deli
+Counter measured -- and would DOUBLE the light `bake_club` already makes
+rather than supply it. `build.py` writes `emitter_markers = built -
+markerless`. The adapter's gate was written against the v0.30 contract and
+had never heard of the third number.
+
+### Fixed -- the invariant, not the threshold
+
+    emitter_markers + markerless_fixtures == fixtures_built
+
+with an absent `markerless_fixtures` read as 0, which is the v0.30 check to
+the bit for every index an older Zoo wrote. This is not a relaxation: the
+failure the contract exists for -- a placement with no marker and nothing
+declaring why, which is a light nothing downstream can spawn or count -- is
+still a blocker, and 9060's 18/18 index still passes unchanged.
+
+THE ARITHMETIC ALONE WOULD BE A CHECK THAT CANNOT FAIL. On anything Zoo
+wrote, `emitter_markers` is DERIVED as `built - markerless`, so the sum is an
+identity and proves nothing about the build. The second opinion is the
+index's own `placements`, whose per-placement `marker` flags the counts were
+tallied from -- independent data in the same file, present in every real
+index. Disagreeing with them is `ZOO_FIXTURES_MARKER_TALLY_MISMATCH`, and it
+is the only way a modern index can now fail this gate.
+
+Counts that are not counts used to pass. The old comparison was guarded by
+`isinstance(built, int)`, so a `fixtures_built` that was null, a string, a
+float or absent took the else branch and the index went through UNCHECKED --
+the gate reporting clean about a file it could not read. That is
+`ZOO_FIXTURES_INDEX_UNREADABLE` now, named apart from the mismatch so a
+summary distinguishes "the numbers disagree" from "the numbers are not
+numbers".
+
+`ZOO_FIXTURES_MARKERLESS` (info, non-blocking) carries the number the
+blocker's removal would otherwise have taken with it. A reader sees
+`fixtures_built`, and on a club shell it is seven higher than the lamps Lux
+will spawn from markers; silently dropping that gap invites the next person
+to rediscover it. Measured over 9064's three shells -- strip_club_a02 7 of
+25, clinic_a01 0 of 15, mansion_a01 0 of 32 -- so it is a club phenomenon,
+and staying quiet on the other two is the point.
+
+Attributed against the real indexes of both runs, six of them, before and
+after: the ONLY change is one blocker becoming one observation. 9060's three
+`ZOO_CAPABILITY_GAP` findings are identical either side.
+
+`adapter_version` and `output_contract_version` are deliberately not bumped.
+Both are in the build fingerprint and nothing about the planned commands
+changed; a bump would retire every cached zoo kit, dressing and fixture bake
+in every workspace to change how their outputs are READ. The scheduler
+re-runs `normalize_validation` on a cache hit, so the fix reaches a resumed
+run without rebuilding anything.
+
+### Fixed -- the grounded version table, wrong in seven of eight rows
+
+`contracts.GROUNDED` is the version each adapter was certified against. It
+had not moved since the tools it names:
+
+    adapter        grounded   installed              behind by
+    deli_counter   0.75.0     Deli Counter 0.141.2   66 minors
+    lot            0.18.3     Lot 0.74.0             56 minors
+    pixelcoat      0.9.0      Pixelcoat 0.45.0       36 minors
+    lux            0.15.4     Lux 0.40.0             25 minors
+    laser_tag      0.8.0      Laser Tag 0.23.1       15 minors
+    patina         0.18.0     Patina 0.22.0           4 minors
+    zoo            0.30.2     1.1.1                   a major
+    dispatch       0.3.0      0.3.0                   already right
+
+DISPATCH WAS THE ONE ROW THAT WAS RIGHT, and it looks stale from outside:
+`dispatch/VERSION` reads 0.4.2. `DispatchAdapter.probe` overrides the VERSION
+file with `python -m dispatch contract`, which reports 0.3.0 out of
+`dispatch/__init__.py`'s `__version__` -- the same number dispatch stamps
+into every artifact it writes as `dispatch_version`, and the number every
+workspace lock already carries. Pinning 0.4.2 would make `verify-contracts`
+read DRIFT forever against a tool that never claims it. The disagreement is
+dispatch's to settle, not LF's to pin around.
+
+Three more version sources disagree with themselves, recorded in the table's
+`note` fields rather than fixed here: `lasertag/addons/laser_tag_tool/
+plugin.cfg` says 0.19.0 against VERSION's 0.23.1 (the GROUNDED note claimed a
+lint job fails when those two differ -- measured 2026-09-21, it does not);
+`pixelcoat/version.py` says 0.16.0, which is what its pyproject packages, so
+a pip-installed pixelcoat reports 29 minors behind the repo; patina's
+pyproject still says 0.1.1.
+
+WHAT LICENSES THE NEW NUMBERS: `LF_TOOLS_DIR=<factory> pytest tests/
+real_tools` -- 9 ran, 1 skipped (dispatch's bundled example ships none of its
+build inputs), exit 0, including `test_real_zoo_plan`. What it does not
+license is geometry. The smoke is adapter-and-contract depth in seconds; the
+zoo walkabout, the engine leg and the lux visual leg are unchanged by this
+and are what a drifted tool actually owes.
+
+### Added -- the table cannot go stale in silence again
+
+`tests/real_tools/test_grounded_table.py`. When LF_TOOLS_DIR is set, the
+smoke probes each tool THE WAY `verify-contracts` DOES -- `adapter.probe(...)
+.tool_version`, compared with `contracts.compare`, so there is one derivation
+of what OK means rather than a second one that could disagree -- and a
+GROUNDED row that disagrees FAILS with both numbers in the message.
+
+The smoke is the only place this can live. A unit test has no tools to read;
+`verify-contracts` is the thing that was being ignored. The procedure that
+licenses a pin is the smoke, so a pin the smoke disagrees with is a claim
+nobody made.
+
+It was ignored for a long time because three layers each muffled it: a minor
+gap reads DRIFT, `verify-contracts` returns exit-2 findings for DRIFT rather
+than failing, and each workspace's `tools.lock.json` overrides its own row
+locally -- so a workspace that had certified could not see that the shipped
+table had not. It took zoo crossing 1.0.0, turning the same comparison
+INCOMPATIBLE and failing `doctor`, to cost cold run 9063.
+
+A SKIP IS NOT A PASS, and the new test is built so it cannot fire falsely.
+Everything is gated on the `tools_base` fixture, which skips when
+LF_TOOLS_DIR is unset or absent. When the tools are there but one cannot be
+located or will not report a version, that row is not compared and is NAMED
+in a skip reason, which conftest's terminal summary prints. A run that
+compared nothing skips rather than passing. Proven against the OLD table with
+the tools present (7 rows named, dispatch correctly absent), with
+LF_TOOLS_DIR unset (skip), and with LF_TOOLS_DIR pointing somewhere with no
+tools (skip, all eight rows named).
+
+`test_every_grounded_tool_has_a_marker` runs with no tools at all: a ninth
+tool added to GROUNDED without a way to find it would otherwise just stop
+being checked, which is the same failure one level up.
+
+### Also
+
+The stub tool repos under `tests/fixtures/repos` impersonate the real tools
+for the service and integration suites, and `doctor` probes them like any
+installation -- so re-grounding made them read DRIFT, and zoo's major made
+them read INCOMPATIBLE, which failed `test_doctor_passes` with `assert 'FAIL'
+in ('PASS', 'WARN')` and named nothing. Their VERSION files (and deli's stub
+`contract` command, whose `tool_version` the adapter prefers over the file)
+now declare the grounded set, and `test_the_stub_repos_declare_the_grounded_
+versions` says exactly that when they drift, instead of leaving it to the
+service suite to fail opaquely.
+
+Two tests in `test_contracts.py` held pinned versions as literals while being
+about `compare`'s arithmetic; both broke on re-grounding for no reason of
+their own and now derive from the table.
+
+Not fixed, and worth someone's attention: `docs/CERTIFY.md` -- which is at
+the FACTORY root, not in this repo, so the `docs/CERTIFY.md` in every DRIFT
+message is resolved relative to the wrong tree by anyone reading it from here
+-- is itself written against zoo 0.34.0 and pixelcoat 0.10.0, and says
+nothing about updating `contracts.GROUNDED`. The new test enforces the thing
+the runbook forgot to ask for.
+
 ## [0.96.0] - a package stops submitting what a wall is hiding
 
 Cold run 9062's package spent 14.36 ms standing still inside the card shop.

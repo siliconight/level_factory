@@ -1,9 +1,9 @@
-"""Stub Deli Counter (v0.74.0 contract shape) for integration tests."""
+"""Stub Deli Counter (v0.141.2 contract shape) for integration tests."""
 import argparse, json, sys
 from pathlib import Path
 
 def cmd_contract():
-    print(json.dumps({"tool_version": "0.74.0", "gameplay_schema": "1.21.0",
+    print(json.dumps({"tool_version": "0.141.2", "gameplay_schema": "1.21.0",
                       "capabilities": ["generate_building", "validate_building",
                                        "combat_audit", "floorplan_preview",
                                        "slot_contract", "deterministic_build"]}))
