@@ -315,6 +315,58 @@ def _root_site_wanted(presentation_dir: Path | None) -> bool:
         return True
 
 
+#: The folder Zoo writes a module's shared textures into, beside its GLB.
+#: Spelled here as well as in `zoo_keeper.core.gltf_textures.TEX_DIR` because
+#: Level Factory does not import Zoo -- it consumes a directory Zoo wrote. Two
+#: spellings of one contract drift, so `test_shared_texture_imports` asserts
+#: they agree whenever Zoo is present beside this repo, and says so when it is
+#: not rather than passing quietly.
+SHARED_TEX_DIR = "_tex"
+
+#: Import parameters pinned on every `.png.import` under `SHARED_TEX_DIR`.
+#: The measurement behind each is in `_write_import_sidecars`'s docstring.
+SHARED_TEX_PINS = {
+    "compress/mode": "0",
+    "process/fix_alpha_border": "false",
+    "mipmaps/generate": "true",
+}
+
+
+def _pin_shared_texture_imports(export_dir: Path) -> int:
+    """Pin `SHARED_TEX_PINS` on the shared textures' sidecars.
+
+    Returns how many files were changed, so the caller's second import pass
+    runs when this alone had something to do -- a package whose GLBs were
+    already at mode 3 still needs the pass that rebuilds these.
+
+    A sidecar missing a key is not written to. The key set is Godot's, read
+    off what Godot wrote on the first pass; a file that does not carry one is
+    a file this function has not been shown, and adding the line would be
+    guessing at a schema.
+    """
+    changed = 0
+    for sidecar in export_dir.rglob("*.png.import"):
+        if sidecar.parent.name != SHARED_TEX_DIR:
+            continue
+        try:
+            lines = sidecar.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        out, hit = [], False
+        for ln in lines:
+            key = ln.split("=", 1)[0]
+            want = SHARED_TEX_PINS.get(key)
+            if want is not None and ln != f"{key}={want}":
+                out.append(f"{key}={want}")
+                hit = True
+            else:
+                out.append(ln)
+        if hit:
+            sidecar.write_text("\n".join(out) + "\n", encoding="utf-8")
+            changed += 1
+    return changed
+
+
 def _write_import_sidecars(export_dir: Path, godot_executable) -> int:
     """Run one import pass and keep the `.import` sidecars, not the cache.
 
@@ -361,6 +413,43 @@ def _write_import_sidecars(export_dir: Path, godot_executable) -> int:
 
     The cost of NOT doing this, measured on the same package: 1141 load errors.
 
+    AND THE SHARED TEXTURES BESIDE THE GLBs (`_tex/`, Zoo 1.2.0). The reasoning
+    above is about images that are still INSIDE the GLB. Zoo now writes a
+    module's images to files beside it, named by a hash of their pixels, so
+    sixty modules that use one pack texture reference one file -- and Godot
+    imports that file once, where it imported sixty copies of the embedded
+    form. Measured on cold run 9066's package, Godot 4.7, GL Compatibility,
+    counted by distinct texture RID in the loaded tree:
+
+        embedded, as shipped      1,841 textures   332,867,236 B texture mem
+        shared beside the GLBs      157 textures    47,090,266 B
+
+    Three keys are pinned on those `.png.import` sidecars, and each one is
+    here for a measured reason, all three on the same 512x512 source compared
+    against the embedded mode-3 decode:
+
+        compress/mode=0            Lossless. Mode 2 is the default and is VRAM
+                                   compression -- 100% of pixels differ. Same
+                                   call as mode 3 above: roadmap 89.
+        process/fix_alpha_border=false
+                                   The default is true and rewrites RGB under
+                                   transparent texels -- 7.755% of pixels
+                                   differ, max channel delta 255. With it off
+                                   the decode is byte-identical to the
+                                   embedded one: 0.000%, max delta 0.
+        mipmaps/generate=true      The chain a shipped package had been getting
+                                   only from `zoo_worldskin.gd`'s import-time
+                                   pass, which rebuilds each texture as its own
+                                   ImageTexture and would undo the sharing this
+                                   is for. With the chain already present that
+                                   pass is a no-op and the textures stay shared.
+                                   Free here: a 512x512 RGBA8 texture reads
+                                   1,398,100 B of texture memory with mipmaps
+                                   and 1,398,100 B without, measured on a
+                                   twenty-GLB control against an empty-scene
+                                   baseline -- the renderer allocates the chain
+                                   either way.
+
     Best-effort. A missing Godot is a setup problem, not an export failure, and
     HANDOFF.md tells the recipient what to do either way.
     """
@@ -396,11 +485,18 @@ def _write_import_sidecars(export_dir: Path, godot_executable) -> int:
             for ln in text.splitlines()) + "\n", encoding="utf-8")
         rewrote += 1
 
+    rewrote += _pin_shared_texture_imports(export_dir)
+
     if rewrote:
         # Drop what EXTRACT wrote, so the second pass is measured clean. Only
         # textures beside a GLB -- the package's own PNGs (Lux's film grain,
-        # the validation overlays) are content and are never touched.
+        # the validation overlays) are content and are never touched, and
+        # neither is `_tex/`, which is the module's own texture rather than a
+        # second copy of one. It survived this loop by accident already, its
+        # directory holding no `.glb` to match; an accident is not a rule.
         for png in list(export_dir.rglob("*.png")):
+            if png.parent.name == SHARED_TEX_DIR:
+                continue
             if not list(png.parent.glob("*.glb")):
                 continue
             png.unlink(missing_ok=True)

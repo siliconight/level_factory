@@ -1,3 +1,62 @@
+## [0.99.0] - the shared textures import the way they were authored
+
+Zoo 1.2.0 stops embedding a module's images in its GLB and writes them to
+`_tex/` beside it, because Godot builds a separate GPU texture from every
+embedded copy and does not deduplicate -- 1,841 texture resources and
+332,867,236 B of texture memory on cold run 9066's package, against 157 and
+47,090,266 B once they are shared. Zoo's own changelog carries that
+measurement and the twenty-GLB controls behind it.
+
+This is the half of it that lives here, and it is not optional. A PNG beside a
+GLB is imported by Godot's **texture** importer, whose defaults are not the
+GLTF importer's, and two of them change the picture. Measured against the
+decoded level-0 RGBA8 of the same 512x512 source through
+`gltf/embedded_image_handling=3`:
+
+    compress/mode=2 (the default, VRAM)      100.000% of pixels differ
+    process/fix_alpha_border=true (default)    7.755% differ, max delta 255
+    compress/mode=0, fix_alpha_border=false    0.000% differ, max delta 0
+
+So `_write_import_sidecars` now pins three keys on every `.png.import` under
+`_tex/`, in the same second pass that already rewrites the GLB sidecars:
+
+  * `compress/mode=0` -- lossless, the same call as mode 3 for the embedded
+    form, and for the same reason. Roadmap 89 is a compression setting
+    silently changing a shipped build's look.
+  * `process/fix_alpha_border=false` -- the default rewrites RGB under
+    transparent texels. 7.755% is not a rounding artefact.
+  * `mipmaps/generate=true` -- and this one is about the sharing, not only
+    about mips. `zoo_worldskin.gd`'s import pass builds a chain for any
+    texture lacking one by rebuilding it as its own `ImageTexture`, which
+    would undo the sharing this whole change is for. With the chain already
+    present it is a no-op: every texture in the measured after-package is a
+    `CompressedTexture2D`, none rebuilt.
+
+`compress/mode=2` was measured too, since it was one flag away: texture memory
+47,090,266 -> 21,504,802 B, a further 25.6 MiB. Not taken, for the reason
+above, and written down so the next person can reopen it with numbers.
+
+### Mips cost nothing here, which was not expected
+
+A 512x512 RGBA8 texture reads **1,398,100 B of texture memory with a mip chain
+and 1,398,100 B without** -- exactly 4/3 of its base size either way, measured
+on a twenty-GLB control against an empty-scene baseline with `mipmaps/generate`
+as the only difference and the mip count confirmed to have moved. The renderer
+allocates the chain whether or not it is filled, so shipping without one bought
+nothing and cost sharpness at distance.
+
+### And the cleanup loop now spares `_tex/` by name
+
+The pass that deletes what EXTRACT wrote tests whether a PNG's folder holds a
+`.glb`. Zoo's textures survived it because `_tex/` holds none -- an accident,
+not a rule, and one a later change that moved them next to the GLB would have
+turned into a module shipping with no textures. `test_shared_texture_imports`
+asserts the skip is by name.
+
+The folder name is spelled in both repos, because Level Factory does not
+import Zoo. The test that checks the two agree SKIPS with the path it looked
+at when Zoo is not beside this repo, rather than passing quietly.
+
 ## [0.98.0] - the occluder bake never ran in a real export
 
 0.96.0 shipped occluders and measured them on packages a person had already
