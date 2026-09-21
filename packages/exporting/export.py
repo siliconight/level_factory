@@ -1053,6 +1053,25 @@ def export_mission(
     (export_dir / "HANDOFF.md").write_text(HANDOFF_LANGUAGE, encoding="utf-8")
     _write_import_sidecars(export_dir, godot_executable)
 
+    # Occluders. AFTER the sidecar pass, because the bake measures the GLBs'
+    # real extents and cannot until Godot has imported them; BEFORE the
+    # resource manifest, so `occluders.tscn` is in it like any other scene.
+    #
+    # Best-effort, the same way the sidecars are: a missing Godot is a setup
+    # problem and not an export failure. It is SAID, not skipped -- a package
+    # that ships without occluders reads as one that could not measure them,
+    # never as one that had nothing to hide.
+    try:
+        from packages.exporting.occluders import OccluderError, emit
+        occ = emit(export_dir, godot_executable)
+        print("[export] %d occluder(s) from %d solid module(s); "
+              "%d glass, %d porous and %d filler left open"
+              % (occ["occluders"], occ["classified"]["solid"],
+                 occ["classified"]["glass"], occ["classified"]["porous"],
+                 occ["classified"]["filler"]))
+    except OccluderError as exc:
+        print("[export] WARNING no occluders in this package: %s" % exc)
+
     # Dispatch's node addresses, checked against what actually shipped, now
     # that every scene is in place (roadmap 101).
     bindings = strip_dead_node_paths(export_dir)

@@ -140,6 +140,22 @@ def rendering_block(light_count: int) -> str:
     """
     out = ['[rendering]', 'renderer/rendering_method="gl_compatibility"']
 
+    # OCCLUSION CULLING, and it has to be written because the engine default
+    # is false -- verified on 4.7.stable, not read off a page. It works in GL
+    # Compatibility: the culler is a CPU software rasteriser in the rendering
+    # server, not a backend feature. Measured on a purpose-built scene, 484
+    # boxes behind one wall, on this renderer: 481 objects submitted with it
+    # off and 1 with it on, against a control facing empty space that read 0
+    # in both conditions.
+    #
+    # It costs about 0.27 ms of CPU per frame at 1280x720 with nothing to
+    # cull -- the price of asking. On cold run 9062's package it bought
+    # interior_c 4,635 draw calls down to 422 and 14.36 ms down to 1.86, and
+    # the open view at exterior_sw 16.92 ms down to 7.96. Nothing measured
+    # slower. If a package ever appears where it does, this line is the
+    # switch, and `occluders.json` says what it was paying for.
+    out.append("occlusion_culling/use_occlusion_culling=true")
+
     if light_count > ENGINE_DEFAULT_RENDERABLE_LIGHTS:
         out += [
             "; RENDERABLE-LIGHTS BUDGET -- a GLOBAL cap, engine default 32.",

@@ -1,3 +1,164 @@
+## [0.96.0] - a package stops submitting what a wall is hiding
+
+Cold run 9062's package spent 14.36 ms standing still inside the card shop.
+Two thirds of that was two OTHER buildings, drawn whole, interiors and all,
+from a room with no line of sight to either. Packages now ship occluders, and
+that station costs 1.88 ms.
+
+### The measurement that came first, because the number looked like one defect
+### and was another
+
+The brief for this work assumed the interior stations were expensive because
+the street shows through the storefront glass. Attribution says otherwise.
+Hiding one top-level branch of `site.tscn` at a time and reading the draw
+count back, at `interior_c` -- inside the card shop, looking along its long
+axis:
+
+    b0  the shop you are standing in          266
+    b1  the country club across the road    1,599   of 1,602 meshes it owns
+    b2  the market hall                     1,481   of 1,487 meshes it owns
+    street props                              719
+    site surface                              566
+                                            -----
+                                            4,635
+
+b1 and b2 were being submitted at 99.8% and 99.6% of everything they own --
+not their facades, their contents: every interior wall, shelf and prop of two
+buildings nobody in that room can see into. Frustum culling cannot reject
+them, because they are squarely in front of the camera. Only a wall can, and
+nothing in the package was telling the engine there was a wall.
+
+The glass was a red herring in the sense that mattered. It is real -- the
+street IS partly visible through the storefront, and the occluders below
+leave every glass module open for exactly that reason -- but it was never
+what the 4,635 was made of.
+
+### Added -- OCCLUDERS, EMITTED BY THE EXPORT
+
+`packages/exporting/occluders.py` and `assets/godot/bake_occluders.gd`. The
+package gains `occluders.tscn`, a scene of nothing but `OccluderInstance3D`,
+instanced by `site.tscn`, plus `occluders.json` saying what was made and what
+was deliberately left open.
+
+Ordinary scene data. No addon, no import script, no autoload, so the
+package's standing promise -- that it opens in somebody else's Godot project
+with none of our tools present -- is unchanged. A recipient whose project has
+occlusion culling switched off gets inert nodes that cost nothing.
+
+WHAT BECOMES AN OCCLUDER is the module's own GLB name, because Lot instances
+one GLB per module and Zoo names them for what they are:
+
+    solid   wall_ roof_ floor_ ceiling_    395 made
+    glass   anything carrying `mglass`      26 left open
+    porous  window_ doorway_ breach_        41 left open
+    filler  wallEnd_                        88 left open, too small to pay
+    never   prop_ and everything else      420 seen, none occluded
+
+The glass rule is a correctness rule, not a thrift one, and has a test of its
+own: a storefront shows the street, and an occluder across it would cull what
+is visibly through it. Props are never occluders -- a lamppost, a rail, a bin
+or a sign is thin or porous, and an occluder is a promise that nothing is
+visible past it.
+
+ORIENTED, NOT AXIS-ALIGNED. The box is built from the module's LOCAL bounds
+and carries the module's own transform. Every building in this package sits
+square, so a world-space AABB would have measured identically here and
+shipped a generator that over-occludes the first time a brief asks for a
+street at an angle.
+
+GODOT MEASURES, PYTHON WRITES. A module's filename carries its width
+(`wall_..._w200_...`) and not its height or its thickness, so the extent
+comes from the imported mesh rather than from a second reading of the genome.
+Godot does not write the scene, and both reasons were measured on this
+package rather than assumed:
+
+  * `ResourceSaver` names sub-resources non-deterministically -- two bakes
+    over one unchanged package produced two different files.
+  * It wrote one `BoxOccluder3D` per occluder: 395 resources for 17 distinct
+    sizes. The writer here shares them. 71,856 bytes against 126,509.
+
+Same division of labour as `assets/godot/extract_meshes.gd`, and the same
+rule about evidence: Python verifies the report, never the exit code. A
+report that does not parse, carries an unknown schema, or says `ok: false`
+raises rather than reading as a package that had nothing to hide.
+
+### Added -- THE PROJECT SETTING, BECAUSE THE ENGINE DEFAULT IS FALSE
+
+`packages.core.godot_project.rendering_block` writes
+`occlusion_culling/use_occlusion_culling=true`, so the export and the walk
+preview get it from the one function they already share. Verified on
+4.7.stable rather than read off a page: the default is `false`, and 395
+occluders in a package that does not switch the culler on are 395 inert
+nodes.
+
+### Occlusion culling in GL Compatibility: it works, and what it costs
+
+It had to be established, not assumed -- the culler is a CPU software
+rasteriser in the rendering server, and whether it is compiled into the
+official win64 binary is a property of that binary. Measured on a
+purpose-built scene, 484 boxes behind one wall, `gl_compatibility`,
+Godot 4.7.stable, RTX 2060:
+
+    station         occlusion off      occlusion on
+    blocked         481 objects        1 object
+    open            485 objects        419 objects
+    control_away      0 objects        0 objects      <- the counter can see
+
+The fixed price is about 0.27 ms of CPU per frame at 1280x720: measured at
+`control_away`, where zero objects are drawn in both conditions and the frame
+still went from 0.309 ms to 0.582 ms. That is the cost of asking the
+question, and it is paid whether or not the answer saves anything.
+
+### Measured on the package, six stations, before and after
+
+Same stations, same camera arithmetic, bounds printed and identical across
+runs. Occlusion comes from the package's own project.godot, not a runtime
+override, because that is what a recipient runs.
+
+    station        draws          frame ms        render-cpu ms    gpu ms
+    exterior_ne      874 ->   559   2.55 -> 1.85    2.23 -> 1.57   0.46 -> 0.32
+    exterior_sw    5,454 -> 2,525  17.11 -> 7.96   16.43 -> 7.38  10.06 -> 2.68
+    interior_c     4,635 ->   422  14.34 -> 1.88   13.68 -> 1.59   8.12 -> 0.39
+    interior_x     4,970 -> 1,059  15.54 -> 3.61   14.86 -> 3.19  10.01 -> 0.67
+    interior_z       572 ->   165   1.74 -> 1.13    1.46 -> 0.87   0.29 -> 0.21
+    wall_close       932 ->    26   3.11 -> 0.83    2.68 -> 0.52   0.48 -> 0.11
+
+Nothing measured slower, including the two exterior stations, which are the
+open views and were the ones at risk. `exterior_sw` is the most open view in
+the package and still halved: from outside, a building's own shell hides its
+own contents. The station where occlusion culling can save nothing at all is
+not in this package -- it is `control_away` above, and it is the 0.27 ms.
+
+### It removes nothing a player can see
+
+Each station rendered twice, occlusion off then on, and the frames compared.
+Diff is 0 pixels at five of six stations and 2 pixels of 921,600 at
+`exterior_ne` -- a grazing-angle sliver, which is the direction the 2 cm
+shrink on every box is there to err in.
+
+Two guards on that claim, because this repo has been burnt by a render probe
+that reported "pixel-identical" over frames that were 99.7% black:
+
+  * COVERAGE is in every row: 58-100% of pixels are not background. The
+    comparison is over frames with something in them.
+  * A CONTROL runs at every station: the whole b0 branch is hidden and the
+    comparator is required to notice. It reports 152,081 to 921,599 pixels.
+    The first version of that control picked "the nearest large mesh" and
+    never checked it was in frustum, so it reported 0 at two stations -- a
+    blind comparator, whose diff of 0 proved nothing. The retraction is kept
+    in the probe above what replaced it.
+
+### What this does not do
+
+It does not touch distance representation or HLOD. At these object counts
+the next lever is worth having and this pass is not it: after occlusion,
+`exterior_sw` still submits 2,525 draws and is the only station over 4 ms.
+That is a genuinely open view of a street, where nothing is hidden and the
+answer has to be fewer objects rather than fewer submissions of them.
+
+The numbers here are one machine, one package, and a 2 cm shrink chosen to
+err small. There is still no runtime telemetry from real sessions.
+
 ## [0.95.0] - a frame counter that can be believed
 
 The walker, walking cold run 9062's card shop on 2026-09-16, reported it
