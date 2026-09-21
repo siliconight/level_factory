@@ -145,6 +145,16 @@ class ExportOccluderError(RuntimeError):
     the occluders that shipped do not agree."""
 
 
+class ExportWarmupError(RuntimeError):
+    """The package's shader warm-up could not be shipped, or what shipped is
+    not what `packages.exporting.warmup` writes.
+
+    Fatal rather than a warning, on the same reasoning that made the occluder
+    bake fatal in 0.98.0: a warning nobody reads is how a package ships with a
+    runtime defect in it. This one is worth 8,564 ms in a single frame on cold
+    run 9066's package, measured with both shader caches cleared."""
+
+
 # Files that carry presentation only (dropped in pure-shell mode).
 _PRESENTATION_FILES = {"lux.applied.tscn", "lux.quality.json"}
 
@@ -1241,6 +1251,39 @@ def export_mission(
           "node(s) in %d scene(s)"
           % (str(verdict["use_occlusion_culling"]).lower(),
              verdict["occluder_nodes"], verdict["scenes_with_occluders"]))
+
+    # The warm-up. AFTER the occluder step, so the node it adds to
+    # `mission.tscn` is added to a scene nothing else will rewrite; BEFORE the
+    # resource manifest, so `warmup.gd` is in it like any other file.
+    #
+    # Needs no Godot, deliberately: the thing it fixes is a RUNTIME cost, and
+    # a build step that cannot run without a Godot on the box is a step that
+    # silently does not run -- which is exactly how 0.98.0's occluder defect
+    # shipped. A package whose warm-up failed to wire is a package that
+    # stalls on first sight, so this fails the build rather than warning.
+    from packages.exporting.warmup import WarmupError
+    from packages.exporting.warmup import audit as warmup_audit
+    from packages.exporting.warmup import emit as warmup_emit
+    try:
+        warm = warmup_emit(export_dir)
+        print("[export] warm-up: res://%s wired into %s as `%s`, %d guard(s)"
+              % (warm["script"], warm["entry_scene"], warm["node"],
+                 len(warm["guards_present"])))
+    except WarmupError as exc:
+        raise ExportWarmupError(
+            "the warm-up could not be shipped: %s\n  a package without one "
+            "stalls on first sight -- 8,564 ms in one frame, measured on cold "
+            "run 9066's package with both shader caches cleared" % exc) from exc
+
+    # The backstop, read back off the files that are about to be zipped rather
+    # than off the report above.
+    try:
+        warm_verdict = warmup_audit(export_dir)
+    except WarmupError as exc:
+        raise ExportWarmupError(str(exc)) from exc
+    print("[export] warm-up verdict: %d node, script shipped=%s"
+          % (warm_verdict["warmup_nodes"],
+             str(warm_verdict["script_shipped"]).lower()))
 
     # Dispatch's node addresses, checked against what actually shipped, now
     # that every scene is in place (roadmap 101).

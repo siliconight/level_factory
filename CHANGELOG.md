@@ -1,3 +1,168 @@
+## [0.100.0] - a level stops compiling its shaders while somebody is walking through it
+
+Cold run 9066's package, walked twice over one six-leg route at 3 m/s, first
+time ever on this machine: a **9,283 ms frame** on the first leg, 5,191 ms on
+the second, 2,245 ms on the third. The same legs on the second lap: 19.7,
+11.9, 27.9 ms. Draw calls and object counts are the same on both laps
+(942/492/2021 against 974/498/2044), so nothing about what is submitted
+changed -- only whether it had been drawn before. Cold run 9065's package had
+shown the same shape, 8,986 ms and 3,404 ms at one spot, and it was read as
+noise.
+
+### It is shader compilation, and the instrument that settles it is outside the project
+
+Everything inside the package says nothing is happening. Across every
+multi-second frame the renderer's video, texture and buffer memory monitors
+and its resource count are all flat -- 0 KiB, 0 resources -- so nothing is
+being loaded or uploaded. The one frame in the run that does move memory
+(+257 MiB of texture, once, early) costs 182 ms with the caches warm, so that
+upload is real, bounded, and not this. LOD and the occluder scene are built at
+import and at bake, and the `.godot` cache and `occluders.tscn` were identical
+across every run in the series. The probe's lap-end teleport is a no-op: the
+six legs sum to zero displacement, and it happens on both laps.
+
+What moved the number was a directory the Godot project cannot see. One
+package, one probe, three cache states:
+
+    both shader caches warm                            worst frame   172 ms
+    Godot's user://shader_cache wiped                                376 ms
+    that AND the NVIDIA driver's own GL program cache             8,641 ms
+
+`PIPELINE_COMPILATIONS_CANVAS/MESH/SURFACE/DRAW/SPECIALIZATION` read **0 on
+every frame of every one of those runs**. Under GL Compatibility they always
+do; they cannot settle this and were not asked to. The column is printed
+anyway, because a column of zeroes is a reader's evidence that the question
+was put.
+
+**There are two caches and a measurement that clears one is 20x too small.**
+Godot's lives at `%APPDATA%/Godot/app_userdata/<config/name>/shader_cache`
+and is keyed on the project NAME, so every generated level starts with an
+empty one -- a player who has played ten of these levels still pays for the
+eleventh. The driver's is machine-global and persists across levels, which is
+why the stall is worst on the very first launch and why it looked
+intermittent.
+
+### Drawing every material once is not enough, and that is the interesting part
+
+The obvious warm-up is to draw each of the package's materials once before
+play. Measured on the same package under the same cold conditions, worst
+frame on lap 1:
+
+    no warm-up                                                  9,283 ms
+    every unique material, on a quad at the spawn point          5,151 ms
+    every unique mesh surface (2,433), on a speck at spawn       5,151 ms
+    one camera turned through six headings, at spawn             4,395 ms
+    six headings at each of 14 light clusters                    2,730 ms
+    that, plus a grid over the level's own extent (42 stations)    155 ms
+
+A GL Compatibility scene program is specialized on the LIGHTING CONTEXT of
+the draw as well as on the material -- which light types reach the object,
+whether an additive pass is needed, whether shadows are being rendered -- and
+the renderable-light set is chosen by distance to the CAMERA. A prop warmed
+under the two lights that reach spawn compiles a fresh program under the six
+that reach it where it stands. So the warm-up has to stand where the player
+will stand, and warming by inventory cannot. The residue the light clusters
+left was the one leg that looks down the open street: a long-sightline
+context no fixture makes, which is what the grid is for.
+
+For scale, and because it decides whether consolidating materials would have
+been the cheaper fix: that package holds **828 distinct materials in the tree
+and they collapse to 17 distinct BaseMaterial3D feature combinations**. Godot
+generates one shader per combination, so the compile bill is 17 programs, not
+828, and there is no colour-only-variation defect here to remove. It is worth
+saying plainly because the draw-call rule points the other way and this is
+the case it does not cover: the cost is not in the number of materials.
+
+### What ships
+
+`warmup.gd` at the package root and one `Node3D` in `mission.tscn` carrying
+it -- 10,614 bytes on a 47.6 MB package, **+0.022%**, two files. Ordinary
+scene data and one self-contained script: no addon, no autoload, no editor
+plugin, so the package still opens in somebody else's Godot project with none
+of our tools present. It refuses to act in the editor, refuses when
+`DisplayServer` is headless (the QA walkers are, and a sweep there is 252
+frames of pure cost), and has an `enabled` switch so a recipient can A/B it
+against the stall rather than having to take this on faith.
+
+At load it turns a camera of its own through six headings at each station,
+behind an opaque overlay, with occlusion culling off -- the point is to draw
+what a wall is hiding, because the player walks round that wall in a moment
+-- and with the viewport's 3D scale at a tenth, which is 1% of the pixels
+through an otherwise identical pipeline. Then it puts the camera, the culler
+and the scale back the way it found them, frees itself, and emits
+`warmup_finished` so a host with its own loading screen can wait for it.
+
+`packages.exporting.warmup` is modelled on the occluder step and fails the
+build the same way, for the same reason 0.98.0 made that one fatal: a warning
+nobody reads is how a package ships with a runtime defect in it. `audit`
+counts what is on disk in the package -- the node in the entry scene, the
+script beside it, and the guards inside THAT copy of the script -- never what
+`emit` believes it wrote. It needs no Godot, deliberately: a build step that
+cannot run without one is a step that silently does not run, which is the
+exact shape of the defect 0.98.0 fixed.
+
+### Proved on a package the pipeline built
+
+`club_block_005` re-exported from cold run 9066's workspace with no
+interventions, then walked cold -- both shader caches empty, verified by
+redirecting the driver's to a private directory per run and checking that it
+grew:
+
+    lap 1  before   mean 15.72 ms   2.41% over 16.7 ms   worst 9,283 ms
+    lap 1  after    mean  7.70 ms   1.90% over 16.7 ms   worst   143 ms
+    lap 2  after    mean  7.47 ms   1.06% over 16.7 ms   worst    23 ms
+
+Worst frames per leg on lap 1, before and after:
+
+    before   9283   5191   2245   189   152   174
+    after      20     12     28    14   143    26
+
+Lap 1 is now within 3% of lap 2's mean, which is the state this is aiming at:
+the first walk through a level costs what the second one does.
+
+### What it costs, said plainly
+
+The compile bill is conserved, not removed. It moves to load, which is where
+shipped games put it and where a progress bar can stand.
+
+    first launch on a machine, driver cache empty    48.2 s
+    every launch after that, new level               4.8 s
+
+That 48.2 s is the honest worst case and it is a real cost: the whole of the
+~30 s this package used to spend compiling in play, plus the frames to drive
+it. It is paid once per machine per driver, not once per level. The 4.8 s is
+what a player who has been in a session before pays for a level they have
+never loaded, and it is the number that matters for the normal case. With it,
+lap 1 measured mean 7.40 ms worst 22.9 ms against lap 2's 7.55 ms and
+23.2 ms -- indistinguishable.
+
+Memory is unchanged: the warm-up allocates one camera, one `ColorRect` and a
+list of at most 96 `Vector3`s, and frees all of it. Nothing of it can be seen
+-- the sweep renders behind a full-screen opaque rectangle and the camera is
+handed back where it was found -- so what a player notices is a longer load,
+not a flash of geometry. `station_spacing_m` (12.0) and `max_stations` (96)
+are exported and `warmup.json` records what each was measured at, because a
+knob with no recorded derivation is one nobody can turn and be believed.
+
+### The instrument, and one thing it got wrong first
+
+`tools/first_sight_probe.gd` is the two-lap probe, with the per-frame memory
+and pipeline counters and the worst-frame table that the attribution above
+came from. Its header carries the two-cache procedure, because a cold run
+that cleared one cache reads as a 20x smaller problem and looks like a
+refutation.
+
+Its first version reported +257 MiB of texture memory on the first sampled
+frame and it read as a resource upload inside the stall. The baseline had
+been taken in `_ready()`, so that one delta covered all 120 standing frames
+before the walk. The refutation is kept in the file above the line that fixed
+it.
+
+`tools/gdcheck.py` passed a `warmup.gd` that Godot refused to load: a
+recursive call that dropped its second argument parses fine and fails at load
+with `Too few arguments`. That is a fourth trap for that list, and the reason
+this one was caught before it shipped is that the package was imported and
+the import said so.
 ## [0.99.0] - the shared textures import the way they were authored
 
 Zoo 1.2.0 stops embedding a module's images in its GLB and writes them to
