@@ -79,6 +79,110 @@ def test_zoo_fixtures_marker_contract_blocks(tmp_path):
     assert ad.normalize_validation([good]) == []
 
 
+def _index(tmp_path, name, **fields):
+    p = tmp_path / f"{name}_fixtures.built.json"
+    p.write_text(json.dumps(fields))
+    return p
+
+
+def _places(marked, markerless, *, kind="club_wash"):
+    """Placements shaped like Zoo's: `marker` is a per-placement bool.
+
+    Zoo's `build.py` reads `p.get("marker", True)`, so a placement with no
+    flag counts as marked; both spellings appear here on purpose.
+    """
+    out = [{"anchor_id": f"m{i}", "species": "pendant_fixture",
+            "type": "pendant"} for i in range(marked)]
+    if out:
+        out[0]["marker"] = True          # explicit
+    return out + [{"anchor_id": f"u{i}", "species": "club_fixture",
+                   "type": kind, "marker": False} for i in range(markerless)]
+
+
+def test_zoo_fixtures_markerless_is_accounted_for_not_blocked(tmp_path):
+    """The cold-run-9064 refusal, in its own numbers.
+
+    `strip_club_a02` built 25 fixtures, 18 with markers and 7 markerless by
+    design, and 18 + 7 = 25. The v0.30 spelling of the contract
+    (`emitter_markers == fixtures_built`) called that a blocker and refused a
+    correct package.
+    """
+    ad = ZooAdapter()
+    club = _index(tmp_path, "strip_club_a02", fixtures_built=25,
+                  emitter_markers=18, markerless_fixtures=7,
+                  placements=_places(18, 7), tool_version="1.1.1")
+    issues = ad.normalize_validation([club])
+    assert [i for i in issues if i["blocking"]] == []
+    # The number survives the blocker's removal, as an observation.
+    obs = [i for i in issues if i["code"] == "ZOO_FIXTURES_MARKERLESS"]
+    assert len(obs) == 1 and not obs[0]["blocking"]
+    assert "7 of 25" in obs[0]["message"] and "18 marker" in obs[0]["message"]
+
+    # The other two shells in the same run have no markerless fixtures and
+    # must stay silent -- an observation on every index is noise.
+    clinic = _index(tmp_path, "clinic_a01", fixtures_built=15,
+                    emitter_markers=15, markerless_fixtures=0,
+                    placements=_places(15, 0), tool_version="1.1.1")
+    assert ad.normalize_validation([clinic]) == []
+
+
+def test_zoo_fixtures_pre_094_index_still_holds_the_v030_rule(tmp_path):
+    """An index with no `markerless_fixtures` key reads it as 0, which is the
+    old check to the bit: cold run 9060 built this same shell at 18/18."""
+    ad = ZooAdapter()
+    old_ok = _index(tmp_path, "a", fixtures_built=18, emitter_markers=18,
+                    placements=_places(18, 0), tool_version="0.92.0")
+    assert ad.normalize_validation([old_ok]) == []
+
+    # Markers short with nothing declaring why: still a blocker, which is the
+    # failure the contract exists for.
+    old_bad = _index(tmp_path, "b", fixtures_built=18, emitter_markers=11,
+                     tool_version="0.92.0")
+    codes = {i["code"] for i in ad.normalize_validation([old_bad]) if i["blocking"]}
+    assert codes == {"ZOO_FIXTURES_MARKER_MISMATCH"}
+
+
+def test_zoo_fixtures_unaccounted_placements_block(tmp_path):
+    """The three numbers are present and do not add up."""
+    ad = ZooAdapter()
+    idx = _index(tmp_path, "c", fixtures_built=25, emitter_markers=18,
+                 markerless_fixtures=3, tool_version="1.1.1")
+    issues = [i for i in ad.normalize_validation([idx]) if i["blocking"]]
+    assert [i["code"] for i in issues] == ["ZOO_FIXTURES_MARKER_MISMATCH"]
+    assert "4 placement(s) are unaccounted for" in issues[0]["message"]
+
+
+def test_zoo_fixtures_counts_must_tally_with_the_placements(tmp_path):
+    """The arithmetic alone is an identity on anything Zoo wrote -- the
+    placements are the independent second opinion, and disagreeing with them
+    is the only way a modern index can fail this gate."""
+    ad = ZooAdapter()
+    idx = _index(tmp_path, "d", fixtures_built=25, emitter_markers=18,
+                 markerless_fixtures=7, placements=_places(19, 6),
+                 tool_version="1.1.1")
+    codes = {i["code"] for i in ad.normalize_validation([idx]) if i["blocking"]}
+    assert codes == {"ZOO_FIXTURES_MARKER_TALLY_MISMATCH"}
+
+
+def test_zoo_fixtures_unreadable_counts_fail_rather_than_pass(tmp_path):
+    """`isinstance(built, int)` guarded the old comparison, so an index whose
+    `fixtures_built` was null, a string, or absent went through unchecked and
+    the gate reported clean about a file it could not read."""
+    ad = ZooAdapter()
+    for value in (None, "25", 25.0, True):
+        idx = _index(tmp_path, "e", fixtures_built=value, emitter_markers=18,
+                     markerless_fixtures=7)
+        codes = {i["code"] for i in ad.normalize_validation([idx])
+                 if i["blocking"]}
+        assert codes == {"ZOO_FIXTURES_INDEX_UNREADABLE"}, value
+
+    # ...and the same for the two counts the sum is taken from.
+    idx = _index(tmp_path, "f", fixtures_built=25, emitter_markers=18,
+                 markerless_fixtures="seven")
+    codes = {i["code"] for i in ad.normalize_validation([idx]) if i["blocking"]}
+    assert codes == {"ZOO_FIXTURES_INDEX_UNREADABLE"}
+
+
 def test_lux_gate_normalization_blocks_and_passes(tmp_path):
     ad = LuxAdapter()
     rep = tmp_path / "fixture_gate.report.json"

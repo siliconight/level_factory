@@ -75,6 +75,17 @@ _FACTORY_ROOT = _factory_root()
 SHAPE_METRICS = _FACTORY_ROOT / _TOOL_REL
 
 
+def _is_count(value: object) -> bool:
+    """A non-negative integer count, as an index field.
+
+    `bool` is a subclass of `int` in Python, so a plain `isinstance(v, int)`
+    accepts `true` and reads it as 1. An index whose `fixtures_built` is a
+    boolean is a file nobody should be counting from, so it is excluded here
+    rather than silently arithmetic'd.
+    """
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
 class ZooAdapter(BaseAdapter):
     adapter_id = "zoo"
     # 0.4.0: `measure_shapes` adds a SECOND command to a build job. The
@@ -359,11 +370,52 @@ class ZooAdapter(BaseAdapter):
                         "message": f"dressing asset '{asset.get('id')}' declares collision",
                         "blocking": True, "raw_source_path": str(p),
                     })
-            # Fixture builds (v0.30 emitter-marker contract): every placement
-            # must ship a LuxEmit_* marker or downstream spawning is blind.
+            # Fixture builds. THE V0.30 EMITTER-MARKER CONTRACT WAS "every
+            # placement ships a LuxEmit_* marker or downstream spawning is
+            # blind", and this gate spelled that `emitter_markers ==
+            # fixtures_built`. Zoo 0.94 made that spelling wrong, and cold run
+            # 9064 was refused for it: `ZOO_FIXTURES_MARKER_MISMATCH:
+            # emitter_markers (18) != fixtures_built (25)` on strip_club_a02,
+            # whose index in the same breath said `markerless_fixtures: 7`.
+            # 18 + 7 = 25 -- the generator was right and the gate was reading
+            # two of the three numbers it writes. The same shell one stack
+            # earlier (cold run 9060, Zoo 0.92.0) read built 18, markers 18:
+            # the markers did not fall, the fixtures rose by 7, because the
+            # club anchors that used to be SKIPPED as "no fixture species"
+            # now build.
+            #
+            # `zoo_keeper/bpylayer/build.py` writes `emitter_markers = built -
+            # markerless` on purpose. A club fixture is hardware with no
+            # marker BY DESIGN: `core.fixtures.FIXTURES` marks `club_wash` and
+            # `stage_light` `marker: False` because the spawner hands
+            # `rig_for_anchor` only {type, id, drop}, so a marker would lose
+            # the zone colour and pool radius Deli Counter measured -- and
+            # would DOUBLE the light the manifest bake (`bake_club`) already
+            # makes, not supply it.
+            #
+            # So the rule that holds is
+            #
+            #     emitter_markers + markerless_fixtures == fixtures_built
+            #
+            # with an absent `markerless_fixtures` read as 0. That is not a
+            # relaxation: for every index an older Zoo wrote it is the v0.30
+            # check to the bit, and the failure it exists for -- a placement
+            # with no marker and nothing SAYING so, which is a light nothing
+            # downstream can spawn or count -- is still a blocker.
+            #
+            # THE ARITHMETIC ALONE WOULD BE A CHECK THAT CANNOT FAIL. On any
+            # index Zoo itself wrote, `emitter_markers` is DERIVED as
+            # `built - markerless`, so the sum is an identity and proves
+            # nothing about the build. The second opinion is `placements`,
+            # which carries the per-placement `marker` flag the counts were
+            # tallied from -- independent data in the same file. It is the
+            # half with teeth; the arithmetic is the half that still works on
+            # a summary-only index.
             if p.name.endswith("_fixtures.built.json"):
                 built = man.get("fixtures_built")
                 markers = man.get("emitter_markers")
+                # Absent means "this Zoo had no such concept", i.e. none.
+                markerless = man.get("markerless_fixtures", 0)
                 # An anchor type Zoo has no fixture species for is a
                 # capability gap (roadmap 62): the manifest asked for light
                 # there and nothing will be built. Daylight skips and
@@ -398,13 +450,97 @@ class ZooAdapter(BaseAdapter):
                                     "gate cannot spawn or verify these"),
                         "blocking": True, "raw_source_path": str(p),
                     })
-                elif isinstance(built, int) and markers != built:
+                    continue
+                # AN UNRECOGNISED SHAPE FAILS RATHER THAN PASSES. The line
+                # this replaces was `elif isinstance(built, int) and markers
+                # != built`, so a `fixtures_built` that was null, a string or
+                # absent took the else branch and the index went through
+                # UNCHECKED -- the gate reporting clean about a file it could
+                # not read. Named separately from the mismatch so a run
+                # summary distinguishes "the numbers disagree" from "the
+                # numbers are not numbers".
+                bad = {k: v for k, v in (("fixtures_built", built),
+                                         ("emitter_markers", markers),
+                                         ("markerless_fixtures", markerless))
+                       if not _is_count(v)}
+                if bad:
+                    issues.append({
+                        "code": "ZOO_FIXTURES_INDEX_UNREADABLE",
+                        "severity": "blocker", "category": "contract",
+                        "message": ("fixtures index does not carry countable "
+                                    "fixture numbers: "
+                                    + ", ".join(f"{k}={v!r}"
+                                                for k, v in sorted(bad.items()))
+                                    + " — this index cannot be verified, so it "
+                                      "is not being passed"),
+                        "blocking": True, "raw_source_path": str(p),
+                    })
+                    continue
+                if markers + markerless != built:
                     issues.append({
                         "code": "ZOO_FIXTURES_MARKER_MISMATCH",
                         "severity": "blocker", "category": "contract",
-                        "message": (f"emitter_markers ({markers}) != "
-                                    f"fixtures_built ({built})"),
+                        "message": (f"emitter_markers ({markers}) + "
+                                    f"markerless_fixtures ({markerless}) != "
+                                    f"fixtures_built ({built}): "
+                                    f"{built - markers - markerless} "
+                                    f"placement(s) are unaccounted for — a "
+                                    f"fixture with neither a marker nor a "
+                                    f"declared reason is a light nothing "
+                                    f"downstream can spawn"),
                         "blocking": True, "raw_source_path": str(p),
+                    })
+                # The second opinion: the per-placement `marker` flags the
+                # summary was tallied from. `build.py` reads `p.get("marker",
+                # True)`, so an absent flag means marked -- the default is
+                # mirrored here rather than guessed, because getting it
+                # backwards would report every ordinary index as broken.
+                # Skipped when the index carries no placements: an older or
+                # summary-only index has no second opinion to give, and the
+                # arithmetic above has already run on it.
+                places = man.get("placements")
+                if isinstance(places, list) and all(isinstance(x, dict)
+                                                    for x in places):
+                    marked = sum(1 for x in places if x.get("marker", True))
+                    unmarked = len(places) - marked
+                    if marked != markers or unmarked != markerless:
+                        issues.append({
+                            "code": "ZOO_FIXTURES_MARKER_TALLY_MISMATCH",
+                            "severity": "blocker", "category": "contract",
+                            "message": (f"the index's own placements do not "
+                                        f"tally with its counts: "
+                                        f"{len(places)} placement(s), {marked} "
+                                        f"marked and {unmarked} markerless, "
+                                        f"against emitter_markers={markers} "
+                                        f"and markerless_fixtures={markerless}"),
+                            "blocking": True, "raw_source_path": str(p),
+                        })
+                # AN OBSERVATION, NOT A GATE. Removing the blocker must not
+                # take the number with it: `fixtures_built` is what a reader
+                # sees, and on a club shell it is 7 higher than the count of
+                # lamps Lux will spawn from markers. That gap is by design and
+                # the reader still has to be told it exists, or the next
+                # person to compare Zoo's 25 against Lux's 18 re-opens this
+                # from scratch. Measured on cold run 9064: strip_club_a02 7 of
+                # 25, clinic_a01 0 of 15, mansion_a01 0 of 32 -- it is a club
+                # phenomenon, and staying quiet on the other two is the point.
+                if markerless:
+                    kinds = sorted({str(x.get("type")) for x in places
+                                    if isinstance(x, dict)
+                                    and not x.get("marker", True)}) \
+                        if isinstance(places, list) else []
+                    issues.append({
+                        "code": "ZOO_FIXTURES_MARKERLESS",
+                        "severity": "info", "category": "contract",
+                        "message": (f"{markerless} of {built} fixture(s) are "
+                                    f"hardware with no emitter marker by "
+                                    f"design"
+                                    + (f" ({', '.join(kinds)})" if kinds else "")
+                                    + f"; Lux's fixture gate will count "
+                                      f"{markers} marker(s) here and their "
+                                      f"light comes from the manifest bake "
+                                      f"instead"),
+                        "blocking": False, "raw_source_path": str(p),
                     })
                 continue
             # THE KIT IS MEASURED AGAINST ITS OWN INDEX. Every entry states the
