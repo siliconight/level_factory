@@ -1,3 +1,181 @@
+## [0.102.0] - the occluders go into the scene the package runs, and every occlusion figure before this described one it does not
+
+Cold run 9066 shipped `use_occlusion_culling=true`, 301 `OccluderInstance3D`
+in `occluders.tscn`, and `run/main_scene` reaching none of them. The holder
+was instanced from the package-root `site.tscn`; the entry scene instances
+`presentation/lux.applied.tscn` and the dressing layer, and the relit scene
+pulls the three `lot/<archetype>/site.tscn` buildings directly rather than
+through the root one. So 301 occluders shipped, nothing loaded one, and the
+recipient paid the culler's per-frame cost with nothing to cull.
+
+This is the SECOND instance of one defect in this feature. 0.98.0 added an
+audit written to make "flag on, occluders absent" unrepresentable, and it
+passed this package. Run against the shipped
+`LF_club_block_005.portable-godot`, 0.101.0's `audit` returns
+
+    {use_occlusion_culling: True, occluder_nodes: 301,
+     scenes_with_occluders: 1, bake_reported_ok: True}
+
+-- a clean verdict on a broken package, because `rglob("*.tscn")` asks
+whether the nodes are in the box when the question is whether the engine
+will load them. The same package through 0.102.0's audit:
+
+    OccluderDisagreement: use_occlusion_culling=true, 301 OccluderInstance3D
+    node(s) in the package, and 0 reachable from res://mission.tscn. They
+    ship and nothing loads them. Walked 6 scene(s) from the entry.
+
+### The rule is reachability, and it is walked from `run/main_scene` down
+
+`reachable_occluders` follows the two kinds of edge the package really uses:
+an `[ext_resource type="PackedScene"]` that some node actually INSTANCES,
+and a `load()`/`preload()` of a `res://` path from an embedded script, which
+is the only way `mission.tscn` reaches its content -- its entry script is a
+`sub_resource` and the scenes it adds appear in no resource block. Declaring
+is not instancing, and that distinction is the defect in one line:
+`site.tscn` declared `occluders.tscn`, and nothing instanced `site.tscn`.
+
+`assets/godot/count_occluders.gd` is the arbiter. Headless, it loads what
+`application/run/main_scene` names, lets the tree settle and counts it. The
+export runs both instruments and a disagreement is a build failure, not a
+choice of which to believe.
+
+The holder goes into `mission.tscn` and not into
+`presentation/lux.applied.tscn`, for three reasons in this order: it is the
+scene `run/main_scene` names; LF synthesizes it itself on every export
+(`localize.write_entry_scene`), so no upstream job regenerates it under us;
+and it is the only wiring point that is right in EVERY export mode -- the
+entry instances the presentation scene when there is one and `site.tscn`
+when there is not, so a holder inside the relit scene would be reachable in
+one mode and absent in another, which is this defect wearing a different
+mode's clothes.
+
+The bake moved with it. It reports every transform relative to the root of
+the scene it was handed, so baking one scene and wiring the result into
+another silently asserts that the two frames coincide. They do here, and it
+was checked rather than assumed: the bake against `res://mission.tscn` on a
+fresh export produced a `modules` list byte-identical to 9066's bake against
+`res://site.tscn`, 301 rows each. The geometry the 0.98.0 scene carried was
+always right; nothing loaded it.
+
+### What it buys, measured on `mission.tscn`
+
+Re-exported with these tools from a copy of cold run 9066's workspace,
+2026-09-22, Godot 4.7.stable, GL Compatibility, RTX 2060, 1280x720, vsync
+off, `Engine.max_fps = 0`. Two arms of one package, identical byte for byte
+except `use_occlusion_culling`: the 301 occluder nodes are in the tree in
+BOTH, so the only variable is whether the engine consults them. Three
+rounds, 120 warm-up and 300 sampled frames per station, medians below. The
+export's own audit and an independent headless `count_occluders.gd` run on
+the shipped package both read 301 reachable, in a tree of 8,622 nodes.
+
+    station          draws on  draws off   prims on  prims off   ms on  ms off
+    exterior_ne           848      1,278    656,602    700,668    4.65    7.06
+    exterior_sw         1,880      3,382    740,376    848,498   11.04   18.88
+    interior_c             19      2,535    585,686    772,128    0.99   13.99
+    interior_x            298      2,950    611,936    821,736    2.45   15.94
+    interior_z            381        803    619,306    662,972    2.84    4.71
+    wall_close            109        580    591,784    651,764    1.40    2.61
+    exterior_open         677        753    657,416    659,918    3.67    4.09
+
+Draw calls are identical across all three rounds of each arm, to the unit.
+`interior_c` is the shop the 9062 attribution was taken in: 2,535 draw calls
+become 19, and the frame goes 13.99 ms to 0.99. The primitive count over the
+same pair moves 772,128 to 585,686 -- 1.3x against the draw count's 133x,
+which is the 2026-09-16 finding restated by a different lever.
+
+`exterior_sw` is the one that decides whether the package is playable at
+all: 18.88 ms is over the 16.7 ms frame, 11.04 is not.
+
+### And what it costs, which none of those stations can say
+
+Every station above looks INTO the block, where an occluder has something to
+reject. `exterior_open` was added for the other case -- the same eye as
+`exterior_ne` with the opposite gaze -- and it still saves 76 draw calls, so
+its 0.42 ms is a net of a cost and a saving and neither can be read off it.
+
+So the cost has its own pair: the holder removed from `mission.tscn` so
+there is nothing to cull, with the flag on against the flag off. This is
+cold run 9065's state, priced. Draw calls are IDENTICAL at every station
+between the two arms -- checked, and the harness refuses to tabulate them if
+they are not, because a cost arm whose frames differ is not measuring a
+cost.
+
+    station          draws    ms flag on   ms flag off    difference
+    exterior_ne      1,278          7.15          7.06         +0.09
+    exterior_sw      3,382         18.40         18.63         -0.23
+    interior_c       2,535         13.85         13.82         +0.03
+    interior_x       2,950         16.01         16.02         -0.01
+    interior_z         803          4.70          4.66         +0.04
+    wall_close         580          2.69          2.65         +0.04
+    exterior_open      753          4.24          4.10         +0.14
+
+Two of the seven differences are negative and the largest is +0.14 ms, while
+the three rounds of a single arm spread further than that -- `exterior_ne`
+with the flag on read 7.03, 7.15 and 7.61. **The culler's fixed cost with
+nothing to cull is below this instrument's noise floor at 1280x720 on this
+package**, and this release does not claim a figure for it.
+`tests/unit/test_occluders.py` has carried "about 0.27 ms of CPU a frame at
+1280x720 with nothing to cull" since 0.98.0 with nothing recorded about
+where it came from; these six runs do not reproduce it, and neither refutes
+it -- 0.27 ms would sit inside the same noise. It is a number to re-measure
+with a tighter instrument, not one to keep quoting.
+
+### The instrument was measuring the wrong scene, and then nearly the wrong frames
+
+`tools/occlusion_ab.gd` loaded `res://site.tscn` by a named literal. Every
+occlusion figure this repo has published came out of it, including 0.98.0's
+"13 draw calls against 2,490 inside the shop, 1,854 against 3,334 at
+exterior_sw". Those numbers are retracted: they describe a Lux-less,
+undressed scene the mission does not load. The table above is close to them,
+which is worth saying plainly -- the retraction is not that they were far
+out, it is that nothing in the artefact said which scene they were. It now
+loads whatever `application/run/main_scene` names, prints that name into
+every row, and finds its reference building by searching the tree rather
+than by `get_node("b0")`, because the entry instances its content a level
+down.
+
+Moving it to the entry scene put something new in its way, and this is the
+part that would have produced a silent, wrong A/B. `warmup.gd` is wired into
+`mission.tscn` and into nothing else, so the old probe never met it. For the
+length of its sweep -- 132 frames on this package, up to 576 at
+`max_stations` -- it sets `use_occlusion_culling = FALSE` and
+`scaling_3d_scale = 0.1` ON THE VIEWPORT, restoring both when it ends. The
+probe's first station began sampling at frame 10 and would have spent its
+first 123 frames with the culler forced off at a tenth of the linear
+resolution, in BOTH arms. So the probe now awaits `warmup_finished` on a
+frame budget, records whether it got it, and every row carries the
+viewport's OWN `use_occlusion_culling` as it stood while that row was
+sampled rather than the project setting. `tools/occlusion_ab_run.py` refuses
+any run whose warm-up had not finished and any station where the two
+disagree.
+
+It also quits on a missing argument instead of leaving a window open on
+somebody's desktop, which is the third of these and the reason CLAUDE.md
+says how a probe is launched is part of writing it.
+
+### The scene nothing runs is still in the package, and that is now said out loud
+
+The walk reports `unreachable_scenes` and the export prints them. On this
+package that is one file: `site.tscn`, 319,912 bytes, the assembly Lot
+emits, which `presentation/lux.applied.tscn` supersedes. Every one of its 37
+distinct references is also named by the relit scene -- measured, the
+difference is empty -- so it orphans nothing, and `scan_closure` returns the
+same single pre-existing issue with it and without it.
+
+It is not dropped here, and the reason is the reason it is reported rather
+than acted on. `_root_site_wanted` already asks whether the presentation
+scene names `res://site.tscn`, and it governs the COMPOSER's copy; the
+ASSEMBLY's copy at `export.py:1069` is unconditional, and it must stay
+unconditional for `skins/`, `cover/` and `signs/`, which the relit scene
+does need. A single-shell mission's presentation scene DOES name
+`res://site.tscn`, and deleting it broke closure once already
+(`lux.applied.tscn: unresolved res://site.tscn`). The condition that would
+be safe to delete on is exactly the one this release computes -- the entry
+cannot reach it -- and wiring that into the copy is a change with its own
+measurement to take. LF 0.94.0 dropped an orphan `site_base.glb` for this
+reason and it was right; doing it by the same reflex, one mission shape
+along, is how this feature got here.
+
 ## [0.101.0] - the warm-up's station set is priced, and most of the 48 s is not the warm-up's to give back
 
 0.100.0 shipped one point on a trade and left the rest as its own open
