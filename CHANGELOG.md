@@ -106,6 +106,16 @@ copy on the way in for exactly this reason. `walk_preview.py` and
 `ExportResult.resource_manifest` is returned in process and read by nobody
 downstream.
 
+### And the package says so to the person who has to check it
+
+HANDOFF.md is the one file in the package written at a recipient, and it did
+not mention the resource manifest at all -- so the equation existed and the
+audience for it was not told. It now names the manifest, quotes the check,
+says what a mismatch means (a truncated transfer or an edit in flight), and
+states that nothing else is expected to be missing. An integrator with the
+folder and no access to this repo can now verify what they received without
+being told how by somebody who has it.
+
 ### Measured
 
 On the end-to-end package the unit suite builds, before and after:

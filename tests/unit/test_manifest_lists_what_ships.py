@@ -248,3 +248,20 @@ def test_the_guards_both_run_before_the_package_is_returned():
     assert ".write_text(" not in tail, (
         "something writes into the package after the manifest guard, which "
         "is the defect the guard exists to catch")
+
+
+def test_the_package_tells_its_recipient_how_to_check_it(tmp_path):
+    """The audience for this manifest is somebody who does not have this repo.
+
+    The equation is only useful if the package says it is there. HANDOFF.md is
+    the one file in the package written at a recipient, and until 0.104.0 it
+    did not mention the manifest at all.
+    """
+    result = _export(tmp_path)
+    handoff = (result.export_dir / "HANDOFF.md").read_text(encoding="utf-8")
+    assert "portable_resource_manifest.json" in handoff
+    assert "listed + declared_unlisted == files in the package" in handoff
+    # And HANDOFF.md is itself listed, which it can be: it is written well
+    # above the walk.
+    _man, listed, _declared, _on_disk = _read(result.export_dir)
+    assert "HANDOFF.md" in listed
