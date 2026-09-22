@@ -665,10 +665,24 @@ _DISPATCH_NODE_PATH_FILES = ("gameplay_anchors.json",
 _TSCN_NODE_NAME = re.compile(r'\[node name="([^"]+)"')
 
 #: The only files allowed to land after the closure verdict, by relative path
-#: inside the package. Every one of them DESCRIBES the package -- the verdict
-#: itself, the resource manifest, the licence and profile blocks, the export
-#: manifest -- so it cannot be inside what it describes. Anything else
-#: appearing after the judge is the defect this list exists to catch.
+#: inside the package. Every one of them describes the BUILD rather than being
+#: content the judge could sensibly scan. Anything else appearing after the
+#: judge is the defect this list exists to catch.
+#:
+#: THIS LIST SAYS NOTHING ABOUT THE RESOURCE MANIFEST, and until 0.104.0 its
+#: own comment quietly implied it did. That comment read "Every one of them
+#: DESCRIBES the package ... so it cannot be inside what it describes", which
+#: is true of the closure verdict and of `LF_MANIFEST.json` and is NOT true of
+#: `LICENSES.json`, `export_profile.json` or `output_layers.json` -- they were
+#: below the manifest walk by accident, shipped unlisted for it, and this
+#: sentence made the accident read as a decision. Four unlisted files on cold
+#: 9067, 562 against 567. Being after the VERDICT and being outside the
+#: MANIFEST are two different facts about a file, and the three above are now
+#: the first without being the second.
+#:
+#: What a file cannot be inside the manifest is decided by
+#: `_UNLISTED_BY_CONSTRUCTION`, which is a subset of this set and says why for
+#: each member.
 #:
 #: Relative paths, not basenames. `_copy_tree`'s `skip` is a basename match
 #: and it once excluded five `lot/<archetype>/site.tscn` along with the one

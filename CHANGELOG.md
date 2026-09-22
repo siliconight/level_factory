@@ -62,6 +62,21 @@ writer moved above the walk -- it needs only the closure verdict, which is
 already above -- and is deliberately not. Calling both structural would have
 been tidier and would have been a claim this repo cannot support.
 
+### Why nobody had caught the three, which is the part worth keeping
+
+`_WRITTEN_AFTER_VERDICT`'s own comment said of all six members: "Every one of
+them DESCRIBES the package ... so it cannot be inside what it describes."
+That is true of the closure verdict and of `LF_MANIFEST.json`. It is not true
+of a licence block, a profile dump or a layer label -- nothing stops those
+being listed, and they were below the walk by accident.
+
+So the accident was not undocumented. It was documented as a decision, by a
+sentence written about two files and applied to six, and a reader checking
+whether the omission was deliberate would have found a comment saying yes.
+That comment now says which of the two facts it is about: being after the
+VERDICT and being outside the MANIFEST are different properties of a file,
+and the three above are now the first without being the second.
+
 ### The guard, because an ordering nobody checks is an ordering that drifts
 
 `_guard_manifest_accounts_for_the_package` reads the finished folder back off
