@@ -1,3 +1,152 @@
+## [0.103.0] - the closure gate judged a package that did not exist yet, and now runs last
+
+`export_mission` called `scan_closure` at step 3.6 and went on writing into
+the package for another 274 files. The verdict that shipped described an
+intermediate build. Measured 2026-09-22 on cold 9066's and 9067's shipped
+`LF_club_block_00{5,6}.portable-godot` -- the packages that went out:
+
+    export_closure_scan.json, the gate's own verdict : ok=true,  0 issues, 46
+    scan_closure(<the same folder>), run afterwards  : ok=false, 1 issue,  48
+      handoff_bindings.json: authoring-repo path reference 'deli_counter'
+
+Both numbers were wrong in the same direction: the package ships 48 Godot
+resources and the gate certified 46, and it ships a file the gate refuses
+while saying it had found nothing to refuse. `run_portability_test` runs the
+same judge on the finished folder, so a second instrument was standing by to
+disagree with the first about one package -- it just runs as a separate
+command, off the deliverable path, and no cold run has invoked it.
+
+### What landed after the judge, counted rather than estimated
+
+274 files on 9067; 243 of them carry a suffix the scan reads.
+
+    229  .import sidecars        30  .uid          10  .json
+      2  .tscn                    1  .gd            1  project.godot
+      1  .md
+
+The two `.tscn` are `occluders.tscn` and a REWRITTEN `mission.tscn` -- so the
+entry scene the verdict read was not the entry scene that shipped, and it was
+rewritten twice, once by the occluder step and once by the warm-up. The `.gd`
+is `warmup.gd`. Those two new resources are exactly the 48 - 46.
+
+`project.godot` is the sharpest of them. The judge's autoload and plugin half
+opens it and shrugs when it is not there, and `_write_project_godot` runs at
+step 4 -- after the scan. So `required_autoload_count` and
+`required_plugin_count` have been structurally incapable of being anything
+but zero on the export path since 0.98.0, while `ClosureResult.ok` read both
+and `EXPORT_CLOSURE_BROKEN` printed both. A check that cannot fail is
+indistinguishable from one that passed.
+
+### Both halves were needed, and each alone is wrong
+
+Moving the scan alone makes every export start FAILING on
+`handoff_bindings.json`. Classifying that file alone leaves the verdict
+describing 46 resources in a package of 48, and leaves the next step added
+below the judge free to repeat the whole thing.
+
+### `handoff_bindings.json` is not a portability break, established not assumed
+
+The scanner flags `deli_counter` in strings shaped
+
+    Functional/GameplayAnchors/Triggers/deli_counter:01
+
+It fires because `_PATH_MARKER_CHARS` reads `/` and `:` as evidence of a
+path, and a Godot NodePath spells itself with both. Four checks, not an
+argument:
+
+- `strip_dead_node_paths` writes the file, and its `paths` list is BY
+  CONSTRUCTION the addresses whose leaf node name appears in no shipped
+  scene. The file exists to record that the package does NOT carry them.
+  Resolving one at runtime yields nothing whether or not the scan reads it,
+  and that is roadmap 101's question, not portability's.
+- The identical strings already ship inside `gameplay_anchors.json` and
+  `runtime_ownership_requirements.json` -- 55 of them under `node_dispatch`
+  on 9067 -- and both files have been closure metadata since the set was
+  written. Excluding the summary while scanning the source would be the
+  inconsistency.
+- Nothing consumes it. A grep across every repo in the factory finds LF's own
+  unit test and two lines of prose: no GDScript, no Dispatch reader.
+- The exclusion did not buy the clean verdict by blinding the gate. A test
+  puts `res://deli_counter/art/x.glb` in a real scene beside the bindings
+  file and requires that to still fail.
+
+`occluders.json`, `warmup.json` and `LF_MANIFEST.json` join it in
+`_METADATA_FILES` as LF's own build logs. `LF_MANIFEST.json` records the
+verdict, so it cannot be inside what the verdict describes -- the same reason
+`export_closure_scan.json` was already on that list.
+
+### The verdict now says which package it is about
+
+`ClosureResult` records the package it judged: every file present, and a
+content digest of the files actually read (the scanned suffixes plus
+`project.godot`). Presence for everything, content for the inputs, because a
+`.glb` arriving late can turn a missing reference into a resolved one while
+its bytes cannot change the answer -- hashing every `.glb` would price the
+check in hundreds of megabytes to ask a question presence already answers.
+
+`export_closure_scan.json` gains `package_fingerprint`, `package_file_count`,
+`verdict_input_count`, and `written_after_verdict`. That last one is what
+makes the fingerprint checkable by somebody who did not run the build:
+`closure.fingerprint_package(folder, exclude=...)` re-derives it. A
+fingerprint that only this module could reproduce would be a number
+describing most of a package, which is worse than no number -- it looks
+checkable and is not.
+
+### The backstop, because moving the call fixes today and not tomorrow
+
+`_guard_verdict_is_about_the_package` runs after `LF_MANIFEST.json`, the last
+write, and refuses the build if anything was added, removed or rewritten
+under the verdict. Same shape as the occluder and warm-up audits, read back
+off the files that are about to be zipped rather than off what the code
+believes it wrote, and it RAISES: `occluders.py` records what a warning
+nobody reads was worth, which was a package shipping the culling flag on with
+nothing to cull.
+
+`_WRITTEN_AFTER_VERDICT` names the six files allowed to land afterwards, all
+of them manifests that describe the package. The guard asserts every one is
+also in `closure._METADATA_FILES`, so the two lists cannot drift -- a late
+file the next scan WOULD judge is how `handoff_bindings.json` became a
+failure only the separate command could see.
+
+### The tradeoff, stated rather than discovered
+
+A package with broken closure now pays for the occluder bake and the warm-up
+before it is told. That is minutes on a build that is going to be thrown
+away. The alternative -- a cheap early scan plus a real one at the end -- is
+two instruments answering one question, and this repo has the scar: the empty
+export read as clean because the fixer's log and the judge's verdict were one
+file. One judge, at the end, where the package is what ships.
+
+### Proof the tests fail on 0.102.0
+
+`tests/unit/test_closure_verdict_is_last.py`, eight tests. Run against
+0.102.0 in a detached worktree, the two assertions that need no API added
+here -- both read only artefacts the export already writes, so they are the
+same question asked of both versions:
+
+    test_the_verdict_counts_the_resources_that_ship
+        E  assert 2 == 3
+    test_the_shipped_verdict_survives_being_checked
+        E  assert (True, []) == (False, ["han...li_counter'"])
+
+The unit fixture has no Godot, so it reproduces the smaller resource-count
+gap -- `warmup.gd` only, 2 against 3, where the shipped packages are 46
+against 48. Both pass on 0.103.0. Full unit suite green.
+
+### Measured after
+
+Re-scanned read-only on both shipped packages: ok=true, 0 issues,
+`resource_count` 48 against 48 resources on disk. The `resource_count` the
+gate reports is now the package's, and what half A alone would have turned
+into a failing export, half B correctly reports as nothing.
+
+### Not fixed here, found while measuring
+
+`portable_resource_manifest.json` omits five files the package ships --
+itself, `LICENSES.json`, `export_profile.json`, `output_layers.json` and
+`LF_MANIFEST.json` -- 562 listed against 567 on disk on 9067. Only the first
+is explained by a comment. Separate defect, separate change.
+
 ## [0.102.0] - the occluders go into the scene the package runs, and every occlusion figure before this described one it does not
 
 Cold run 9066 shipped `use_occlusion_culling=true`, 301 `OccluderInstance3D`

@@ -645,6 +645,153 @@ _DISPATCH_NODE_PATH_FILES = ("gameplay_anchors.json",
 
 _TSCN_NODE_NAME = re.compile(r'\[node name="([^"]+)"')
 
+#: The only files allowed to land after the closure verdict, by relative path
+#: inside the package. Every one of them DESCRIBES the package -- the verdict
+#: itself, the resource manifest, the licence and profile blocks, the export
+#: manifest -- so it cannot be inside what it describes. Anything else
+#: appearing after the judge is the defect this list exists to catch.
+#:
+#: Relative paths, not basenames. `_copy_tree`'s `skip` is a basename match
+#: and it once excluded five `lot/<archetype>/site.tscn` along with the one
+#: root `site.tscn` it was aimed at, exporting every building unresolved.
+_WRITTEN_AFTER_VERDICT = frozenset({
+    "export_closure_scan.json",
+    "portable_resource_manifest.json",
+    "LICENSES.json",
+    "export_profile.json",
+    "output_layers.json",
+    EXPORT_MANIFEST_NAME,
+})
+
+
+def _closure_verdict(export_dir: Path):
+    """The resource-closure VERDICT. Writes `export_closure_scan.json`.
+
+    `localize_export` at step 3.5 is the FIXER; `closure.scan_closure` is the
+    JUDGE, and localize.py's own docstring says exactly that. The fixer's
+    `unresolved` list fills only when a repair was ATTEMPTED and failed -- an
+    absolute ref whose source is gone, an addon copy that raised. A scene
+    referencing res://art/zoo/wall.glb that was simply never copied in is not
+    something the fixer tries to repair, so it leaves no trace there at all.
+
+    The judge was once reachable only from `run_portability_test`, a separate
+    command, off the path that produces the deliverable. Measured 2026-08-01
+    on category5_baie_dore_001 --mode portable-godot: export_closure.json
+    reported "unresolved": [] while 211 of the presentation scene's 243 nodes
+    instanced ten .glb files the package did not contain. The shell opened,
+    lit itself correctly from its pinned preset, and rendered nothing but sky.
+
+    The two files are deliberately named apart. export_closure.json is the
+    fixer's log; export_closure_scan.json is the verdict. One name answering
+    two questions is how the empty export read as clean.
+
+    IT RUNS LAST, and that is the 0.103.0 change. From 0.98.0 it ran at step
+    3.6, in the middle of the build, and certified a package that did not
+    exist yet. Measured 2026-09-22 on cold 9066's and 9067's shipped
+    `LF_club_block_00{5,6}.portable-godot`, which are the packages that went
+    out:
+
+        the verdict IN the package : ok=true,  0 issues, resource_count 46
+        the same scan, run after   : ok=false, 1 issue,  resource_count 48
+
+    274 files landed between the old position and this one on 9067, and 243
+    of them carry a suffix this scan reads: 229 `.import` sidecars, 10
+    `.json`, `occluders.tscn`, a rewritten `mission.tscn`, `warmup.gd`, and
+    `project.godot`. `occluders.tscn` and `warmup.gd` are the two the count
+    was short by; the rewritten `mission.tscn` means the entry scene the
+    verdict read was not the entry scene that shipped; and `project.godot`
+    did not exist AT ALL when the judge looked, which made
+    `required_autoload_count` and `required_plugin_count` structurally
+    incapable of being anything but zero on this path for five versions. A
+    check that cannot fail is indistinguishable from one that passed.
+
+    THE COST OF MOVING IT, said out loud rather than discovered: a package
+    with broken closure now pays for the occluder bake and the warm-up before
+    it is told. That is minutes on a build that is going to be thrown away.
+    The alternative -- a cheap early scan plus a real one at the end -- is two
+    instruments answering one question, and this repo has the scar: the empty
+    export read as clean because the fixer's log and the judge's verdict were
+    one file. One judge, at the end, where the package is what ships.
+    """
+    from packages.exporting.closure import scan_closure
+    scan = scan_closure(export_dir)
+    verdict = scan.as_dict()
+    # WHAT THE FINGERPRINT DOES NOT COVER, named in the verdict itself, so a
+    # reader with the folder can re-derive it (`closure.fingerprint_package`)
+    # instead of having to know this module's ordering.
+    verdict["written_after_verdict"] = sorted(_WRITTEN_AFTER_VERDICT)
+    (export_dir / "export_closure_scan.json").write_text(
+        pretty_dumps(verdict), encoding="utf-8")
+    if not scan.ok:
+        # EVERY counter `ClosureResult.ok` reads, or the message lies. This
+        # reported five of seven for as long as there were seven: an export
+        # failing purely on misrooted or unresolved-relative references raised
+        # with every number in its own summary reading zero. Tolerable while
+        # the flag only printed; the moment it raises, this string IS the
+        # diagnosis. A counter added to `ok` gets added here in the same edit.
+        summary = (
+            "EXPORT_CLOSURE_BROKEN: %d unresolved res:// reference(s), "
+            "%d misrooted, %d unresolved relative, %d absolute path(s), "
+            "%d external reference(s), %d required plugin(s), "
+            "%d required autoload(s)"
+            % (scan.missing_resource_count, scan.misrooted_resource_count,
+               scan.unresolved_relative_count, scan.absolute_path_count,
+               scan.external_reference_count, scan.required_plugin_count,
+               scan.required_autoload_count))
+        detail = "\n  ".join(scan.issues[:20])
+        if len(scan.issues) > 20:
+            detail += "\n  ... and %d more" % (len(scan.issues) - 20)
+        if CLOSURE_ENFORCED:
+            raise ExportClosureError(
+                summary + "\n  " + detail + "\n  full verdict: "
+                + str(export_dir / "export_closure_scan.json"))
+        print("[export] WARNING " + summary)
+        for issue in scan.issues[:20]:
+            print("[export]   " + issue)
+        if len(scan.issues) > 20:
+            print("[export]   ... and %d more" % (len(scan.issues) - 20))
+    return scan
+
+
+def _guard_verdict_is_about_the_package(export_dir: Path, scan) -> None:
+    """The backstop, read back off the files that are about to be zipped.
+
+    Same shape as the occluder and warm-up audits, and for the same reason:
+    moving the scan fixes the packages shipped today, and only a check keeps
+    the next writer added to `export_mission` from reopening the hole. A
+    comment asking the next author to put their step above this line is not a
+    check.
+
+    RAISES rather than warns. `occluders.py` records what a warning nobody
+    reads is worth: 0.98.0 shipped a package with the culling flag on and
+    nothing to cull, behind one.
+    """
+    from packages.exporting.closure import (_METADATA_FILES,
+                                            verify_verdict_describes_package)
+    # The two lists cannot drift: a file allowed to land after the verdict
+    # must also be one the verdict would decline to scan, or the next scan of
+    # the shipped folder -- `run_portability_test` runs exactly that -- would
+    # judge it and the two judges would disagree about the same package.
+    unscanned = {n for n in _WRITTEN_AFTER_VERDICT if n not in _METADATA_FILES}
+    if unscanned:
+        raise ExportClosureError(
+            "these are allowed to land after the closure verdict but are not "
+            "closure metadata, so a later scan of the shipped package would "
+            "judge them: " + ", ".join(sorted(unscanned)))
+    drift = verify_verdict_describes_package(
+        export_dir, scan, written_after=_WRITTEN_AFTER_VERDICT)
+    if drift:
+        raise ExportClosureError(
+            "EXPORT_CLOSURE_VERDICT_IS_STALE: %d file(s) changed after "
+            "export_closure_scan.json was written, so the verdict in this "
+            "package does not describe this package.\n  %s\n  Either move "
+            "the step that writes them above the verdict, or -- if the file "
+            "describes the package and so cannot be inside it -- add it to "
+            "_WRITTEN_AFTER_VERDICT and to closure._METADATA_FILES."
+            % (len(drift), "\n  ".join(drift[:20])
+               + ("" if len(drift) <= 20
+                  else "\n  ... and %d more" % (len(drift) - 20))))
+
 
 def strip_dead_node_paths(export_dir: Path) -> dict:
     """Move every `node` field that names nothing in the package aside.
@@ -1128,58 +1275,10 @@ def export_mission(
     (export_dir / "export_closure.json").write_text(
         pretty_dumps(closure_report.as_dict()), encoding="utf-8")
 
-    # 3.6 Resource-closure VERDICT.
-    #
-    # localize_export above is the FIXER; closure.py's scan_closure is the
-    # JUDGE, and localize.py's own docstring says exactly that. The fixer's
-    # `unresolved` list fills only when a repair was ATTEMPTED and failed --
-    # an absolute ref whose source is gone, an addon copy that raised. A scene
-    # referencing res://art/zoo/wall.glb that was simply never copied in is not
-    # something the fixer tries to repair, so it leaves no trace there at all.
-    #
-    # Until now the judge was reachable only from run_portability_test, a
-    # separate command, off the path that produces the deliverable. Measured
-    # 2026-08-01 on category5_baie_dore_001 --mode portable-godot:
-    # export_closure.json reported "unresolved": [] while 211 of the
-    # presentation scene's 243 nodes instanced ten .glb files the package did
-    # not contain. The shell opened, lit itself correctly from its pinned
-    # preset, and rendered nothing but sky.
-    #
-    # Note the two files are deliberately named apart. export_closure.json is
-    # the fixer's log; export_closure_scan.json is the verdict. One name
-    # answering two questions is how the empty export read as clean.
-    from packages.exporting.closure import scan_closure
-    scan = scan_closure(export_dir)
-    (export_dir / "export_closure_scan.json").write_text(
-        pretty_dumps(scan.as_dict()), encoding="utf-8")
-    if not scan.ok:
-        # EVERY counter `ClosureResult.ok` reads, or the message lies. This
-        # reported five of seven for as long as there were seven: an export
-        # failing purely on misrooted or unresolved-relative references raised
-        # with every number in its own summary reading zero. Tolerable while
-        # the flag only printed; the moment it raises, this string IS the
-        # diagnosis. A counter added to `ok` gets added here in the same edit.
-        summary = (
-            "EXPORT_CLOSURE_BROKEN: %d unresolved res:// reference(s), "
-            "%d misrooted, %d unresolved relative, %d absolute path(s), "
-            "%d external reference(s), %d required plugin(s), "
-            "%d required autoload(s)"
-            % (scan.missing_resource_count, scan.misrooted_resource_count,
-               scan.unresolved_relative_count, scan.absolute_path_count,
-               scan.external_reference_count, scan.required_plugin_count,
-               scan.required_autoload_count))
-        detail = "\n  ".join(scan.issues[:20])
-        if len(scan.issues) > 20:
-            detail += "\n  ... and %d more" % (len(scan.issues) - 20)
-        if CLOSURE_ENFORCED:
-            raise ExportClosureError(
-                summary + "\n  " + detail + "\n  full verdict: "
-                + str(export_dir / "export_closure_scan.json"))
-        print("[export] WARNING " + summary)
-        for issue in scan.issues[:20]:
-            print("[export]   " + issue)
-        if len(scan.issues) > 20:
-            print("[export]   ... and %d more" % (len(scan.issues) - 20))
+    # THE RESOURCE-CLOSURE VERDICT USED TO RUN HERE, at step 3.6, and it is
+    # now step 4.9 -- the last thing before the manifests. Nothing else moved.
+    # See `_closure_verdict` below for what the middle of the build was
+    # certifying and what it was not.
 
     # 4. project.godot, HANDOFF.md, manifests.
     _write_project_godot(export_dir, profile.entry_scene, mission_id,
@@ -1331,6 +1430,15 @@ def export_mission(
               "and were moved to node_dispatch -- see handoff_bindings.json"
               % bindings["moved_total"])
 
+    # 4.9 Resource-closure VERDICT -- see `_closure_verdict`. LAST, after
+    # every step that writes into the package and before the manifests, which
+    # describe it and so cannot be in it.
+    scan = _closure_verdict(export_dir)
+    print("[export] closure verdict: ok=%s, %d issue(s) over %d resource(s) "
+          "in a package of %d file(s)"
+          % (str(scan.ok).lower(), len(scan.issues), scan.resource_count,
+             len(scan.present_names)))
+
     resource_manifest = build_resource_manifest(export_dir)
     (export_dir / "portable_resource_manifest.json").write_text(
         pretty_dumps(resource_manifest), encoding="utf-8")
@@ -1381,10 +1489,22 @@ def export_mission(
         "layers": sorted(layers),
         "verified": {
             "export_closure": "ok" if scan.ok else "BROKEN",
+            # WHICH package that verdict is about. Until 0.103.0 the honest
+            # answer was "an earlier one": the judge ran at step 3.6 and 274
+            # files landed after it on cold 9067, three of them Godot
+            # resources. The fingerprint is re-derivable from the folder with
+            # `closure.fingerprint_package` and the `written_after_verdict`
+            # list the verdict carries, so the claim is checkable by somebody
+            # who did not run the build.
+            "export_closure_package_fingerprint": scan.package_fingerprint,
             "not_run": ["portability -- runs after the build, as a separate command"],
             "note": "This block records what THIS BUILD checked. Pipeline-stage results (walktest, nav gate, grades) are not visible from here; their absence is not a claim they did not run.",
         },
     }), encoding="utf-8")
+
+    # Nothing may be written into the package below this line. The guard is
+    # what makes that a fact rather than a request.
+    _guard_verdict_is_about_the_package(export_dir, scan)
 
     return ExportResult(
         mission_id=mission_id, mode=profile.mode, export_dir=export_dir,
