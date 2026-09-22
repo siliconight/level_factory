@@ -1,3 +1,189 @@
+## [0.101.0] - the warm-up's station set is priced, and most of the 48 s is not the warm-up's to give back
+
+0.100.0 shipped one point on a trade and left the rest as its own open
+question: `station_spacing_m` 12.0, a 48.2 s first launch on a machine whose
+driver cache has never seen the content, 4.8 s on every launch after. This is
+the curve either side of it, measured on the same package (cold run 9066's
+`club_block_005`, Godot 4.7.stable, GL Compatibility, RTX 2060, 2026-09-21) by
+`tools/warmup_spacing_sweep.py`: one COLD launch and one WARM launch per
+configuration, Godot's `shader_cache` wiped before every run of both kinds,
+and the NVIDIA driver's program cache redirected per configuration with
+`__GL_SHADER_DISK_CACHE_PATH` to a private directory that is then checked to
+have GROWN. The machine's own 558 MB `GLCache` was never moved and never
+deleted.
+
+Stations, then load and frame time as separate columns, because they are being
+traded against each other and one figure hides the trade. Load is wall time
+from launch to `warmup_finished`; the scene alone is 4.3-4.7 s of it in every
+row. Lap 1's worst frame is the probe's, over the same six-leg route.
+
+    grid stride   stations   load cold   lap1 cold   load warm   lap1 warm
+    no warm-up           0           -    6,172 ms           -      382 ms
+    grid off            13      45.3 s    1,788 ms      5.9 s      154 ms
+    64 m                16      47.8 s      152 ms      6.2 s     22.2 ms
+    48 m                21      48.1 s      159 ms      6.4 s     20.5 ms
+    40 m                21      48.6 s      284 ms      6.5 s     20.3 ms
+    40 m, repeat        21      47.8 s      156 ms      6.5 s     20.1 ms
+    32 m                31      49.0 s      148 ms      7.0 s     21.3 ms
+    24 m (0.100.0)      41      51.2 s      153 ms      8.7 s     25.3 ms
+    24 m, repeat        41      49.0 s      151 ms      7.1 s     22.8 ms
+    16 m                79      50.2 s      150 ms      8.2 s     19.1 ms
+
+Two configurations with no grid at all, for the lower end: grid off with the
+light clusters kept is the 13-station row; grid at 40 m with the CLUSTERS off
+is 9 stations, 40.7 s cold, 2,926 ms cold, 5.5 s warm, 247 ms warm.
+
+0.100.0's own script, run through the identical harness, reads 41 stations,
+51.2 s and 163 ms -- so the rewritten station planner reproduces the point it
+replaced, and every row above is comparable with that rather than only with
+the other rows.
+
+### Most of the 48 s is irreducible, and the table says so twice
+
+**Cold load barely moves.** 40.7 s at 9 stations against 52.1 s at 29, and
+50.2 s at 79 -- 6.3x the frames of the 13-station row for 4.9 s. The load is
+not the sweep's frames, it is the compile bill the sweep pulls forward, and
+that bill belongs to the level's material and lighting contexts rather than to
+how many times a camera is pointed at them. Cutting stations does not make the
+compiling stop; it decides whether it happens behind the overlay or in front
+of the player.
+
+**And the frame stops responding.** Above about 16 stations lap 1's worst
+frame plateaus at 148-159 ms and does not improve however fine the grid gets:
+79 stations buys nothing over 16. Below it the floor drops away -- 13 stations
+1,788 ms, 9 stations 2,926 ms -- so there IS a coverage requirement and it is
+met early.
+
+So the honest answer to "get the cold first launch under 20 ms" is that no
+station set does it. The last ~150 ms is not a coverage problem, and this
+release does not claim to have found the setting that removes it.
+
+### What CAN be tuned is the warm launch, which is the one that recurs
+
+A cold driver cache is paid once per machine per driver. A player who has been
+in a session before, loading a level they have never loaded, has Godot's
+per-project cache empty and the driver's warm -- and that row moves cleanly:
+5.9 s to 8.7 s of load, 154 ms to 19 ms of worst frame, monotone in coverage
+and repeatable in the frame to a few tenths of a millisecond (21 stations
+measured 20.27, 20.14 and 20.47 ms on three runs). The warm LOAD is noisier
+than the warm frame -- 24 m read 8.7, 7.1 and 7.1 s -- so it takes more than
+one run to separate two neighbouring strides, which is what the repeats in
+the table are for.
+
+`grid_spacing_m` therefore ships at **40.0**, not 0.100.0's effective 24.0.
+On this package both 40 m and 48 m plan the same 21 stations, so that
+configuration has three warm readings against 24 m's three: 6.4-6.5 s of load
+and 20.1-20.5 ms against 7.1-8.7 s and 22.8-25.3 ms. Cheaper AND slightly
+better, with the spread of each configuration comfortably inside the gap
+between them.
+
+The first draft of this entry said 32.0 and claimed 1.7 s, and that was wrong
+in the way this repo keeps being wrong: it read 24 m's warm load off a single
+8.7 s run. Two further runs of the same configuration -- one of them
+0.100.0's own script -- both read 7.1 s, so the like-for-like saving is 0.6 s
+and the 8.7 s was the outlier. The repeats were run to check a different
+number and caught this one.
+
+Not 64.0, which was another 0.3 s cheaper and equally clean here: its grid is
+3 stations on this package, and the configuration one station thinner
+measured 2,926 ms. A stride in metres is a different station count on a level
+of a different size; 64 m sits one station from that cliff where 40 m sits
+five above it, and that 40 m and 48 m land on the same station count is the
+evidence that the choice is a band rather than a point.
+
+Confirmed on the shipped path rather than on an override: the package
+re-emitted by `packages.exporting.warmup` with no property overrides on the
+`Warmup` node plans 21 stations and measures 48.5 s cold / 148.7 ms and 6.4 s
+warm / 20.6 ms. Every other row in the table was produced by writing
+properties onto that node, and a default that had only ever been measured
+through an override would be a default nobody had measured.
+
+### One knob was moving two independent things
+
+`station_spacing_m` was the light-cluster merge radius AND, doubled, the
+grid's stride, so neither could be priced without moving the other. Split, the
+answer is lopsided: with the grid at 24 m, dropping all 12 light-cluster
+stations moved lap 1's worst frame 153 -> 157 ms cold and not at all warm. The
+grid does the work; the clusters are 12 stations and 1.0 s of warm load for no
+measurable frame. They stay on by default because the level they were reasoned
+about -- one whose fixtures are its only lighting variety -- has not been built
+yet, and `warm_light_clusters` now turns them off for whoever measures that
+case.
+
+This also explains 0.100.0's note that "24.0 left it at 2,730 ms", the same
+figure as light clusters with no grid: at that setting the grid's stride was
+48 m, and the old grid walked `x = min_x + stride/2` while `x < max_x`, which
+yields NOTHING once the stride passes twice the extent. A coarse grid quietly
+stopped being a grid, and the station count could not tell the two apart.
+Cells are placed at cell centres now, floored at one, so the coarsest possible
+grid is one station in the middle of the level.
+
+### And `max_stations` did the opposite of what its comment promised
+
+"A level that trips this is warmed coarsely rather than not at all" -- the
+code walked the extent at a fixed stride and `return`ed the instant the cap
+was reached, which warms one corner of a large level and leaves the rest cold,
+with a station count that looks the same either way. The stride is widened to
+fit the budget instead.
+
+### What is checked now, and what was not
+
+* **The report's knobs are read out of the script.** 0.100.0's `warmup.json`
+  named `station_spacing_m: 12.0` and `max_stations: 96` as literals in the
+  emit call, so a retuned script would have shipped a report describing the
+  old numbers -- a recorded derivation that is not the derivation, which is
+  worse than none because it looks checkable. `knobs()` parses the `@export`
+  lines, `emit` writes them from the repo's script, `audit` re-reads them from
+  the PACKAGE's, and the two have to agree. Every export must have an entry in
+  `MEASURED` or the export fails; `cover_screen` and `enabled` had none.
+* **`audit` compares the shipped script's bytes.** `WarmupError` has said
+  "what shipped is not what this module writes" since 0.100.0 and could not
+  tell: it looked for three guard substrings, so a script truncated after the
+  guards, edited between emit and audit, or left over from an older export
+  passed every check.
+* **The probe stops hanging on its own control.** `first_sight_probe.gd`
+  waited for `warmup_finished` whenever it found a `Warmup` node, including
+  when that node's `enabled` was false -- the recipient's A/B switch, which is
+  the thing the probe exists to measure. That waited 60,000 frames, five
+  minutes at best and a quarter of an hour on the machine that is stalling,
+  and the frames it spent standing at spawn warmed the spawn view, so the
+  control it eventually measured understated the stall it was a control for.
+  It now reads `enabled` and bounds the gate in seconds.
+
+### The incremental route, and why it changes nothing here
+
+`warmup_finished` already lets a host wait behind its own loading bar, and the
+sweep already spreads itself over frames -- one station-heading per `_process`
+-- so it never blocks the main loop. Spreading it further, or running it
+during play, moves stations out of the load and back into the first lap at
+exactly the rate the table gives: on a cold driver cache a station deferred is
+a station compiled in front of the player, and the 13-station row is what that
+looks like. The incremental option is a presentation choice, not a cost one,
+and it does not change the spacing recommendation.
+
+### What this does not answer
+
+One package. The 40.0 is a metre stride chosen against one level's extent and
+one machine's driver, and the sweep lives in `tools/` precisely so the next
+person can run it on theirs rather than inherit this number on faith.
+
+The sweep's own instrument had to be fixed mid-run, and the first version is
+worth recording: its contention counter treated every Godot already running as
+its own, so it printed "no contention" while a second agent drove its own
+Godot through the middle of the run. A zero an instrument cannot avoid
+printing is not a measurement. With it fixed, three runs on this machine were
+killed from outside mid-sweep -- no backtrace, no error, the process simply
+gone -- so the harness now retries a run that produced no lap report rather
+than recording it as a fast configuration.
+
+One cold row did not reproduce: 40 m measured 284 ms and then 156 ms on a
+repeat of the identical configuration, and 48 m -- the same 21 stations --
+read 159 ms. The cold worst frame carries that much run-to-run spread, which
+is a reason to read the cold column as a plateau rather than as a ranking.
+The warm frame repeated to a few tenths of a millisecond; the warm load did
+not, and it took three runs of 24 m to notice that the first draft of this
+entry had built its recommendation on that configuration's slowest one.
+
 ## [0.100.0] - a level stops compiling its shaders while somebody is walking through it
 
 Cold run 9066's package, walked twice over one six-leg route at 3 m/s, first

@@ -26,6 +26,13 @@ before the run:
   every light cluster reached 2,730 ms; adding a grid over the level's own
   extent reached 155 ms.
 
+* AND THE STATION SET HAS A PLATEAU, swept in 0.101.0: above about 16
+  stations lap 1's worst frame sits at 148-159 ms whatever the grid stride,
+  and the cold load sits at 47.8-52.1 s. What still moves is the WARM launch,
+  5.9 to 8.7 s, which is the one a player pays on every level after their
+  first. The knobs below are the ones that move it, and each has to carry
+  what it was measured at.
+
 * THE GUARDS ARE THE SHIPPED ARTEFACT'S, NOT THE REPO'S. A warm-up that runs
   headless costs the QA walkers 252 frames for nothing, and one that runs in
   the editor sweeps the camera while somebody is using it. `audit` reads the
@@ -49,6 +56,7 @@ from pathlib import Path
 
 import pytest
 
+import packages.exporting.warmup as warmup_mod
 from packages.exporting.warmup import (HOLDER_NODE, REPORT_NAME,
                                        REQUIRED_GUARDS, SCHEMA, SCRIPT_NAME,
                                        WARMUP_SCRIPT, WarmupError, audit,
@@ -73,6 +81,7 @@ script = SubResource("mission_entry")
 
 
 def _pkg(tmp_path: Path) -> Path:
+    tmp_path.mkdir(parents=True, exist_ok=True)
     (tmp_path / "mission.tscn").write_text(ENTRY, encoding="utf-8")
     return tmp_path
 
@@ -206,3 +215,126 @@ def test_the_export_ships_a_warmup(tmp_path):
     assert "warmup_emit" in source
     assert "warmup_audit" in source
     assert hasattr(export_mod, "ExportWarmupError")
+
+
+#: A script with the shape `knobs` reads and nothing else: enough to be
+#: emitted, not a copy of the real one. Written out rather than derived from
+#: `WARMUP_SCRIPT`, so a test about what the report says cannot be satisfied
+#: by the report and the script drifting together.
+STUB = '''extends Node3D
+
+signal warmup_finished(frames: int, msec: float)
+
+@export var enabled: bool = true
+@export var station_spacing_m: float = 7.5
+@export var grid_spacing_m: float = 30.0
+@export var max_stations: int = 33
+@export var warm_light_clusters: bool = false
+@export var cover_screen: bool = true
+
+func _ready() -> void:
+\tif not enabled:
+\t\treturn
+\tif Engine.is_editor_hint():
+\t\treturn
+\tif DisplayServer.get_name() == "headless":
+\t\treturn
+'''
+
+
+def _use_stub(monkeypatch, tmp_path, text=STUB):
+    """Point the module at a script of this test's own making."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    path = tmp_path / "stub_warmup.gd"
+    path.write_bytes(text.encode("utf-8"))
+    monkeypatch.setattr(warmup_mod, "WARMUP_SCRIPT", path)
+    return path
+
+
+def test_the_report_reads_its_defaults_out_of_the_script(monkeypatch, tmp_path):
+    """FAILS ON 0.100.0, and for the reason the knobs exist at all.
+
+    That version's `warmup.json` named `station_spacing_m: 12.0` and
+    `max_stations: 96` as literals in the emit call. Nothing compared them
+    with the script, so a retuned script would have shipped a report
+    describing the old numbers -- a recorded derivation that is not the
+    derivation, which is worse than none because it looks checkable.
+    """
+    _use_stub(monkeypatch, tmp_path)
+    pkg = _pkg(tmp_path / "pkg")
+    report = emit(pkg)
+    written = json.loads((pkg / REPORT_NAME).read_text(encoding="utf-8"))
+    assert written["knobs"]["station_spacing_m"]["default"] == 7.5
+    assert written["knobs"]["grid_spacing_m"]["default"] == 30.0
+    assert written["knobs"]["max_stations"]["default"] == 33
+    assert written["knobs"]["warm_light_clusters"]["default"] is False
+
+
+def test_every_export_is_recorded_and_an_unrecorded_one_refuses(
+        monkeypatch, tmp_path):
+    """FAILS ON 0.100.0: it shipped four exports and described two.
+
+    `cover_screen` and `enabled` were knobs a recipient could turn with
+    nothing written down about either. A knob with no recorded derivation is
+    one nobody can turn and be believed, so a new one has to be measured
+    before it can be exported.
+    """
+    _use_stub(monkeypatch, tmp_path)
+    assert set(warmup_mod.knobs(STUB)) == set(warmup_mod.MEASURED)
+
+    grown = STUB + "@export var sweep_headings: int = 6\n"
+    _use_stub(monkeypatch, tmp_path / "grown", grown)
+    with pytest.raises(WarmupError) as exc:
+        script_text()
+    assert "sweep_headings" in str(exc.value)
+
+
+def test_an_export_whose_default_is_not_a_literal_refuses(
+        monkeypatch, tmp_path):
+    """A default the report cannot state is a default the report must not
+    invent. `station_spacing_m: float = _derive()` would have been written
+    down as whatever the reader guessed."""
+    bad = STUB.replace("@export var max_stations: int = 33",
+                       "@export var max_stations: int = _cap()")
+    _use_stub(monkeypatch, tmp_path, bad)
+    with pytest.raises(WarmupError):
+        script_text()
+
+
+def test_audit_refuses_a_shipped_script_that_is_not_the_repos(tmp_path):
+    """FAILS ON 0.100.0, and it is that version's own promise.
+
+    `WarmupError` says "what shipped is not what this module writes" and
+    `audit` could not tell: it looked for three substrings, so a script
+    truncated after the guards, edited between emit and audit, or left over
+    from an older export passed every check. That is the 9065 shape -- a step
+    auditing its own intentions -- in the module written to avoid it.
+    """
+    pkg = _pkg(tmp_path)
+    emit(pkg)
+    body = (pkg / SCRIPT_NAME).read_text(encoding="utf-8")
+    cut = body.index("func _process(")
+    (pkg / SCRIPT_NAME).write_text(body[:cut], encoding="utf-8")
+    # Every guard is still in it, which is what makes this the interesting
+    # case rather than a trivial one.
+    for guard in REQUIRED_GUARDS:
+        assert guard in body[:cut], guard
+    with pytest.raises(WarmupError) as exc:
+        audit(pkg)
+    assert "byte-for-byte" in str(exc.value)
+
+
+def test_the_shipped_script_carries_the_grid_as_its_own_knob():
+    """FAILS ON 0.100.0: one knob was moving two independent things.
+
+    `station_spacing_m` was the light-cluster radius AND, doubled, the grid's
+    stride, so neither could be priced without moving the other. Separated and
+    measured on cold run 9066's package, the answer is lopsided: with the grid
+    at 24 m, turning the light clusters off moved lap 1's worst frame 153 ->
+    157 ms cold and not at all warm, while turning the GRID off moved it to
+    1,788 ms. The grid does the work.
+    """
+    body = script_text()
+    assert "@export var grid_spacing_m" in body
+    assert "@export var warm_light_clusters" in body
+    assert "station_spacing_m * 2.0" not in body

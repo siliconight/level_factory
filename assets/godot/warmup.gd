@@ -42,10 +42,19 @@ extends Node3D
 ## The residue is the grid: the leg that looks down the open street is a
 ## long-sightline context no fixture makes.
 ##
-## WHAT IT COSTS. 42 stations on that package, 252 frames, and the whole
-## compile bill moves to load. The 3D render scale is dropped to a tenth for
-## the sweep, so the frames cost submission and not fill; the pipeline is
-## otherwise identical, which is the point.
+## AND THE FLOOR UNDER ALL OF THAT, measured 2026-09-21 by sweeping the
+## station set properly (see `grid_spacing_m`): on a cold driver cache no
+## station set reaches a good frame. Sixteen stations and seventy-nine both
+## land at 148-159 ms, and the load is 47.8 s either way. The warm-up moves
+## the bill; it does not shrink it, and the last 150 ms of it is not a
+## coverage problem. What a recipient can actually tune is the WARM launch --
+## 5.9 s to 8.7 s across the same range -- which is the one every player pays
+## on every level after their first.
+##
+## WHAT IT COSTS. 21 stations on that package at the defaults, 126 frames, and
+## the whole compile bill moves to load. The 3D render scale is dropped to a
+## tenth for the sweep, so the frames cost submission and not fill; the
+## pipeline is otherwise identical, which is the point.
 ##
 ## Ordinary scene data and one script: no addon, no autoload, no editor
 ## plugin. A recipient who does not want it deletes this node.
@@ -58,16 +67,85 @@ signal warmup_finished(frames: int, msec: float)
 ## recipient can A/B it against the stall without editing the package.
 @export var enabled: bool = true
 
-## Station spacing, metres. Also the radius within which two lights count as
-## one lighting context. Smaller covers more contexts and costs more frames;
-## the cost is linear in stations and the coverage is not, so this is the knob
-## to turn if a level still hitches. 12.0 is what took cold run 9066's package
-## to a 155 ms worst frame; 24.0 left it at 2,730 ms.
+## The radius within which two lights count as one lighting context. Smaller
+## keeps more clusters apart and costs more frames.
+##
+## 0.100.0 spelled the GRID's stride as this number doubled, so one knob moved
+## two independent things and neither could be priced separately. They are
+## separate now. Measured on cold run 9066's package with the grid at 24 m,
+## dropping the 12 light-cluster stations entirely (41 -> 29 stations) moved
+## lap 1's worst frame 153 -> 157 ms cold and 25.3 -> 25.3 ms warm: on that
+## package the clusters are worth nothing measurable, and the grid is doing
+## all of it. They stay on because the level they were reasoned about -- one
+## whose fixtures are its only lighting variety -- has not been built yet, and
+## 12 stations is 1.0 s of warm load to keep a hypothesis alive that costs
+## nothing else.
 @export var station_spacing_m: float = 12.0
 
+## Grid stride, metres, over the level's own extent. Zero or less turns the
+## grid off, which is not a tuning: 13 stations with no grid measured a
+## 1,788 ms worst frame on a cold driver cache.
+##
+## THIS IS THE KNOB THAT MATTERS. Priced on cold run 9066's package,
+## 2026-09-21, one cold launch and one warm launch per configuration, both
+## shader caches empty per run (`tools/warmup_spacing_sweep.py`). Stations
+## include the spawn and 12 light clusters. Repeated readings of one
+## configuration are all listed, because the cold worst frame turned out to
+## carry enough spread to be read as a plateau rather than as a ranking:
+##
+##     stride   stations   load cold   lap1 cold   load warm   lap1 warm
+##     none           13      45.3 s     1,788 ms      5.9 s      154 ms
+##     64 m           16      47.8 s       152 ms      6.2 s     22.2 ms
+##     48 m           21      48.1 s       159 ms      6.4 s     20.5 ms
+##     40 m           21      48.6 s       284 ms      6.5 s     20.3 ms
+##     40 m again     21      47.8 s       156 ms      6.5 s     20.1 ms
+##     32 m           31      49.0 s       148 ms      7.0 s     21.3 ms
+##     24 m           41      51.2 s       153 ms      8.7 s     25.3 ms
+##     24 m again     41      49.0 s       151 ms      7.1 s     22.8 ms
+##     16 m           79      50.2 s       150 ms      8.2 s     19.1 ms
+##     (no warm-up)    0           -     6,172 ms          -      382 ms
+##
+## Three things in that table decide this number.
+##
+## COLD LOAD BARELY MOVES: 40.7 to 52.1 s across every configuration measured,
+## because what the load pays for is the compile bill and not the frames --
+## 79 stations is 6.3x the frames of 13 for 4.9 s more load. Most of a cold
+## first launch is not this knob's to give back.
+##
+## THE COLD FRAME PLATEAUS: above about 16 stations it sits at 148-159 ms
+## however fine the grid gets, and below it collapses (13 stations 1,788 ms,
+## 9 stations 2,926 ms). There is a coverage requirement and it is met early.
+##
+## THE WARM LAUNCH IS WHAT IS LEFT TO TUNE, and it is the one a player pays on
+## every level after their first: 5.9 to 8.7 s, monotone in station count.
+##
+## 40.0 rather than 0.100.0's effective 24.0 because 21 stations measured
+## 6.4-6.5 s of warm load against 7.1-8.7 s and 20.1-20.5 ms against
+## 22.8-25.3 ms, across three runs each -- cheaper AND slightly better, with
+## the spread of both configurations inside the gap. Not 64.0, which was
+## another 0.3 s cheaper and equally clean HERE: its grid is 3 stations on
+## this package, and the configuration one station thinner measured 2,926 ms.
+## A stride in metres is a different station count on a level of a different
+## size, and 64 m sits one station from that cliff where 40 m sits five above
+## it. 48 m measures the same 21 stations on this package, which is the
+## evidence that the choice is a band and not a point.
+@export var grid_spacing_m: float = 40.0
+
 ## Hard ceiling on stations, so a large level cannot turn a load into a hang.
-## A level that trips this is warmed coarsely rather than not at all.
+##
+## A level that trips it is warmed COARSELY, which is what 0.100.0's comment
+## promised and its code did not do: that version walked the extent at a fixed
+## stride and returned the instant the cap was reached, leaving one corner of
+## a large level warmed and the rest cold, with a station count that looks the
+## same either way. The stride is widened to fit the budget instead.
 @export var max_stations: int = 96
+
+## Stand at each light cluster as well as on the grid. Off drops those
+## stations and keeps the grid. On cold run 9066's package that is 41 -> 29
+## stations for 153 -> 157 ms cold and no change at all warm, so the clusters
+## are the half of the sweep that is not earning its keep there. See
+## `station_spacing_m` for why they are still on by default.
+@export var warm_light_clusters: bool = true
 
 ## Draw an opaque rectangle over the screen for the duration. Off shows the
 ## sweep, which is how it was checked; a shipped package wants it on.
@@ -102,6 +180,11 @@ var _have_bounds := false
 var _running := false
 var _saved_occlusion := true
 var _saved_3d_scale := 1.0
+## What the grid actually did, as opposed to what it was asked for: the stride
+## is widened when the budget is tight, and a run that cannot say so leaves a
+## reader comparing a request with a result.
+var _grid_stride := 0.0
+var _grid_stations := 0
 
 
 func _ready() -> void:
@@ -160,9 +243,10 @@ func _begin() -> void:
 	_t0 = Time.get_ticks_usec()
 	_step = 0
 	_running = true
-	var line := "[warmup] %d station(s) at %.1f m, %d frame(s)"
-	print(line % [_stations.size(), station_spacing_m,
-		_stations.size() * HEADINGS.size()])
+	var line := ("[warmup] %d station(s), %d on a %.1f m grid, %d frame(s)"
+		+ " (cluster radius %.1f m)")
+	print(line % [_stations.size(), _grid_stations, _grid_stride,
+		_stations.size() * HEADINGS.size(), station_spacing_m])
 
 
 func _process(_delta: float) -> void:
@@ -207,32 +291,62 @@ func _build_stations(eye_y: float) -> void:
 	_measure_bounds(get_tree().root)
 	if not _have_bounds:
 		return
-	var lights: Array[Vector3] = []
-	_collect_lights(get_tree().root, lights)
 	if _was_current != null:
 		_stations.append(_was_current.global_position)
-	for p in lights:
-		if _stations.size() >= max_stations:
-			break
-		var near := false
-		for s in _stations:
-			if s.distance_to(p) < station_spacing_m:
-				near = true
-				break
-		if not near:
-			_stations.append(p)
-	var stride := station_spacing_m * 2.0
-	if stride <= 0.0:
-		return
-	var x: float = _bounds.position.x + stride * 0.5
-	while x < _bounds.position.x + _bounds.size.x:
-		var z: float = _bounds.position.z + stride * 0.5
-		while z < _bounds.position.z + _bounds.size.z:
+	if warm_light_clusters:
+		var lights: Array[Vector3] = []
+		_collect_lights(get_tree().root, lights)
+		for p in lights:
 			if _stations.size() >= max_stations:
-				return
+				break
+			var near := false
+			for s in _stations:
+				if s.distance_to(p) < station_spacing_m:
+					near = true
+					break
+			if not near:
+				_stations.append(p)
+	_add_grid(eye_y)
+
+
+## Cell centres over the level's extent, at a stride that FITS the budget.
+##
+## Cell centres rather than a walk from one edge, because the walk vanished.
+## `x = min_x + stride/2` stepping while `x < max_x` yields NOTHING once the
+## stride passes twice the extent, so a coarse setting stopped being a coarse
+## grid and became no grid at all, with no way to tell the two apart from the
+## station count -- which is the shape of 0.100.0's note that "24.0 left it at
+## 2,730 ms", the same figure as light clusters with no grid. Cell counts
+## floored at one cannot do that: the coarsest grid this can produce is one
+## station in the middle of the level.
+func _add_grid(eye_y: float) -> void:
+	if grid_spacing_m <= 0.0:
+		return
+	var budget := max_stations - _stations.size()
+	if budget <= 0:
+		return
+	var w: float = maxf(_bounds.size.x, 0.001)
+	var d: float = maxf(_bounds.size.z, 0.001)
+	var stride := grid_spacing_m
+	var nx := maxi(1, int(round(w / stride)))
+	var nz := maxi(1, int(round(d / stride)))
+	# Widen rather than truncate. 1.25 per step because the count falls as the
+	# square of the stride, so a handful of steps covers any real overshoot
+	# without jumping past a stride that would have fitted.
+	while nx * nz > budget and stride < w + d:
+		stride *= 1.25
+		nx = maxi(1, int(round(w / stride)))
+		nz = maxi(1, int(round(d / stride)))
+	if nx * nz > budget:
+		nx = 1
+		nz = 1
+	_grid_stride = stride
+	_grid_stations = nx * nz
+	for i in range(nx):
+		var x: float = _bounds.position.x + (float(i) + 0.5) * (w / float(nx))
+		for j in range(nz):
+			var z: float = _bounds.position.z + (float(j) + 0.5) * (d / float(nz))
 			_stations.append(Vector3(x, eye_y, z))
-			z += stride
-		x += stride
 
 
 func _measure_bounds(n: Node) -> void:

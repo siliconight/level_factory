@@ -61,6 +61,11 @@ const SPEED_MPS := 3.0
 const LEG_SECONDS := 6.0
 const LAPS := 2
 const WATCHDOG_SEC := 420.0
+## How long a package's own warm-up is given to report before this measures
+## without it. Generous, because the cold-driver-cache case it exists for is
+## the slowest thing this probe will ever wait on: 48 s on cold run 9066's
+## package, so this is roughly four times the worst load yet seen.
+const GATE_SEC := 200.0
 
 ## Performance monitor ids, by number: `Performance.get_monitor_name` does not
 ## exist, so a run cannot print what it sampled and these are written down
@@ -112,9 +117,22 @@ func _ready() -> void:
 	# the cost look like a fix that removed it.
 	var w := get_tree().root.find_child("Warmup", true, false)
 	if w != null and w.has_signal("warmup_finished"):
-		print("[fs] package ships a warm-up; waiting for it")
-		w.warmup_finished.connect(_on_package_warm)
-		_gate = true
+		# `enabled` is the recipient's A/B switch, and the whole point of it
+		# is to be measured with this probe. Gating on the node's PRESENCE
+		# rather than on whether it is going to do anything made the off half
+		# of that A/B wait for a signal nobody was going to send -- 60,000
+		# frames of it, which reads as a hang and is really an instrument
+		# that cannot measure the control it exists to compare against.
+		var on: bool = true
+		if "enabled" in w:
+			on = bool(w.get("enabled"))
+		if on:
+			print("[fs] package ships a warm-up; waiting for it")
+			w.warmup_finished.connect(_on_package_warm)
+			_gate = true
+		else:
+			print("[fs] package ships a warm-up and it is DISABLED -- "
+				+ "measuring the stall it is meant to remove")
 	_prev = _sample()
 	print("[fs] camera %s at %s, %d laps of %d legs"
 		% [_cam.name, str(_home), LAPS, _legs.size()])
@@ -170,9 +188,12 @@ func _process(delta: float) -> void:
 	if _gate:
 		_gate_frames += 1
 		# A warm-up that never reports is a defect, not a reason to hang.
-		if _gate_frames > 60000:
-			print("[fs] warm-up never reported after %d frames -- measuring anyway"
-				% _gate_frames)
+		# Bounded in SECONDS, not frames: a 60,000-frame bound is five
+		# minutes at 200 fps and a quarter of an hour on a machine that is
+		# stalling, which is the only machine that reaches it.
+		if float(Time.get_ticks_msec()) / 1000.0 - _started > GATE_SEC:
+			print("[fs] warm-up never reported in %.0f s (%d frames) -- measuring anyway"
+				% [GATE_SEC, _gate_frames])
 			_gate = false
 		return
 	_frames += 1

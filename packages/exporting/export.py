@@ -1269,6 +1269,12 @@ def export_mission(
         print("[export] warm-up: res://%s wired into %s as `%s`, %d guard(s)"
               % (warm["script"], warm["entry_scene"], warm["node"],
                  len(warm["guards_present"])))
+        # The stride is what decides the load this package will charge, so it
+        # is said out loud rather than left in warmup.json for whoever thinks
+        # to open it.
+        print("[export] warm-up knobs: %s"
+              % ", ".join("%s=%s" % (n, k["default"])
+                          for n, k in sorted(warm["knobs"].items())))
     except WarmupError as exc:
         raise ExportWarmupError(
             "the warm-up could not be shipped: %s\n  a package without one "

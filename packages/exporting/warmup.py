@@ -115,10 +115,109 @@ REQUIRED_GUARDS = (
 )
 
 
+#: What each of the script's `@export`s was measured at. The DEFAULTS are not
+#: here -- they are read out of the script, because a default typed in two
+#: places is a default that will disagree with itself, and 0.100.0's
+#: `warmup.json` already claimed `station_spacing_m: 12.0` from a hand-typed
+#: literal that nothing checked against the script.
+#:
+#: Every export must appear here. An export with no entry is a knob a
+#: recipient can turn and nobody can defend, which is the defect the
+#: null-result rule in CLAUDE.md is about.
+MEASURED = {
+    "enabled": "Off makes the node inert. Kept as a switch rather than as a "
+               "deletion so a recipient can A/B the warm-up against the "
+               "stall; `tools/first_sight_probe.gd` measures both halves",
+    "station_spacing_m":
+        "the LIGHT-CLUSTER radius only; 0.100.0 also used it, doubled, as the "
+        "grid's stride. Measured on cold run 9066's package 2026-09-21 with "
+        "the grid at 24 m: dropping the 12 cluster stations entirely (41 -> "
+        "29) moved lap 1's worst frame 153 -> 157 ms cold and not at all "
+        "warm, so on that package the clusters earn nothing measurable. Kept "
+        "on because the level they were reasoned about -- one whose fixtures "
+        "are its only lighting variety -- has not been built yet",
+    "grid_spacing_m":
+        "the knob that matters. Cold run 9066's package, one cold and one "
+        "warm launch per configuration, as stations / load cold / lap 1 "
+        "worst cold / load warm / lap 1 worst warm: off 13/45.3 s/1,788 ms/"
+        "5.9 s/154 ms; 64 m 16/47.8/152/6.2/22.2; 48 m 21/48.1/159/6.4/20.5; "
+        "40 m 21/48.6/284/6.5/20.3 and again 21/47.8/156/6.5/20.1; "
+        "32 m 31/49.0/148/7.0/21.3; 24 m 41/51.2/153/8.7/25.3 and again "
+        "41/49.0/151/7.1/22.8; 16 m 79/50.2/150/8.2/19.1; no warm-up at all "
+        "6,172 ms cold and 382 ms warm. Cold load barely moves across any of "
+        "it and the cold frame plateaus above ~16 stations, so what is left "
+        "to tune is the WARM launch: 21 stations measured 6.4-6.5 s against "
+        "41 stations' 7.1-8.7 s for a slightly better frame, which is why "
+        "40 m and not 24 m. 0 turns the grid off",
+    "max_stations":
+        "a bound on the load, not a tuning. 9066's package plans 21 at the "
+        "defaults. A level that trips the cap is warmed at a WIDER stride, "
+        "not warmed in one corner and left cold everywhere else, which is "
+        "what 0.100.0's code did and its comment denied",
+    "warm_light_clusters":
+        "stand at each light cluster as well as on the grid. See "
+        "`station_spacing_m`: 12 stations and 1.0 s of warm load on the one "
+        "package this has been measured on, for no measurable frame",
+    "cover_screen": "an opaque rectangle over the sweep. Off shows it, which "
+                    "is how it was checked; a shipped package wants it on",
+}
+
+#: `@export var name: Type = literal`. Anything else -- an untyped export, or
+#: one whose default is an expression -- is REFUSED rather than guessed at, so
+#: the report never carries a default that is not the script's.
+_EXPORT = re.compile(
+    r"^@export var (\w+)\s*:\s*(\w+)\s*=\s*([^\s#]+)\s*$", re.M)
+
+
 class WarmupError(RuntimeError):
     """The warm-up could not be shipped, or what shipped is not what this
     module writes. Never raised for a package with no geometry -- that is a
     legitimate package with nothing to warm."""
+
+
+def _literal(kind: str, raw: str):
+    """A GDScript default as a JSON value, or a refusal."""
+    if kind == "bool" and raw in ("true", "false"):
+        return raw == "true"
+    if kind == "int":
+        try:
+            return int(raw)
+        except ValueError:
+            pass
+    if kind == "float":
+        try:
+            return float(raw)
+        except ValueError:
+            pass
+    raise WarmupError(
+        f"`{raw}` is not a plain {kind} default -- the report would have to "
+        "guess at what a recipient is turning")
+
+
+def knobs(text: str) -> dict:
+    """The script's own exports, with what each was measured at.
+
+    Read from the script rather than typed alongside it. The two spellings
+    have already drifted once: 0.100.0's report named two knobs and the
+    script carried four, so `cover_screen` shipped as a switch with no
+    recorded derivation and `station_spacing_m`'s recorded default was a
+    literal nothing compared against the script.
+    """
+    found = _EXPORT.findall(text)
+    if not found:
+        raise WarmupError(
+            "no `@export var name: Type = literal` in the warm-up script -- "
+            "either it has no knobs or this cannot read them, and both are "
+            "reasons to stop rather than to write an empty table")
+    out: dict = {}
+    for name, kind, raw in found:
+        if name not in MEASURED:
+            raise WarmupError(
+                f"`{name}` is an @export with nothing recorded about what it "
+                "was measured at: add it to MEASURED or stop exporting it")
+        out[name] = {"type": kind, "default": _literal(kind, raw),
+                     "measured": MEASURED[name]}
+    return out
 
 
 def script_text() -> str:
@@ -132,6 +231,8 @@ def script_text() -> str:
             "the warm-up script in this repo is missing guard(s) %s -- it "
             "would run in the editor, or headless, or with no way off"
             % ", ".join(repr(m) for m in missing))
+    # Raises if the script grew a knob nobody wrote a measurement for.
+    knobs(text)
     return text
 
 
@@ -242,13 +343,20 @@ def audit(export_dir: Path) -> dict:
     refs = text.count(f'path="res://{SCRIPT_NAME}"')
     present = script.is_file()
     guards: list[str] = []
+    shipped_knobs: dict = {}
+    identical = None
     if present:
         body = script.read_text(encoding="utf-8")
         guards = [g for g in REQUIRED_GUARDS if g in body]
+        shipped_knobs = knobs(body)
+        identical = (script.read_bytes() == WARMUP_SCRIPT.read_bytes()
+                     if WARMUP_SCRIPT.is_file() else None)
 
     out = {"script_shipped": present, "warmup_nodes": nodes,
            "script_refs": refs, "guards_present": guards,
-           "guards_required": list(REQUIRED_GUARDS)}
+           "guards_required": list(REQUIRED_GUARDS),
+           "shipped_knobs": shipped_knobs,
+           "script_matches_repo": identical}
 
     if nodes == 0 and not present:
         # A package with no warm-up at all is consistent and is what every
@@ -270,6 +378,15 @@ def audit(export_dir: Path) -> dict:
         raise WarmupError(
             "the warm-up script that SHIPPED is missing guard(s) %s"
             % ", ".join(repr(m) for m in missing))
+    # The guard list is a handful of substrings, and this module's own error
+    # says "what shipped is not what this module writes" -- which it could not
+    # actually tell. A script truncated, edited or left over from an older
+    # export carries all three guards and passed. Compare the bytes.
+    if identical is False:
+        raise WarmupError(
+            "the warm-up script that SHIPPED is not byte-for-byte the one "
+            f"this repo writes ({WARMUP_SCRIPT}): the package's knobs, its "
+            "measurements and its guards describe a file that is not there")
     return out
 
 
@@ -284,7 +401,7 @@ def emit(export_dir: Path, *, entry_scene: str = "mission.tscn") -> dict:
     # the exporting machine's, so the same repo would ship two different
     # files from two machines and `audit` would be comparing a script with
     # itself under another spelling.
-    script_text()
+    repo_knobs = knobs(script_text())
     (export_dir / SCRIPT_NAME).write_bytes(WARMUP_SCRIPT.read_bytes())
     wired = wire_into_scene(export_dir / entry_scene)
     report = {
@@ -296,21 +413,17 @@ def emit(export_dir: Path, *, entry_scene: str = "mission.tscn") -> dict:
         "guards": list(REQUIRED_GUARDS),
         # What the recipient can turn, and what each was measured at. A knob
         # with no recorded derivation is one nobody can turn and be believed.
-        "knobs": {
-            "station_spacing_m": {
-                "default": 12.0,
-                "measured": "12.0 took cold run 9066's package from an "
-                            "8,564 ms worst frame to 155 ms; 24.0 (light "
-                            "clusters only, no grid) left it at 2,730 ms",
-            },
-            "max_stations": {
-                "default": 96,
-                "measured": "9066's package needed 42. The cap bounds a load, "
-                            "it is not a tuning",
-            },
-        },
+        # Read out of the REPO's script here and out of the PACKAGE's script
+        # by `audit` below, so the two have to agree rather than being one
+        # number copied twice.
+        "knobs": repo_knobs,
     }
     report.update(audit(export_dir))
+    if report["shipped_knobs"] != repo_knobs:
+        raise WarmupError(
+            "the knobs in the package's script are not the knobs this report "
+            "describes: %s against %s"
+            % (sorted(report["shipped_knobs"]), sorted(repo_knobs)))
     (export_dir / REPORT_NAME).write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return report
