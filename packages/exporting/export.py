@@ -145,6 +145,13 @@ class ExportOccluderError(RuntimeError):
     the occluders that shipped do not agree."""
 
 
+class ExportManifestError(RuntimeError):
+    """`portable_resource_manifest.json` does not account for the package it
+    ships in -- a file present and neither listed nor declared unlisted, a
+    listed file that is not there, or its own counts disagreeing with its own
+    lists."""
+
+
 class ExportWarmupError(RuntimeError):
     """The package's shader warm-up could not be shipped, or what shipped is
     not what `packages.exporting.warmup` writes.
@@ -793,6 +800,92 @@ def _guard_verdict_is_about_the_package(export_dir: Path, scan) -> None:
                   else "\n  ... and %d more" % (len(drift) - 20))))
 
 
+def _guard_manifest_accounts_for_the_package(export_dir: Path) -> None:
+    """Every file in the package is listed in the manifest or declared unlisted.
+
+    Same shape as `_guard_verdict_is_about_the_package`, and there for the
+    same reason: what makes the manifest's numbers true is the ORDER of the
+    writers in `export_mission`, and a comment asking the next author to put
+    their writer above the walk is not a check. Cold run 9067 shipped 562
+    listed against 567 on disk because three writers sat four lines too low.
+
+    READ BACK OFF DISK, not off the dict `build_resource_manifest` returned.
+    The two differ by exactly the files written between the walk and now,
+    which is the entire subject -- so checking the dict would be a check
+    written against what the code believes it wrote.
+
+    RAISES rather than warns, on the standing reasoning in `occluders.py`: a
+    package whose manifest does not describe it is one an integrator cannot
+    verify, and a warning nobody reads is how that ships.
+    """
+    path = export_dir / "portable_resource_manifest.json"
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ExportManifestError(
+            "the package's resource manifest could not be read back: %s (%s)"
+            % (path, exc)) from exc
+
+    # AN UNRECOGNISED SHAPE FAILS. `or []` here would turn a renamed key into
+    # an empty problem list and print a clean verdict -- which is precisely
+    # how a `--verify` once reported "closure verdict clean" three lines
+    # under the exporter shouting EXPORT_CLOSURE_BROKEN.
+    missing_keys = [k for k in ("resources", "unlisted", "accounting")
+                    if k not in manifest]
+    if missing_keys:
+        raise ExportManifestError(
+            "portable_resource_manifest.json is missing %s, so its own "
+            "accounting cannot be checked. Schema on disk: %r; this build "
+            "writes level_factory.portable_manifest.v0.2."
+            % (", ".join("`%s`" % k for k in missing_keys),
+               manifest.get("schema")))
+
+    listed = {r["path"] for r in manifest["resources"]}
+    declared = {u["path"] for u in manifest["unlisted"]}
+    on_disk = {p.relative_to(export_dir).as_posix()
+               for p in export_dir.rglob("*") if p.is_file()}
+
+    problems: list[str] = []
+    # The two lists cannot drift, the same way `_WRITTEN_AFTER_VERDICT` and
+    # `closure._METADATA_FILES` cannot: a file this manifest declines to list
+    # is by definition one written after the walk, and the walk is after the
+    # verdict, so it must already be allowed to land there.
+    for name in sorted(declared - _WRITTEN_AFTER_VERDICT):
+        problems.append(
+            "%s: declared unlisted but is not in _WRITTEN_AFTER_VERDICT, so "
+            "nothing says it is allowed to land after the walk at all" % name)
+    for name in sorted(listed & declared):
+        problems.append("%s: both listed and declared unlisted" % name)
+    for name in sorted(on_disk - listed - declared):
+        problems.append(
+            "%s: ships in the package, neither listed nor declared" % name)
+    for name in sorted((listed | declared) - on_disk):
+        problems.append("%s: named by the manifest, not in the package" % name)
+
+    # The manifest's OWN arithmetic, asked of the same values once. A count
+    # that disagrees with the list beside it is worse than no count.
+    acc = manifest["accounting"]
+    for key, want in (("listed", len(listed)),
+                      ("declared_unlisted", len(declared)),
+                      ("files_in_package", len(on_disk))):
+        if acc.get(key) != want:
+            problems.append(
+                "accounting.%s says %r; the package says %d"
+                % (key, acc.get(key), want))
+
+    if problems:
+        raise ExportManifestError(
+            "PORTABLE_MANIFEST_DOES_NOT_ACCOUNT_FOR_THE_PACKAGE: %d listed + "
+            "%d declared unlisted against %d file(s) on disk.\n  %s\n  A file "
+            "written after `build_resource_manifest` walks the tree must "
+            "either move above that walk, or be named in "
+            "_UNLISTED_BY_CONSTRUCTION with the reason it cannot be listed."
+            % (len(listed), len(declared), len(on_disk),
+               "\n  ".join(problems[:20])
+               + ("" if len(problems) <= 20
+                  else "\n  ... and %d more" % (len(problems) - 20))))
+
+
 def strip_dead_node_paths(export_dir: Path) -> dict:
     """Move every `node` field that names nothing in the package aside.
 
@@ -878,16 +971,76 @@ def strip_dead_node_paths(export_dir: Path) -> dict:
     return summary
 
 
+#: The files a package ships that this manifest cannot list, each with the
+#: reason it cannot. Both are written AFTER `build_resource_manifest` walks the
+#: tree, so no walk could have seen them and no hash of them would be true.
+#:
+#: DECLARED RATHER THAN OMITTED, and that is the whole change. Measured
+#: 2026-09-22 on cold run 9067's shipped `LF_club_block_006.portable-godot`:
+#: 562 files listed against 567 on disk, with `LF_MANIFEST.json`,
+#: `LICENSES.json`, `export_profile.json`, `output_layers.json` and this
+#: manifest arriving unannounced. Only the last had a reason recorded
+#: anywhere. Three of the five were an ordering accident -- their writers sat
+#: below the walk in `export_mission` for no reason anybody had stated -- and
+#: they are now above it and listed like any other shipped file. These two
+#: are real, so they are named and counted instead of left silent. Four files
+#: arriving unlisted read to an integrator as tampering or a truncated
+#: download, and were neither.
+#:
+#: THE TWO REASONS ARE NOT THE SAME KIND and the text says so. The manifest
+#: cannot contain its own hash under any ordering; `LF_MANIFEST.json` could be
+#: listed if its writer moved above the walk, and is deliberately not. Calling
+#: both "impossible" would be tidier and would be a claim this repo cannot
+#: support.
+#:
+#: The point of naming them is the equation, which is falsifiable:
+#:
+#:     len(resources) + len(unlisted) == files in the package
+#:
+#: `_guard_manifest_accounts_for_the_package` reads it back off the finished
+#: folder. An unlisted set nobody counts is the same silence with more words
+#: in it.
+_UNLISTED_BY_CONSTRUCTION: tuple[tuple[str, str], ...] = (
+    ("portable_resource_manifest.json",
+     "STRUCTURAL: this manifest. A file cannot carry the hash and size of "
+     "its own finished bytes."),
+    (EXPORT_MANIFEST_NAME,
+     "DELIBERATE: written last, after this walk, so the package's resource "
+     "manifest does not list a file that describes it (export.py, section "
+     "5). It could be listed if that writer moved above the walk; it is not, "
+     "and this row says so rather than leaving it unexplained."),
+)
+
+
 def build_resource_manifest(export_dir: Path) -> dict:
     files = sorted(p for p in export_dir.rglob("*") if p.is_file())
+    resources = [
+        {"path": p.relative_to(export_dir).as_posix(),
+         "hash": hash_file(p), "size": p.stat().st_size}
+        for p in files
+    ]
+    unlisted = [{"path": name, "reason": why}
+                for name, why in _UNLISTED_BY_CONSTRUCTION]
     return {
-        "schema": "level_factory.portable_manifest.v0.1",
+        # v0.2, because the shape grew two keys. Nothing in this repo or any
+        # sibling reads this string -- grepped 2026-09-22 across every repo in
+        # the factory -- so the bump is a statement to a reader rather than a
+        # switch anything flips on.
+        "schema": "level_factory.portable_manifest.v0.2",
         "created_at": _now(),
-        "resources": [
-            {"path": p.relative_to(export_dir).as_posix(),
-             "hash": hash_file(p), "size": p.stat().st_size}
-            for p in files
-        ],
+        # THE CLAIM AN INTEGRATOR CHECKS, written as an equation rather than
+        # left to be inferred from two list lengths. `files_in_package` is a
+        # PREDICTION at the moment this runs -- the two unlisted files do not
+        # exist yet -- which is exactly why a guard reads it back off the
+        # finished folder before the package is zipped.
+        "accounting": {
+            "listed": len(resources),
+            "declared_unlisted": len(unlisted),
+            "files_in_package": len(resources) + len(unlisted),
+            "check": "listed + declared_unlisted == files in the package",
+        },
+        "resources": resources,
+        "unlisted": unlisted,
     }
 
 
@@ -1439,9 +1592,22 @@ def export_mission(
           % (str(scan.ok).lower(), len(scan.issues), scan.resource_count,
              len(scan.present_names)))
 
-    resource_manifest = build_resource_manifest(export_dir)
-    (export_dir / "portable_resource_manifest.json").write_text(
-        pretty_dumps(resource_manifest), encoding="utf-8")
+    # 4.95 THE BLOCKS THAT DESCRIBE THE BUILD BUT ARE NOT ABOUT THE PACKAGE'S
+    # CONTENTS -- licences, profile, layers.
+    #
+    # ABOVE THE MANIFEST WALK, and that is the fix in 0.104.0. These three sat
+    # below it for no stated reason and were therefore shipped unlisted:
+    # measured on cold run 9067's `LF_club_block_006.portable-godot`, 562
+    # files listed against 567 on disk. Nothing about a licence block or a
+    # profile dump makes it unlistable -- unlike the resource manifest, which
+    # cannot hash itself. They were simply written four lines too low, and an
+    # integrator checking the package against its manifest met three files
+    # nobody had announced.
+    #
+    # They still land AFTER the closure verdict, which is where 0.103.0 put
+    # it, and all three are already in `_WRITTEN_AFTER_VERDICT` and in
+    # `closure._METADATA_FILES` -- so `_guard_verdict_is_about_the_package`
+    # is satisfied by construction and nothing about the verdict moves.
     license_manifest = build_license_manifest(tool_versions)
     (export_dir / "LICENSES.json").write_text(
         pretty_dumps(license_manifest), encoding="utf-8")
@@ -1452,6 +1618,14 @@ def export_mission(
         "schema": "level_factory.output_layers.v0.1",
         "layers": sorted(layers), "label": "+".join(parts),
     }), encoding="utf-8")
+
+    # 4.96 THE RESOURCE MANIFEST. Everything written above this line is in it;
+    # the two files written below are named in its `unlisted` block with the
+    # reason each cannot be, and `_guard_manifest_accounts_for_the_package`
+    # checks the sum against the finished folder.
+    resource_manifest = build_resource_manifest(export_dir)
+    (export_dir / "portable_resource_manifest.json").write_text(
+        pretty_dumps(resource_manifest), encoding="utf-8")
 
     # 5. LF_MANIFEST.json -- everything the folder name gave up.
     #
@@ -1502,9 +1676,18 @@ def export_mission(
         },
     }), encoding="utf-8")
 
-    # Nothing may be written into the package below this line. The guard is
-    # what makes that a fact rather than a request.
+    # Nothing may be written into the package below this line. The guards are
+    # what make that a fact rather than a request. They ask two different
+    # questions of the same folder and both are read back off disk: the first,
+    # whether the verdict in the package is about this package; the second,
+    # whether the manifest in the package accounts for this package.
     _guard_verdict_is_about_the_package(export_dir, scan)
+    _guard_manifest_accounts_for_the_package(export_dir)
+    acc = resource_manifest["accounting"]
+    print("[export] manifest: %d file(s) listed + %d declared unlisted = %d "
+          "in the package (%s)"
+          % (acc["listed"], acc["declared_unlisted"], acc["files_in_package"],
+             ", ".join(u["path"] for u in resource_manifest["unlisted"])))
 
     return ExportResult(
         mission_id=mission_id, mode=profile.mode, export_dir=export_dir,

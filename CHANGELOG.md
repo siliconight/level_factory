@@ -1,3 +1,124 @@
+## [0.104.0] - the manifest lists what ships, and names what it cannot list
+
+`portable_resource_manifest.json` carries a sha256 and a size per file and is
+what an integrating team checks a received package against. It omitted five
+of the files the package ships. Measured 2026-09-22 on cold run 9067's
+shipped `LF_club_block_006.portable-godot` -- the package that went out:
+
+    listed in portable_resource_manifest.json : 562
+    files on disk                             : 567
+    listed but absent from the package        :   0
+
+    shipped and unlisted: LF_MANIFEST.json, LICENSES.json,
+                          export_profile.json, output_layers.json,
+                          portable_resource_manifest.json
+
+Four of the five had no reason recorded anywhere. A recipient verifying what
+they received meets four files nobody announced, which reads as tampering or
+a truncated download and was neither.
+
+0.103.0 found this while measuring something else and said so at the bottom
+of its entry: "Separate defect, separate change." This is that change.
+
+### The five, attributed before anything was patched
+
+Three different causes wearing one number, and only the split made the fix
+checkable:
+
+    3  LICENSES.json, export_profile.json, output_layers.json
+         An ORDERING ACCIDENT. `build_resource_manifest(export_dir)` ran at
+         export.py:1442; their writers sat at 1446, 1448 and 1451. Four
+         lines. Nothing about a licence block or a profile dump makes it
+         unlistable -- they were simply written after the walk that would
+         have listed them, and nothing said so.
+    1  portable_resource_manifest.json
+         STRUCTURAL and already explained by a comment. A file cannot carry
+         the hash and size of its own finished bytes.
+    1  LF_MANIFEST.json
+         DELIBERATE and already explained by a comment: written last so the
+         package's resource manifest does not list a file that describes it.
+
+### What changed
+
+The three whose writers were too low moved above the walk and are now listed
+with a hash and a size like any other shipped file. They still land after the
+closure verdict, where 0.103.0 put it, and all three were already in
+`_WRITTEN_AFTER_VERDICT` and `closure._METADATA_FILES` -- so
+`_guard_verdict_is_about_the_package` is satisfied by construction and
+nothing about the verdict moved.
+
+The two that remain are DECLARED rather than omitted. The manifest grew an
+`unlisted` block naming each with the reason it cannot be listed, and an
+`accounting` block stating the claim an integrator checks:
+
+    listed + declared_unlisted == files in the package
+
+Schema `level_factory.portable_manifest.v0.1` -> `v0.2` for the two new keys.
+
+THE TWO REASONS ARE NOT THE SAME KIND, and the rows say which is which
+rather than flattening both into "cannot". `portable_resource_manifest.json`
+is impossible under any ordering. `LF_MANIFEST.json` COULD be listed if its
+writer moved above the walk -- it needs only the closure verdict, which is
+already above -- and is deliberately not. Calling both structural would have
+been tidier and would have been a claim this repo cannot support.
+
+### The guard, because an ordering nobody checks is an ordering that drifts
+
+`_guard_manifest_accounts_for_the_package` reads the finished folder back off
+disk beside `_guard_verdict_is_about_the_package` and refuses the build when
+a file is present and neither listed nor declared, when the manifest names a
+file that is not there, when one is both, or when the manifest's own counts
+disagree with its own lists. It is read off DISK rather than off the dict
+`build_resource_manifest` returned, because the two differ by exactly the
+files written between the walk and now -- which is the entire subject.
+
+What made this defect possible was four lines of ordering in one function,
+and a comment asking the next author to put their writer above the walk is
+not a check. `_UNLISTED_BY_CONSTRUCTION` is also tied to
+`_WRITTEN_AFTER_VERDICT` and `closure._METADATA_FILES` the way those two are
+tied to each other, so a file cannot be declared unlisted here while nothing
+elsewhere allows it to land after the walk at all.
+
+An unrecognised manifest shape is REFUSED, not read as having nothing
+unlisted. `or []` on a missing key is how a `--verify` once printed "closure
+verdict clean" three lines under the exporter shouting
+EXPORT_CLOSURE_BROKEN.
+
+### What consumes this file, checked before its shape was changed
+
+Grepped across every repo in the factory. Nothing anywhere reads LF's
+`resources` list, its length, or its schema string, so four new rows and two
+new keys break no reader.
+
+The two live consumers of a file by that NAME read a different producer's
+file, and the distinction is the whole answer:
+
+    deli_counter/walk_harness.py:100       reads `building_id`
+    adapters/presentation/__init__.py:475  reads `closure`
+
+`build_resource_manifest` writes neither key. Both are reading
+`deli_counter/portable_building.py`'s manifest, which is written per BUILDING
+package and carries `building_id`, `closure`, `placement_check` and the rest.
+Two producers, one filename -- and `export.py` already drops the composer's
+copy on the way in for exactly this reason. `walk_preview.py` and
+`site_packages.py` name the file only to SKIP it.
+
+`ExportResult.resource_manifest` is returned in process and read by nobody
+downstream.
+
+### Measured
+
+On the end-to-end package the unit suite builds, before and after:
+
+    0.103.0   10 listed +  0 declared  against 15 on disk   -- 5 unaccounted
+    0.104.0   13 listed +  2 declared  against 15 on disk   -- equation closes
+
+`tests/unit/test_manifest_lists_what_ships.py`, 11 tests, all 11 failing on
+0.103.0 -- and failing legibly rather than on an import: the exception and
+the constants are resolved through the module at call time, so the arithmetic
+tests run against the old version and report the gap by name instead of
+turning the file into a collection error that says nothing about manifests.
+
 ## [0.103.0] - the closure gate judged a package that did not exist yet, and now runs last
 
 `export_mission` called `scan_closure` at step 3.6 and went on writing into
