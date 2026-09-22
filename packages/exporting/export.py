@@ -1205,6 +1205,15 @@ def export_mission(
     #
     # Either way the flag is settled from the count that actually shipped, so
     # the flag and the occluders cannot disagree.
+    #
+    # THE HOLDER GOES INTO `mission.tscn` SINCE 0.102.0, not into `site.tscn`.
+    # Cold run 9066's package shipped 301 occluder nodes and loaded none of
+    # them: `occluders.tscn` was instanced from `site.tscn`, which the entry
+    # scene does not name -- it instances `presentation/lux.applied.tscn` and
+    # the dressing layer. The bake now runs against the entry scene too, so
+    # the frame the occluders are measured in is the frame they are placed
+    # in, and `count_at_runtime` inside `emit` asks Godot to load
+    # `run/main_scene` and count what is really in the tree.
     from packages.exporting.occluders import (OccluderDisagreement,
                                               OccluderError, audit,
                                               drop_cache, emit)
@@ -1217,6 +1226,12 @@ def export_mission(
               % (occ["occluders"], occ["classified"]["solid"],
                  occ["classified"]["glass"], occ["classified"]["porous"],
                  occ["classified"]["filler"]))
+        rt = occ.get("runtime")
+        if rt:
+            print("[export]   %s loaded by Godot holds %d occluder node(s) "
+                  "in a tree of %d"
+                  % (rt["main_scene"], rt["occluder_nodes"],
+                     rt["nodes_in_tree"]))
     except OccluderError as exc:
         if godot_executable and OCCLUDERS_ENFORCED:
             drop_cache(export_dir)
@@ -1248,13 +1263,30 @@ def export_mission(
     except OccluderDisagreement as exc:
         raise ExportOccluderError(str(exc)) from exc
     print("[export] occlusion: use_occlusion_culling=%s with %d occluder "
-          "node(s) in %d scene(s)"
+          "node(s) reachable from res://%s (%d in the package, %d scene(s) "
+          "walked)"
           % (str(verdict["use_occlusion_culling"]).lower(),
-             verdict["occluder_nodes"], verdict["scenes_with_occluders"]))
+             verdict["occluder_nodes"], verdict["main_scene"],
+             verdict["occluder_nodes_in_package"], verdict["scenes_walked"]))
+    # A MEASUREMENT, NOT A CAUSE. A scene the entry never reaches is bytes on
+    # a recipient's disk, and it is also how the occluders went missing -- so
+    # the walk says which ones they are and stops. Whether one should be
+    # dropped is a per-mission question: `lux.applied.tscn` names
+    # `res://site.tscn` for a single-shell mission and does not for a themed
+    # multi-building one, and deleting it broke closure once already.
+    if verdict["unreachable_scenes"]:
+        print("[export] %d scene(s) ship and res://%s reaches none of them: %s"
+              % (len(verdict["unreachable_scenes"]), verdict["main_scene"],
+                 ", ".join(verdict["unreachable_scenes"][:6])
+                 + ("" if len(verdict["unreachable_scenes"]) <= 6
+                    else ", ...")))
 
-    # The warm-up. AFTER the occluder step, so the node it adds to
-    # `mission.tscn` is added to a scene nothing else will rewrite; BEFORE the
-    # resource manifest, so `warmup.gd` is in it like any other file.
+    # The warm-up. AFTER the occluder step, which also rewrites
+    # `mission.tscn` -- the two add their holders in a fixed order and each
+    # bumps the scene's `load_steps`, so running them the other way round
+    # would work and would make the entry scene's diff depend on the order.
+    # BEFORE the resource manifest, so `warmup.gd` is in it like any other
+    # file.
     #
     # Needs no Godot, deliberately: the thing it fixes is a RUNTIME cost, and
     # a build step that cannot run without a Godot on the box is a step that
