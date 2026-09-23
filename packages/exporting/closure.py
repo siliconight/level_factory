@@ -68,6 +68,13 @@ _METADATA_FILES = {
     #      LF's own unit test and two lines of prose; no GDScript, no Dispatch
     #      reader.
     "handoff_bindings.json", "occluders.json", "warmup.json",
+    # Added 0.105.0 with the GLB reference gate that writes it. It is a scan
+    # REPORT about the package's GLBs, and its `root` field carries the
+    # absolute path of the directory the build wrote -- which is exactly what
+    # `_ABS_PATH` is built to find. Same shape as every other entry here: LF's
+    # own log of a build step, read by no Godot loader. It is not exempt from
+    # the question it asks; `glb_refs.scan` re-derives that from the GLBs.
+    "glb_reference_scan.json",
     # The export manifest records THIS verdict (`verified.export_closure`), so
     # it cannot be inside what the verdict describes -- the same reason
     # `export_closure_scan.json` itself is on this list.

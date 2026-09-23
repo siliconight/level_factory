@@ -12,6 +12,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from tests.unit.glb_fixture import stub_glb  # noqa: E402
+
 from packages.exporting.export import (  # noqa: E402
     MODE_PURE_SHELL, ExportProfile, export_mission,
 )
@@ -27,7 +29,7 @@ def _mission(root, *, with_handoff=True):
     graybox = root / "graybox"
     graybox.mkdir(parents=True)
     (graybox / "site.tscn").write_text("[gd_scene]\n")
-    (graybox / "site_base.glb").write_bytes(b"glTF")
+    stub_glb(graybox / "site_base.glb", "graybox")
 
     handoff = None
     if with_handoff:

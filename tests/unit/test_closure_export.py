@@ -4,6 +4,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from tests.unit.glb_fixture import stub_glb  # noqa: E402
+
 from packages.exporting.closure import scan_closure
 from packages.exporting.export import (
     ExportProfile, MODE_PURE_SHELL, export_mission, zip_export,
@@ -25,7 +27,7 @@ def test_closure_clean_when_self_contained(tmp_path):
     root.mkdir()
     (root / "mission.tscn").write_text(
         '[gd_scene]\n[ext_resource path="res://model.glb"]\n')
-    (root / "model.glb").write_bytes(b"glb")
+    stub_glb(root / "model.glb", "model")
     result = scan_closure(root)
     assert result.ok
 

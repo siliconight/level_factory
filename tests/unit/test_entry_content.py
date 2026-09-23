@@ -18,6 +18,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from tests.unit.glb_fixture import stub_glb  # noqa: E402
+
 from packages.exporting.export import (  # noqa: E402
     MODE_ART_UNLIT, MODE_PORTABLE, ExportProfile, export_mission,
 )
@@ -46,7 +48,7 @@ def _mission(root, *, with_lux=True):
     composed = root / "composed"
     (composed / "lot" / "b1").mkdir(parents=True)
     (composed / "lot" / "b1" / "site.tscn").write_text("[gd_scene]\n")
-    (composed / "wall.glb").write_bytes(b"glTF")
+    stub_glb(composed / "wall.glb", "wall")
 
     themed = root / "themed"
     themed.mkdir(parents=True)

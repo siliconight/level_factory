@@ -10,6 +10,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from tests.unit.glb_fixture import stub_glb  # noqa: E402
+
 from packages.exporting.export import (  # noqa: E402
     EXPORT_MANIFEST_NAME, MODE_ART_UNLIT, MODE_PORTABLE, MODE_PURE_SHELL,
     UNLIT_MODES, ExportProfile, export_mission, ships_lux,
@@ -59,7 +61,7 @@ def _mission(root):
 
     composed = root / "composed"
     composed.mkdir(parents=True)
-    (composed / "wall.glb").write_bytes(b"glTF")
+    stub_glb(composed / "wall.glb", "wall")
     (composed / "themed.material.tres").write_text("[gd_resource]\n")
     return handoff, lux, composed
 

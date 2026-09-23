@@ -164,6 +164,16 @@ class ExportManifestError(RuntimeError):
     lists."""
 
 
+class ExportGlbReferenceError(RuntimeError):
+    """A shipped GLB names a file the package does not contain.
+
+    The closure scan next door asks the same question of `res://` references
+    and cannot see this one: a glTF `images[].uri` is a string inside a binary
+    that no text scan reads. Zoo 1.2.0 moved every module texture onto that
+    string and four packages went out as greybox behind three green gates --
+    see `packages.exporting.glb_refs`, which owns the check."""
+
+
 class ExportWarmupError(RuntimeError):
     """The package's shader warm-up could not be shipped, or what shipped is
     not what `packages.exporting.warmup` writes.
@@ -1608,6 +1618,45 @@ def export_mission(
         print("[export] %d handoff node path(s) named nothing in the package "
               "and were moved to node_dispatch -- see handoff_bindings.json"
               % bindings["moved_total"])
+
+    # 4.85 DOES EVERY GLB IN THIS PACKAGE GET WHAT IT ASKS FOR? See
+    # `packages.exporting.glb_refs` for what was shipped without this and why
+    # nothing caught it. Three gates were closed over what the package
+    # CONTAINS -- closure over `res://` references, the manifest over files
+    # present, the cold-run verdict over hands needed -- and none over what it
+    # REFERS TO.
+    #
+    # ABOVE THE CLOSURE VERDICT, so `glb_reference_scan.json` is inside the
+    # package the verdict describes and inside the manifest that lists it. It
+    # is therefore NOT in `_WRITTEN_AFTER_VERDICT`, and must not be added
+    # there: being after the verdict and being outside the manifest are two
+    # different facts about a file and this one is neither.
+    #
+    # AFTER every step that writes a GLB -- the composed-root copy, the
+    # sibling directories, the dressing layer. The occluder bake writes no
+    # geometry, so its position relative to this does not matter; it is below
+    # it anyway because the bake wants the import cache this does not.
+    from packages.exporting import glb_refs
+    glb_report = glb_refs.scan(export_dir)
+    (export_dir / "glb_reference_scan.json").write_text(
+        pretty_dumps(glb_report), encoding="utf-8")
+    print("[export] glb references: " + glb_refs.summary(glb_report))
+    if glb_report["nothing_to_check"]:
+        # SAID, not refused. The reasoning and the measurement that reversed
+        # the refusal are in `glb_refs`'s docstring; the short version is that
+        # `pure-shell` legitimately produces a package with no `.glb` in it,
+        # and whether the entry reaches any geometry is the closure verdict's
+        # question three steps below this one.
+        print("[export]   this package contains no .glb, so the reference "
+              "gate has certified nothing about it")
+    try:
+        glb_refs.assert_closed(export_dir, glb_report)
+    except glb_refs.GlbReferenceError as exc:
+        raise ExportGlbReferenceError(
+            str(exc) + "\n  full report: "
+            + str(export_dir / "glb_reference_scan.json")
+            + "\n  a package whose GLBs name files it does not carry renders "
+              "as greybox and passes every other gate in this exporter") from exc
 
     # 4.9 Resource-closure VERDICT -- see `_closure_verdict`. LAST, after
     # every step that writes into the package and before the manifests, which

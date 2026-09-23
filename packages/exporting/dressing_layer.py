@@ -105,6 +105,14 @@ def extract_meshes(glbs: dict, scratch: Path, godot_executable,
     vertices, parts, aabb}; ``failed`` maps asset -> reason. A run that could
     not happen at all is reported the same way under ``failed`` with the
     reason, never as an empty success.
+
+    THE GLB ARRIVES WITH WHAT IT NAMES. `copy2` on the .glb alone was right
+    while Zoo embedded its images and silently wrong from Zoo 1.2.0, which
+    externalised them to a relative `uri`: the scratch project imported a
+    clutter module whose textures were not in it, and the `.res` meshes this
+    step extracts shipped in whatever material an image-less import leaves
+    behind. A copy of a GLB by name is a copy of a GLB and its dependencies,
+    always -- `glb_refs.copy_with_deps` is the one way to do it here.
     """
     scratch = Path(scratch)
     if scratch.exists():
@@ -112,9 +120,10 @@ def extract_meshes(glbs: dict, scratch: Path, godot_executable,
     scratch.mkdir(parents=True)
     (scratch / "project.godot").write_text(_PROJECT_GODOT, encoding="utf-8")
     shutil.copy2(str(script), str(scratch / script.name))
+    from packages.exporting.glb_refs import copy_with_deps
     assets = {}
     for asset, src in sorted(glbs.items()):
-        shutil.copy2(str(src), str(scratch / f"{asset}.glb"))
+        copy_with_deps(src, scratch / f"{asset}.glb")
         assets[asset] = f"res://{asset}.glb"
     (scratch / "extract.json").write_text(pretty_dumps({
         "assets": assets, "out_dir": f"res://{DRESSING_DIR}"}),

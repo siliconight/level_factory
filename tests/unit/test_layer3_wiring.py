@@ -18,6 +18,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from tests.unit.glb_fixture import stub_glb  # noqa: E402
+
 from adapters.lot import LotAdapter  # noqa: E402
 from adapters.zoo import ZooAdapter  # noqa: E402
 from packages.core.models import MissionBrief  # noqa: E402
@@ -212,8 +214,8 @@ def _manifest(site_id="m1"):
 
 
 def test_find_clutter_glbs_reads_the_habitat_index(tmp_path):
-    (tmp_path / "pebble_a1b2.glb").write_bytes(b"glb")
-    (tmp_path / "weed_tuft_c3d4.glb").write_bytes(b"glb")
+    stub_glb(tmp_path / "pebble_a1b2.glb", "pebble")
+    stub_glb(tmp_path / "weed_tuft_c3d4.glb", "weed_tuft")
     (tmp_path / "h.habitat.json").write_text(json.dumps({"members": [
         {"species": "pebble", "status": "pass", "files": {"glb": "pebble_a1b2.glb"}},
         {"species": "weed_tuft", "status": "fail", "files": {"glb": "weed_tuft_c3d4.glb"}},
@@ -232,7 +234,7 @@ def test_without_godot_the_layer_is_reported_not_shipped(tmp_path):
     man.write_text(json.dumps(_manifest()), encoding="utf-8")
     clutter = tmp_path / "clutter"
     clutter.mkdir()
-    (clutter / "pebble_a1b2.glb").write_bytes(b"glb")
+    stub_glb(clutter / "pebble_a1b2.glb", "pebble")
     report = dressing_layer.ship_dressing(export_dir, man, clutter, None,
                                           scratch_root=tmp_path)
     assert report["shipped"] is False

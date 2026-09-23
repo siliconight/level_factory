@@ -1,3 +1,160 @@
+## [0.105.0] - a job publishes what its GLBs name, and a gate asks whether the package does
+
+Every package exported since Zoo 1.2.0 renders as greybox. Measured
+2026-09-22 on cold run 9068's shipped
+`LF_club_block_007.portable-godot` -- the package that went out, and that a
+walker walked:
+
+    .glb files in the package                       265
+    external references inside them               1,264
+    of those, resolving to a file in the package      0
+
+The walker's report: "around 90% graybox now with no textures/skins on much
+of the assets." Cold run 9069's package is the same shape. 9066 and 9067
+shipped before the measurement and are the same version of the same defect.
+
+### What broke, and it is not where it looked
+
+Zoo 1.2.0 stopped embedding a module's images in its binary chunk and began
+writing them once beside the GLB as `_tex/<name>_<sha1:8>.png`, named by a
+relative glTF `images[].uri`. That is a standard glTF asset and Godot reads
+it. Nothing about the format was wrong.
+
+The obvious suspect was the exporter's copy of the art into the package. It
+was not that. `export_mission` copies art by DIRECTORY -- `_copy_tree` walks
+files, `shutil.copytree` takes the subtree -- so a `_tex/` beside a GLB comes
+with it wherever the exporter finds one. It never found one.
+
+THE LOSS IS IN THE JOB STORE, four stages upstream. Every adapter's
+`collect_outputs` selects by SUFFIX; Zoo's is
+
+    sorted(p for p in work.rglob("*") if p.is_file()
+           and p.suffix in (".glb", ".json"))
+
+A `.png` is neither, so the textures were never collected, never hashed into
+the artifact record, never published to the content cache, and never linked
+by `_publish_stable` into the job's stable `out/`. Downstream stages read
+`out/`, never the attempt directory. On cold run 9068's workspace:
+
+    jobs/<m>.zoo_dressing_build.card_shop_a01/1/out/_tex/   20 .png
+    jobs/<m>.zoo_dressing_build.card_shop_a01/out/          no _tex at all
+
+So Deli Counter's composer was handed a kit with no textures in it, and the
+building it bundled could not have carried them. The cache made it durable:
+a cache hit materialises the cached output set into a cleared attempt
+directory, so even a re-run of a job that once wrote `_tex/` produced a
+directory without one.
+
+### The fix: an output is a file and what it needs
+
+`scheduler._with_glb_dependencies` widens a job's collected outputs with
+whatever each collected GLB names beside itself, read out of the GLB's own
+glTF JSON. It sits at the single point where `collect_outputs` is called, for
+the same reason `_without_provenance` sits there -- an adapter cannot opt out
+of a rule it does not know about -- and because that is where the three
+consumers of the list agree: the artifact hashes, the content cache, and the
+stable `out/`. A cache hit now materialises the textures with the GLB.
+
+NO FOLDER NAME ANYWHERE IN IT. Adding `.png` to six suffix tuples would have
+fixed this asset class and left the next one to be found by a walker again.
+
+It widens and never refuses: a dependency outside the work directory, or a
+GLB that will not parse, is left out and the GLB still publishes. Refusing a
+build belongs to the gate below, which has the whole package in front of it.
+
+### Two more copy sites, in the tool repos, fixed there
+
+Both would have dropped the textures too. Neither was ever handed any, so
+neither shows in the 1,264 -- they are the next two failures along and are
+recorded here because a reader chasing this defect will meet them:
+
+    deli_counter 0.142.0   `portable_building.build_package` bundles a
+                           module by resolving one `res://art/zoo/<name>.glb`
+                           out of the scene and copying that path.
+    lot 0.75.0             `cover_module_refs` stages a cover module into
+                           `cover/` with `shutil.copyfile`, under a docstring
+                           that already states the rule: "Every stage that
+                           loads a Lot scene copies its siblings." A GLB's
+                           siblings grew.
+
+Level Factory's own third copy site was `dressing_layer.extract_meshes`,
+which stages clutter GLBs into a scratch Godot project and extracts `.res`
+meshes from what Godot imported. With `copy2` the textures were not in that
+project at all, so since Zoo 1.2.0 the dressing meshes were extracted from an
+image-less import. It uses `glb_refs.copy_with_deps` now.
+
+### The gate, which is the half that matters
+
+`packages.exporting.glb_refs` asks one question of a finished package: does
+every external reference inside a shipped GLB resolve to a file in that
+package? It runs at step 4.85 of `export_mission`, writes
+`glb_reference_scan.json`, and raises `ExportGlbReferenceError`.
+
+WHY THREE EXISTING GATES LOOKED STRAIGHT AT THIS AND PASSED:
+
+    closure scan        asks whether every `res://` reference resolves. A
+                        glTF `uri` is a string inside a binary; no text scan
+                        reads it.
+    resource manifest   accounts for files PRESENT against files on disk.
+                        Both sides were right -- absent from the folder,
+                        absent from the list. 0.104.0's equation closed on a
+                        package with no textures in it.
+    cold-run verdict    counts interventions. Nobody intervened, because
+                        nothing complained.
+
+All three are closed over what the package CONTAINS. None asked what it
+REFERS TO.
+
+It reads the GLBs' own glTF JSON. The string `"_tex"` does not appear in the
+module as a value, and a test asserts that it does not: a checker keyed on
+that folder would pass the next externalised asset class exactly as this one
+was passed.
+
+PROVEN ON THE PACKAGE THAT SHIPPED, with the control on the same bytes,
+because a number that cannot move is not evidence:
+
+    LF_club_block_007.portable-godot   265 GLBs, 1,264 refs, 1,264 missing
+    the kit directory Zoo wrote 23 of
+    those same GLBs into                23 GLBs,   128 refs,     0 missing
+                                                   128 resolving to 20 files
+
+Both are unit tests (`test_glb_references_resolve.py`), and both skip with a
+reason rather than passing quietly when that workspace is not in the tree.
+
+It is also a command, so it can be pointed at a package nobody is exporting:
+
+    python -m packages.exporting.glb_refs <package dir> [--json report.json]
+
+### One refusal that was written and then retracted, kept above what replaced it
+
+The gate refused a package containing no `.glb` at all, on the reasoning that
+"a check that cannot fail is indistinguishable from one that passed."
+Measured against the suite rather than argued: 18 tests across three files
+build geometry-free packages, and `pure-shell` is a real exporter mode that
+produces one -- it drops the composed root, and a graybox whose scene carries
+its geometry inline has nothing with a `.glb` suffix in it. Refusing would
+have failed a shipping path on a guess about what a package must contain.
+
+Whether the entry can reach any geometry is the closure verdict's question,
+and it asks it. Two instruments answering one question is the scar this repo
+already has. So the scan reports `nothing_to_check`, the export prints "this
+package contains no .glb, so the reference gate has certified nothing about
+it", and it refuses only on the question it was built to answer.
+
+### The `.glb` stubs in the tests, which were never GLBs
+
+Seven fixtures wrote `b"glTF"` or `b"glb"` -- four bytes that begin with the
+magic and are not a container -- and three stub tool repos did the same.
+Harmless while nothing in the export read a GLB's contents; 27 failures the
+moment the gate read every one of them. A fixture that is not the format
+under test proves nothing about the format, so they are real minimal GLBs
+now (`tests/unit/glb_fixture.stub_glb`, and an inlined `_stub_glb` in each
+fake repo, which is its own sys.path root).
+
+That split mattered: 45 failures, 27 owned by the stubs and 18 by the refusal
+above. Fixing only the obvious half would have left 18 and read like the
+change had not worked.
+
 ## [0.104.0] - the manifest lists what ships, and names what it cannot list
 
 `portable_resource_manifest.json` carries a sha256 and a size per file and is

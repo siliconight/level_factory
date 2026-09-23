@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import struct
+from pathlib import Path
 
 _GLB_MAGIC = 0x46546C67
 _GLB_JSON = 0x4E4F534A
@@ -59,6 +60,29 @@ def pack_glb(doc: dict) -> bytes:
 def write_glb(path, boxes, *, children=None):
     """Write a ``.glb`` at ``path`` holding ``boxes``; return ``path``."""
     path.write_bytes(pack_glb(gltf_doc(boxes, children=children)))
+    return path
+
+
+def stub_glb(path, tag: str = "", *, images=()):
+    """A REAL minimal GLB for a test that only needs the file to be there.
+
+    Added 0.105.0. Until then these were written as `b"glTF"` or `b"glb"` --
+    four bytes that are not a glTF container -- and that was harmless only
+    while nothing in the export read them. The GLB reference gate does, and
+    an unreadable `.glb` is a finding there rather than a skip, so seven of
+    those stubs turned into export failures across ten test files.
+
+    A fixture that is not the format under test proves nothing about the
+    format, so they are real files now. ``tag`` goes into the node name, for
+    the tests that tell two stub bases apart by their bytes; ``images`` names
+    external textures, for the tests that need a GLB with a dependency.
+    """
+    path = Path(str(path))
+    doc = gltf_doc([(tag or "stub", (0.0, 0.0, 0.0), (1.0, 1.0, 1.0))])
+    if images:
+        doc["images"] = [{"name": Path(u).stem, "uri": u} for u in images]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(pack_glb(doc))
     return path
 
 

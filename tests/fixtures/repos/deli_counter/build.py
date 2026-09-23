@@ -5,6 +5,26 @@ The real build.py runs inside Blender; this stub writes the same output contract
 import argparse, json, sys
 from pathlib import Path
 
+
+
+def _stub_glb(tag="stub"):
+    """A real, minimal glTF 2.0 binary.
+
+    These stubs used to emit `b"glTF-..."` -- four bytes of magic and then
+    nothing a parser accepts. Harmless while nothing in the export read a
+    GLB's contents; a hard failure once the reference gate read every one of
+    them, because an unreadable `.glb` is a finding there rather than a skip.
+    A stub that emits something the pipeline cannot parse is not standing in
+    for the tool.
+    """
+    import json as _json, struct as _struct
+    doc = {"asset": {"version": "2.0", "generator": str(tag)}, "scene": 0,
+           "scenes": [{"nodes": [0]}], "nodes": [{"name": str(tag)}]}
+    payload = _json.dumps(doc).encode("utf-8")
+    payload += b" " * (-len(payload) % 4)
+    chunk = _struct.pack("<II", len(payload), 0x4E4F534A) + payload
+    return _struct.pack("<III", 0x46546C67, 2, 12 + len(chunk)) + chunk
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("spec")
@@ -18,7 +38,7 @@ def main():
         spec = {}
     out = Path(a.out); out.parent.mkdir(parents=True, exist_ok=True)
     base = str(out)[:-4] if str(out).endswith(".glb") else str(out)
-    out.write_bytes(b"glTF-deli-stub-" + spec.get("preset", "").encode())
+    out.write_bytes(_stub_glb("deli-" + str(spec.get("preset", ""))))
     Path(base + ".gameplay.json").write_text(json.dumps({
         "schema": "1.21.0", "preset": spec.get("preset"), "up_axis": "z",
         "mode": spec.get("mode"),

@@ -2,6 +2,26 @@
 import argparse, json, sys
 from pathlib import Path
 
+
+
+def _stub_glb(tag="stub"):
+    """A real, minimal glTF 2.0 binary.
+
+    These stubs used to emit `b"glTF-..."` -- four bytes of magic and then
+    nothing a parser accepts. Harmless while nothing in the export read a
+    GLB's contents; a hard failure once the reference gate read every one of
+    them, because an unreadable `.glb` is a finding there rather than a skip.
+    A stub that emits something the pipeline cannot parse is not standing in
+    for the tool.
+    """
+    import json as _json, struct as _struct
+    doc = {"asset": {"version": "2.0", "generator": str(tag)}, "scene": 0,
+           "scenes": [{"nodes": [0]}], "nodes": [{"name": str(tag)}]}
+    payload = _json.dumps(doc).encode("utf-8")
+    payload += b" " * (-len(payload) % 4)
+    chunk = _struct.pack("<II", len(payload), 0x4E4F534A) + payload
+    return _struct.pack("<III", 0x46546C67, 2, 12 + len(chunk)) + chunk
+
 def main():
     p = argparse.ArgumentParser(prog="zoo_cli")
     p.add_argument("--build-kit", dest="build_kit", default="")
@@ -45,7 +65,7 @@ def main():
             {"mode": "fixtures", "scope_id": scope, "fixtures_built": n,
              "emitter_markers": n, "marker_prefix": "LuxEmit",
              "skipped": [], "tool_version": "0.30.1"}, sort_keys=True))
-        (out / f"{scope}_fixtures.glb").write_bytes(b"glTF-zoo-fixtures-stub")
+        (out / f"{scope}_fixtures.glb").write_bytes(_stub_glb("zoo-fixtures"))
         print(f"[zoo] index: {idx}")
         return 0
     if a.dress:
@@ -69,13 +89,13 @@ def main():
         # report success and compose fail two stages later. The
         # --fixtures branch above has always written its own .glb --
         # which is why `lux_fixture_gate` passed in the same run.
-        (out / f"{bid}_dressing.glb").write_bytes(b"glTF-zoo-dressing-stub")
+        (out / f"{bid}_dressing.glb").write_bytes(_stub_glb("zoo-dressing"))
     else:
         bid = _bid(a.build_kit)
         idx = out / f"{bid}_kit.built.json"
         idx.write_text(json.dumps(
             {"mode": "kit", "building_id": bid, "theme": a.theme, "modules": [], "n_fail": 0}, sort_keys=True))
-        (out / f"{bid}_wall.glb").write_bytes(b"glTF-zoo-stub")
+        (out / f"{bid}_wall.glb").write_bytes(_stub_glb("zoo-wall"))
     print(f"[zoo] index: {idx}")
     return 0
 

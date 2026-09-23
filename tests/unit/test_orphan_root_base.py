@@ -27,6 +27,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from tests.unit.glb_fixture import stub_glb  # noqa: E402
+
 from packages.exporting.export import (  # noqa: E402
     MODE_ART_UNLIT, MODE_PORTABLE, ExportProfile, export_mission,
 )
@@ -47,7 +49,7 @@ def _building(composed: Path, bid: str) -> None:
         '[ext_resource type="PackedScene" '
         f'path="res://lot/{bid}/site_base.glb" id="0_greybox_base"]\n',
         encoding="utf-8")
-    (d / "site_base.glb").write_bytes(b"glTF-" + bid.encode())
+    stub_glb(d / "site_base.glb", bid)
     # The composer drops a copy of the import script beside every package.
     # Only the ROOT one is ever named -- see `_COMPOSED_ROOT_PAIR`.
     (d / "zoo_worldskin.gd").write_text("@tool\n", encoding="utf-8")
@@ -78,7 +80,7 @@ def _mission(root: Path, *, buildings, with_lux: bool):
     composed = root / "composed"
     composed.mkdir(parents=True)
     (composed / "site.tscn").write_text(_ROOT_SCENE, encoding="utf-8")
-    (composed / "site_base.glb").write_bytes(b"glTF-shell")
+    stub_glb(composed / "site_base.glb", "shell")
     (composed / "zoo_worldskin.gd").write_text("@tool\n", encoding="utf-8")
     for b in buildings:
         _building(composed, b)
@@ -159,7 +161,7 @@ def test_a_single_shell_keeps_its_base_under_the_building(tmp_path):
     composed = tmp_path / "composed"
     composed.mkdir(parents=True)
     (composed / "site.tscn").write_text(_ROOT_SCENE, encoding="utf-8")
-    (composed / "site_base.glb").write_bytes(b"glTF-shell")
+    stub_glb(composed / "site_base.glb", "shell")
     themed = tmp_path / "themed"
     themed.mkdir(parents=True)
     (themed / "site.tscn").write_text(

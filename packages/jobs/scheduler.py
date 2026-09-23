@@ -113,6 +113,63 @@ def _without_provenance(paths):
     return [p for p in paths if not p.name.endswith(PROVENANCE_SUFFIX)]
 
 
+def _with_glb_dependencies(paths, work_dir: Path):
+    """Add the files a collected GLB names beside itself.
+
+    AN OUTPUT IS NOT A FILE, IT IS A FILE AND WHAT IT NEEDS, and this is where
+    that stopped being true. Every adapter's `collect_outputs` selects by
+    SUFFIX -- Zoo's is `p.suffix in (".glb", ".json")` -- and Zoo 1.2.0 began
+    writing a module's images to `.png` files beside the GLB, named by a
+    relative glTF `images[].uri`. They were not collected, so
+    `_publish_stable` never linked them into `out/`, so every downstream stage
+    -- which reads `out/` and not the attempt directory -- was handed modules
+    whose textures did not exist.
+
+    Measured 2026-09-22 on cold run 9068's workspace. Zoo wrote them:
+
+        jobs/<m>.zoo_dressing_build.card_shop_a01/1/out/_tex/  20 .png
+        jobs/<m>.zoo_dressing_build.card_shop_a01/out/         no _tex at all
+
+    and the shipped package carried 1,264 GLB references resolving to nothing.
+    The walker's report was "around 90% graybox". Three gates passed it; the
+    one that does not is `packages.exporting.glb_refs`, at the end of the
+    export.
+
+    HERE RATHER THAN IN EACH ADAPTER, and for the reason `_without_provenance`
+    above gives for its own position: an adapter cannot opt out of a rule it
+    does not know about. It is also the one point where the three consumers of
+    the output list agree -- the artifact hashes, the content cache and the
+    stable `out/` -- so a cache hit materialises the textures too. Adding
+    `.png` to six suffix tuples would have fixed today's asset class and left
+    the next one to be found by a walker again.
+
+    READS THE GLB, NAMES NO FOLDER. Paths outside the work dir, or that will
+    not parse, are left out and the GLB is still published: this function's
+    job is to widen an output set, and refusing a build is the export gate's.
+    A module naming something it does not have is a real finding, and it
+    arrives there with the whole package to say it about.
+    """
+    from packages.exporting.glb_refs import GlbUnreadable, dependencies
+
+    out = list(paths)
+    seen = {p.resolve() for p in out}
+    work_dir = Path(work_dir).resolve()
+    for glb in [p for p in out if p.suffix.lower() == ".glb"]:
+        try:
+            deps = dependencies(glb)
+        except (GlbUnreadable, OSError):
+            continue
+        for rel in deps:
+            dep = (glb.parent / rel).resolve()
+            if dep in seen or not dep.is_file():
+                continue
+            if work_dir not in dep.parents:
+                continue
+            seen.add(dep)
+            out.append(dep)
+    return out
+
+
 class Scheduler:
     def __init__(
         self,
@@ -533,8 +590,10 @@ class Scheduler:
                               f"expected outputs missing: {', '.join(missing)}",
                               exit_code=result.exit_code if result else None)
 
-        outputs = _without_provenance(
-            Path(p) for p in adapter.collect_outputs(job_spec, context))
+        outputs = _with_glb_dependencies(
+            _without_provenance(
+                Path(p) for p in adapter.collect_outputs(job_spec, context)),
+            work_dir)
 
         # 5. Normalize validation; block on any blocker.
         issues = self._normalize(adapter, outputs, job)
