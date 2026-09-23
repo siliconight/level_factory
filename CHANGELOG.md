@@ -1,3 +1,89 @@
+## [0.105.1] - the two figures externalisation was sold on, retracted and re-measured with the pixels in the package
+
+### RETRACTED
+
+Both of these were published by this repo and both are withdrawn. Neither was
+a mistake of arithmetic; both were measured on a package the texture work
+assembled for itself, where the `_tex/` folders existed. The shipped export
+path was never checked, and on it those folders did not exist at all -- so
+the "after" side of each figure describes a package with no pixels in it.
+
+    RETRACTED   "package on disk 45.4 -> 23.5 MiB (-48%)"
+    RETRACTED   "video memory 348.9 -> 63.1 MB"
+
+A saving measured by leaving the payload out is not a saving.
+
+### Re-measured, on a package this exporter produced
+
+`LF_club_block_007.portable-godot`, exported 2026-09-22 by 0.105.0 from the
+club_block_007 pipeline re-run end to end with the fixed tools. Its reference
+gate reads `265 GLB(s), 1264 external reference(s): 1264 resolve to 194
+file(s) in the package, 0 missing`.
+
+The control is the SAME package with every image pulled back into its GLB's
+binary chunk, one bufferView per image as Blender's exporter leaves them --
+same geometry, same pixels, differing only in where the pixels live, which is
+the one variable the figures are about. (`reembed.py`, a probe written for
+this measurement and kept out of the tool path; the toolchain has no inverse
+for `gltf_textures.externalise` and reasoning about the "before" without one
+is how the first pair of figures happened.)
+
+ON DISK:
+
+    embedded (control)          54,417,170 B    51.90 MiB     676 files
+    externalised (shipped)      28,917,538 B    27.58 MiB   1,064 files
+    saving                      25,499,632 B    24.32 MiB       -46.9%
+
+    1,264 embedded images collapse to 194 files. That ratio is the saving;
+    nothing else moved.
+
+VIDEO MEMORY. Godot 4.7, GL Compatibility, a real 1280x720 window (headless
+draws nothing and cannot answer this), `RENDERING_INFO_TEXTURE_MEM_USED` read
+45 frames after `res://mission.tscn` is in the tree, and distinct `Texture2D`
+RIDs counted across every surface material reachable from it:
+
+                                    texture RIDs   textured mats   texture mem
+    0.104.0's shipped package                12     681 / 4,019    293,271,227
+    0.105.0 externalised                    214   3,529 / 4,019    334,970,954
+    the same, re-embedded                 2,392   3,529 / 4,019    671,644,529
+
+    externalised vs embedded      -336,673,575 B   -336.7 MB   -50.1%
+
+READ THE NUMBER HONESTLY. `RENDERING_INFO_TEXTURE_MEM_USED` is not the
+level's textures; it counts render targets and shadow atlases too, which is
+why a package binding twelve 512x512 images reads 293 MB. That constant is
+identical across all three rows -- same scene, same window, same 10,346 nodes
+-- so the DIFFERENCE is attributable to the images and the absolute figure is
+not. The images cost 41.7 MB shipped externally and 378.4 MB embedded: a 9x
+multiplier, and it is Godot not deduplicating identical embedded images,
+which is the finding externalisation was built on and which this confirms at
+level scale.
+
+So: externalisation still saves, and it saves about as large a FRACTION as
+was claimed (-47% on disk against -48%, -50% in texture memory against the
+claimed shape). The absolute figures were wrong in the direction that
+flattered it, because the smaller side of each pair was a package that could
+not be drawn.
+
+### The first row is the defect, and it is the runtime confirmation
+
+`12` distinct textures and `681` of `4,019` materials textured is what a
+walker meant by "around 90% graybox". Those twelve are the ground skins and
+the shop signs -- the only images in that package, because they are `.png`
+files Lot stages directly and not files a GLB names. Every Zoo module
+material in it was bound to nothing.
+
+After the fix: 214 textures bound, 3,529 of 4,019 materials carrying one. A
+file present is not a file bound, so this is counted in the loaded scene
+tree, not on disk.
+
+### What did not move
+
+4,019 materials, 2,780 distinct meshes and 10,346 nodes in all three rows.
+Where a texture's bytes live does not change what is submitted, so this
+change is not a draw-call change in either direction, and no frame-time claim
+is being made from it.
+
 ## [0.105.0] - a job publishes what its GLBs name, and a gate asks whether the package does
 
 Every package exported since Zoo 1.2.0 renders as greybox. Measured
