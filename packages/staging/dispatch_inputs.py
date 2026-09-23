@@ -192,6 +192,13 @@ def stage_dispatch_inputs(dest_dir: Path, *, deli_gameplay: Path, shell_glb: Pat
         # Verbatim pass-through (see the lot side below); on a mission with
         # a Lot site the site-level concatenation wins in Dispatch.
         "interactives": list(dc_gp.get("interactives", []) or []),
+        # LADDERS, for the same reason and with the same rule: verbatim. Deli
+        # Counter files an off-mesh `nav_link` on each one, and Dispatch's
+        # importer turns it into a link the AI can path over. This projection
+        # is a whitelist, so a key it does not name is dropped in a way that
+        # looks exactly like an upstream that never sent it -- which is why
+        # the capability was claimed and falsified twice (roadmap 172).
+        "ladders": list(dc_gp.get("ladders", []) or []),
     }, indent=2), encoding="utf-8")
     (deli_dir / "shell.nav_hints.json").write_text(
         json.dumps(derive_nav(dc_anchors or [{"id": "deli_counter:origin",
@@ -217,6 +224,19 @@ def stage_dispatch_inputs(dest_dir: Path, *, deli_gameplay: Path, shell_glb: Pat
         # network handle, and Dispatch ships the declaration whole
         # (interactives.json beside gameplay_anchors.json).
         "interactives": list(lot_gp.get("interactives", []) or []),
+        # LADDERS, concatenated by Lot from every building with every position
+        # already moved into site space (Lot 0.76.0's `_ladder_to_site`, which
+        # refuses on a numeric triple it does not recognise rather than
+        # shipping one in the building's frame). Verbatim for the same reason
+        # as `interactives`: re-projecting geometry here is how a nav link and
+        # a route node end up disagreeing about where one ladder is.
+        #
+        # THIS LINE IS THE ONE THAT WAS MISSING. Cold run 9076 measured
+        # ladders 1 in Lot's `site.site.gameplay.json` and no `ladders` key at
+        # all in the file this writes, so Dispatch's Lot importer -- which had
+        # been taught to read them in 0.5.1 -- found nothing and the package
+        # shipped `links: 0` for the second run running.
+        "ladders": list(lot_gp.get("ladders", []) or []),
     }, indent=2), encoding="utf-8")
     (lot_dir / "lot.layout.json").write_text(json.dumps({
         "schema": "lot.layout.v1", "license": {**lic, "source": "lot"},
