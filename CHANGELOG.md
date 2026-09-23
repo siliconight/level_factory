@@ -1,3 +1,42 @@
+## [0.106.1] - the census must leave the package as it found it
+
+Cold run 9071's export died `exit 5`, `EXPORT_CLOSURE_BROKEN`, three steps
+after 0.106.0's new gate printed a clean line:
+
+    [export] import cache removed; the package ships sidecars, not .godot
+    ...
+    [export] greybox skin: 60 surface(s) ... slabs 0
+    internal error: EXPORT_CLOSURE_BROKEN: 1 unresolved res:// reference(s),
+      1 absolute path(s)
+      .godot/editor/mission.tscn-folding-....cfg: unresolved
+        res://mission.tscn::mission_entry
+      .godot/editor/project_metadata.cfg: absolute path
+        "C:/Godot/4.7/Godot_v4.7-stable_win64.exe"
+
+`measure()` called `occluders.ensure_imported` and walked away, recreating an
+import cache the exporter had deliberately removed, which the closure verdict
+below it then scanned. The package shipped without
+`portable_resource_manifest.json`, `LF_MANIFEST.json`, `export_profile.json`
+or `validation/`.
+
+`measure()` now records whether `.godot` existed before it ran, drops the one
+it created, and REFUSES OUT LOUD if one is still there afterwards -- because
+the alternative is a refusal three steps away whose message reads as somebody
+else's defect, which is exactly how this cost a run.
+
+**How it was missed, recorded because the miss is the more useful half.** The
+run was reported as a zero on the strength of `cold_run.py --end` printing
+`INTERVENTIONS: 0`. That instrument counts changed files and journal entries;
+it cannot see an export's exit code, and nothing had read one. The gate's own
+log line was clean and printed BEFORE the failure it caused. A run's export
+exit code is part of the verdict and has to be read as such.
+
+**Known, not fixed here:** the census still takes a full Godot import of its
+own. It sits below the occluder bake, which already builds the cache the
+census needs, so moving the gate above `drop_cache` would reuse it and cost
+nothing. That is a placement change worth measuring rather than a second
+unverified edit in the same area on the same day.
+
 ## [0.106.0] - the grey collar around every ladder shaft and stairwell
 
 Found by the walker, on a ladder, looking down: the floor below read grey and
