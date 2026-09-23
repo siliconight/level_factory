@@ -170,7 +170,7 @@ class ExportGlbReferenceError(RuntimeError):
     The closure scan next door asks the same question of `res://` references
     and cannot see this one: a glTF `images[].uri` is a string inside a binary
     that no text scan reads. Zoo 1.2.0 moved every module texture onto that
-    string and four packages went out as greybox behind three green gates --
+    string and three packages went out as greybox behind three green gates --
     see `packages.exporting.glb_refs`, which owns the check."""
 
 

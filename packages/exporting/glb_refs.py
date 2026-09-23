@@ -286,7 +286,7 @@ def assert_closed(root, report: dict | None = None) -> dict:
 
     RAISES rather than warns, for the reason `occluders.py` already records:
     0.98.0 shipped a package with the culling flag on and nothing to cull,
-    behind a warning nobody read. This one shipped four packages of greybox
+    behind a warning nobody read. This one shipped three packages of greybox
     behind no warning at all.
 
     An unrecognised shape fails. A report missing a key this function reads
@@ -324,7 +324,7 @@ def _cli(argv=None) -> int:
     """`python -m packages.exporting.glb_refs <package dir>` -- the gate, alone.
 
     Exists so the gate can be run against a package NOBODY is exporting --
-    including the four already shipped. A gate reachable only from the build
+    including the three already shipped. A gate reachable only from the build
     that would have prevented the defect cannot be pointed at the defect.
     """
     import argparse

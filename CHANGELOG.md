@@ -23,10 +23,17 @@ file(s) in the package, 0 missing`.
 The control is the SAME package with every image pulled back into its GLB's
 binary chunk, one bufferView per image as Blender's exporter leaves them --
 same geometry, same pixels, differing only in where the pixels live, which is
-the one variable the figures are about. (`reembed.py`, a probe written for
-this measurement and kept out of the tool path; the toolchain has no inverse
-for `gltf_textures.externalise` and reasoning about the "before" without one
-is how the first pair of figures happened.)
+the one variable the figures are about. The toolchain has no inverse for
+`gltf_textures.externalise` and reasoning about the "before" without one is
+how the first pair of figures happened, so both instruments are kept rather
+than thrown away:
+
+    tools/reembed_textures.py        builds the embedded control package
+    tools/texture_binding_probe.gd   counts bound textures and reads
+                                     RENDERING_INFO_TEXTURE_MEM_USED in a
+                                     real window that quits itself
+
+A figure nobody can reproduce is how the retracted pair got published.
 
 ON DISK:
 
@@ -86,7 +93,8 @@ is being made from it.
 
 ## [0.105.0] - a job publishes what its GLBs name, and a gate asks whether the package does
 
-Every package exported since Zoo 1.2.0 renders as greybox. Measured
+Every package exported since Zoo 1.2.0 renders as greybox -- three of
+them, see the correction below. Measured
 2026-09-22 on cold run 9068's shipped
 `LF_club_block_007.portable-godot` -- the package that went out, and that a
 walker walked:
@@ -97,7 +105,28 @@ walker walked:
 
 The walker's report: "around 90% graybox now with no textures/skins on much
 of the assets." Cold run 9069's package is the same shape. 9066 and 9067
-shipped before the measurement and are the same version of the same defect.
+shipped before the measurement; 9067 is the same defect and 9066 predates it.
+
+### A correction to this entry's own first paragraph
+
+It said "every package exported since Zoo 1.2.0". Four shipped packages were
+in the tree and the gate was run on all four rather than on the one that had
+been walked:
+
+    cold-9066  LF_club_block_005   215 GLBs,     0 external references
+    cold-9067  LF_club_block_006   211 GLBs,   900 missing
+    cold-9068  LF_club_block_007   265 GLBs, 1,264 missing
+    cold-9069  LF_club_block_008   253 GLBs, 1,081 missing
+
+9066 is CLEAN, and not because anything worked: it was built at 08:22 UTC on
+2026-09-22 and there is no `_tex` directory anywhere under its jobs, so it
+predates the externalisation by three hours. Its package's own
+`LF_MANIFEST.json` pins `zoo 0.48.0` -- the same string all four carry, which
+is the adapter's pin and not the library version, so the manifest cannot
+answer this question and the job tree had to.
+
+Three packages shipped broken, not four. Attributing every item in a gate's
+output before writing about it is the rule here; this is what it caught.
 
 ### What broke, and it is not where it looked
 

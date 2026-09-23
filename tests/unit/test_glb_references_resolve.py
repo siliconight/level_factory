@@ -3,8 +3,8 @@
 THE DEFECT THIS IS FOR. Zoo 1.2.0 stopped embedding a module's images in its
 binary chunk and started writing them once beside it, named by a relative glTF
 ``images[].uri``. Every copy site that moved a GLB BY NAME went on moving one
-file where there were now several, and four Level Factory packages -- cold
-runs 9066 through 9069 -- shipped as greybox. The walker on 9068: "around 90%
+file where there were now several, and three Level Factory packages -- cold
+runs 9067, 9068 and 9069 -- shipped as greybox. The walker on 9068: "around 90%
 graybox now with no textures/skins on much of the assets".
 
 WHY THREE GATES PASSED IT, which is the part worth a test rather than a fix:
@@ -382,7 +382,7 @@ def test_and_passes_on_the_directory_zoo_wrote_those_same_glbs_into():
 
 def test_the_gate_is_reachable_without_running_an_export(tmp_path):
     """It can be pointed at a package nobody is exporting -- including the
-    four already shipped. A gate reachable only from the build that would have
+    three already shipped. A gate reachable only from the build that would have
     prevented the defect cannot be pointed at the defect."""
     _glb_naming(tmp_path / "wall.glb", ["_tex/brick_a1b2c3d4.png"])
     out = tmp_path / "report.json"
