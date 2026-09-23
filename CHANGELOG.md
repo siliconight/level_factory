@@ -1,3 +1,58 @@
+## [0.108.0] - the export's blocker query knows which candidate it is exporting
+
+COLD RUN 9074 COULD NOT PRODUCE A PACKAGE, and two instruments disagreed about
+why -- which CLAUDE.md says to settle before building on either:
+
+    cmd_run    "1 blocker(s) belong to eliminated candidate(s) and do not
+                block the mission"   /   "blockers open: 0, total findings: 51"
+    cmd_export "refused: club_block_013 has 1 open blocker(s) --
+                JOB_PREFLIGHT_REFUSED at ...candidate.seed_9074"
+
+`seed_9074` carried the run's only blocker (`LT_ObjectivePoint` inside solid
+geometry, Laser Tag reporting 0% completion). `seed_9276` was approved
+instead. The mission view discounted the blocker; the export refused on the
+same data.
+
+### The export was the wrong one, and NO selection could have passed
+
+`cmd_run` calls `aggregate(eliminated_candidates=..., selected_candidate=...)`.
+`_open_blockers` read every blocking issue in the validation file and filtered
+only by `EXPORT_SELF_REPORTING_STAGES`. So a blocker on ANY candidate refused
+the export whichever candidate a human approved -- the substitution that
+should have rescued the run could not.
+
+`aggregate`'s docstring already carried the rule this borrows -- "N candidates
+exist so that some can be bad... the chosen one IS the mission" -- and also
+warned that the discount is OPT-IN and that not opting in is "the safe
+direction for a gate". True, and this was over-safe to the point of being
+wrong: a gate that refuses every candidate's blockers refuses the mission that
+has a good candidate.
+
+### How it is decided, from data already on disk
+
+The validation file records no eliminated set, and it does not need to. A
+finding's location NAMES its candidate:
+
+    location  club_block_013.laser_tag_evaluate.candidate.seed_9074
+    selected  club_block_013.candidate.seed_9276   (approvals/<mission>.selected)
+
+Both shapes end in `.candidate.<token>`, so `_candidate_of` reads that token
+and the two are compared by it.
+
+### It still fails safe, which is what cold run 9015 bought
+
+A blocker is skipped ONLY when the selection and the blocker's own candidate
+are both known and they differ. No selection recorded, no candidate in the
+location, or either unparseable -- it blocks exactly as before. That matters
+because this gate exists for 9015: the Lux stage exited 2, the scheduler filed
+a blocking finding, and the export shipped a lightless package that was walked
+black and counted a zero.
+
+Six tests, including both safe-direction cases and the one that reproduces
+9074. One of them first faked an approval JSON by hand, missed six required
+fields of `Approval`, and failed in a way that read as a bug in the code under
+test; it now writes through the real `ApprovalStore`.
+
 ## [0.107.0] - an occluder must not cap an opening it cannot block
 
 WALKED. The walker turned occlusion culling off in a copy of cold run 9072's
