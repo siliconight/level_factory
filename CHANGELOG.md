@@ -93,25 +93,25 @@ is being made from it.
 
 ## [0.105.0] - a job publishes what its GLBs name, and a gate asks whether the package does
 
-Every package exported since Zoo 1.2.0 renders as greybox -- three of
-them, see the correction below. Measured
-2026-09-22 on cold run 9068's shipped
-`LF_club_block_007.portable-godot` -- the package that went out, and that a
-walker walked:
+Three shipped packages render as greybox -- cold runs 9067, 9068 and 9069,
+which is every export since Zoo 1.2.0 landed and which is not every export in
+the tree; see the correction below. Measured 2026-09-22 on cold run 9068's
+shipped `LF_club_block_007.portable-godot` -- the package that went out, and
+that a walker walked:
 
     .glb files in the package                       265
     external references inside them               1,264
     of those, resolving to a file in the package      0
 
 The walker's report: "around 90% graybox now with no textures/skins on much
-of the assets." Cold run 9069's package is the same shape. 9066 and 9067
-shipped before the measurement; 9067 is the same defect and 9066 predates it.
+of the assets." 9067's and 9069's packages are the same shape at 900 and
+1,081 dead references.
 
 ### A correction to this entry's own first paragraph
 
-It said "every package exported since Zoo 1.2.0". Four shipped packages were
-in the tree and the gate was run on all four rather than on the one that had
-been walked:
+The first draft said "every package exported since Zoo 1.2.0" and meant
+"every package in the tree". Four shipped packages were there and the gate
+was run on all four rather than on the one that had been walked:
 
     cold-9066  LF_club_block_005   215 GLBs,     0 external references
     cold-9067  LF_club_block_006   211 GLBs,   900 missing
