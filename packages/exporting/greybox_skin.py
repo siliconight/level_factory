@@ -90,6 +90,16 @@ def measure(export_dir, godot_executable, *, script: Path = CENSUS_SCRIPT,
             "no Godot executable: the greybox census cannot be taken")
     if not Path(script).is_file():
         raise GreyboxCensusError(f"census script missing: {script}")
+    # LEAVE THE PACKAGE AS THIS FOUND IT, and the cost of not doing so is
+    # why this comment is long. Taking the census needs an import cache; the
+    # exporter has ALREADY removed one by this point ("import cache removed;
+    # the package ships sidecars, not .godot") and the closure verdict three
+    # steps below scans every file in the package. Cold run 9071's export died
+    # exit 5 -- EXPORT_CLOSURE_BROKEN on `.godot/editor/project_metadata.cfg`
+    # holding an absolute path to the Godot binary -- because the first
+    # version of this module re-imported and walked away. The package shipped
+    # without its manifests and the run was misread as a zero.
+    had_cache = (export_dir / ".godot").exists()
     occluders.ensure_imported(export_dir, godot_executable)
     bundled = export_dir / Path(script).name
     bundled.write_bytes(Path(script).read_bytes())
@@ -103,6 +113,8 @@ def measure(export_dir, godot_executable, *, script: Path = CENSUS_SCRIPT,
         raise GreyboxCensusError(f"census did not run: {exc}") from exc
     finally:
         bundled.unlink(missing_ok=True)
+        if not had_cache:
+            occluders.drop_cache(export_dir)
 
     if not report_path.is_file():
         raise GreyboxCensusError("census wrote no report")
@@ -119,6 +131,13 @@ def measure(export_dir, godot_executable, *, script: Path = CENSUS_SCRIPT,
     if report.get("error"):
         raise GreyboxCensusError(f"census failed: {report['error']}")
     report["nothing_to_check"] = not bool(report["themed"])
+    # Said out loud rather than trusted: if the cache this created is still
+    # there, the closure verdict below will refuse the package and the reason
+    # will read as somebody else's defect.
+    if not had_cache and (export_dir / ".godot").exists():
+        raise GreyboxCensusError(
+            "the census left a .godot import cache in the package; the "
+            "closure verdict will refuse it")
     return report
 
 
