@@ -90,6 +90,8 @@ from packages.exporting.occluders import (BAKE_SCRIPT, CACHE_DIR, COUNT_SCRIPT,
                                           ENTRY_SCENE, HOLDER_NODE,
                                           OCCLUDER_SCENE, RUNTIME_SCHEMA,
                                           OccluderDisagreement, OccluderError,
+                                          HOLE_MIN_M2,
+                                          assert_no_capped_openings,
                                           audit, drop_cache, ensure_imported,
                                           measure, reachable_occluders,
                                           scene_text, wire_into_scene)
@@ -111,6 +113,13 @@ def _report(sizes):
                 "size": list(s),
                 "basis": [1, 0, 0, 0, 1, 0, 0, 0, 1],
                 "origin": [float(i), 0.0, 0.0],
+                # A solid wall leaves none of its box uncovered. Measured on
+                # cold run 9072's package: every one of 381 modules without an
+                # opening read exactly 0.000000 m2. A fixture missing this
+                # field is refused by `assert_no_capped_openings`, which is the
+                # point of that check -- an unmeasured occluder must not read
+                # as a measured one.
+                "uncovered_m2": 0.0,
             }
             for i, s in enumerate(sizes)
         ],
@@ -912,3 +921,44 @@ def test_the_ab_probe_measures_the_scene_the_package_runs():
     # And it says which scene it measured, in the artefact -- two runs over
     # two entry scenes are not an A/B and there was no way to tell.
     assert '"main_scene": main_scene' in body
+
+
+# ---------------------------------------------------------------------------
+# an occluder must not cap an opening (roadmap: the vanished basement)
+# ---------------------------------------------------------------------------
+def test_an_occluder_over_an_opening_is_refused():
+    """WALKED. Cold run 9072 shipped 17 floor and 17 ceiling occluders as
+    full-room horizontal boxes -- `floor_main_floor` 36 x 13 m, 2 cm thick,
+    spanning a stair opening -- and standing on that floor looking down the
+    stair, the basement was culled. Five gates passed the package."""
+    rep = _report([(2.0, 3.0, 0.2)])
+    rep["modules"][0]["uncovered_m2"] = 13.92
+    rep["modules"][0]["module"] = "floor_delco_1997_06_w3600_d1200_mcarpet"
+    with pytest.raises(OccluderError) as exc:
+        assert_no_capped_openings(rep)
+    assert "OCCLUDER_CAPS_AN_OPENING" in str(exc.value)
+    assert "13.92" in str(exc.value)
+
+
+def test_a_report_without_the_measurement_is_refused_not_assumed_clean():
+    """The `or []` mistake, which this repo has already made once: a checker
+    that cannot find its field has learned nothing and must say so."""
+    rep = _report([(2.0, 3.0, 0.2)])
+    del rep["modules"][0]["uncovered_m2"]
+    with pytest.raises(OccluderError) as exc:
+        assert_no_capped_openings(rep)
+    assert "did not measure" in str(exc.value)
+
+
+def test_a_solid_module_passes():
+    """381 of 392 modules on that package measured exactly 0.000000 m2."""
+    assert assert_no_capped_openings(_report([(2.0, 3.0, 0.2)])) == 1
+
+
+def test_the_limit_is_derived_from_the_smallest_opening_the_pipeline_cuts():
+    """A RATIO would have been the wrong instrument and the reason is worth
+    keeping: a 1.43 m2 ladder hole in a 36 x 13 m floor is 0.3% of its area."""
+    assert HOLE_MIN_M2 == 0.25
+    src = BAKE_SCRIPT.read_text(encoding="utf-8")
+    assert "const HOLE_MIN_M2 := 0.25" in src
+    assert "1.43 m2" in src

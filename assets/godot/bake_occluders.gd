@@ -73,9 +73,26 @@ const MIN_EXTENT_M := 0.5
 #: precision, and the report carries the answer.
 const ROUND_DP := 4
 
+#: An occluder must be a SUBSET of opaque geometry. A module whose mesh
+#: leaves more than this much of its own bounding box uncovered, on the axis
+#: it is thinnest in, has an opening in it and its box would cap that opening.
+#:
+#: DERIVED, and both bounds measured on cold run 9072's package before this
+#: number was written. The smallest opening this pipeline cuts is a ladder
+#: hole, `ladder_geom.through_hole` at 1.10 x 1.30 m = 1.43 m2. The measured
+#: deficit of every module WITHOUT an opening was 0.000000 m2, over 381 of
+#: them; the 11 with one measured 12.74 to 36.00 m2. So this sits 5.7x below
+#: the smallest real opening and infinitely above the noise.
+#:
+#: AREA, NOT A RATIO, and that is the whole point. A 1.43 m2 hole in a
+#: 36 x 13 m room floor is 0.3% of its area -- a ratio tolerant enough to
+#: survive any mesh would miss exactly the case this exists for. Absolute
+#: area does not care how big the room is.
+const HOLE_MIN_M2 := 0.25
+
 var _counts := {
 	"solid": 0, "porous": 0, "glass": 0, "filler": 0, "other": 0,
-	"no_bounds": 0, "too_small": 0,
+	"no_bounds": 0, "too_small": 0, "holed": 0,
 }
 
 
@@ -131,6 +148,66 @@ func classify(stem: String) -> String:
 	return "other"
 
 
+## How much of its own bounding box the module's mesh leaves uncovered, in m2,
+## on `axis` (0=X, 1=Y, 2=Z). Sums the projected area of every face pointing
+## along +axis and subtracts it from the box's cross-section there.
+##
+## Faces pointing the OTHER way are not counted: a plate has a top and a
+## bottom and counting both would read 2.0 and hide a hole in either.
+func _uncovered_m2(n: Node3D, box: AABB, axis: int) -> float:
+	var inv: Transform3D = n.global_transform.affine_inverse()
+	var nodes: Array = []
+	_walk(n, nodes)
+	var area: float = 0.0
+	for x in nodes:
+		var mi: MeshInstance3D = x as MeshInstance3D
+		if mi == null or mi.mesh == null:
+			continue
+		var xf: Transform3D = inv * mi.global_transform
+		for s in range(mi.mesh.get_surface_count()):
+			var arr: Array = mi.mesh.surface_get_arrays(s)
+			if arr.is_empty():
+				continue
+			var v: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+			var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX]
+			var nt: int = idx.size() / 3 if idx.size() > 0 else v.size() / 3
+			for t in range(nt):
+				var p0: Vector3
+				var p1: Vector3
+				var p2: Vector3
+				if idx.size() > 0:
+					p0 = xf * v[idx[t * 3]]
+					p1 = xf * v[idx[t * 3 + 1]]
+					p2 = xf * v[idx[t * 3 + 2]]
+				else:
+					p0 = xf * v[t * 3]
+					p1 = xf * v[t * 3 + 1]
+					p2 = xf * v[t * 3 + 2]
+				var nrm: Vector3 = (p1 - p0).cross(p2 - p0)
+				var comp: float = nrm.y
+				if axis == 0:
+					comp = nrm.x
+				elif axis == 2:
+					comp = nrm.z
+				if comp > 0.0:
+					area += comp * 0.5
+	var cross: float = box.size.x * box.size.z
+	if axis == 0:
+		cross = box.size.y * box.size.z
+	elif axis == 2:
+		cross = box.size.x * box.size.y
+	return cross - area
+
+
+## The axis the module is thinnest in -- the one its box would occlude across.
+func _thin_axis(box: AABB) -> int:
+	if box.size.y <= box.size.x and box.size.y <= box.size.z:
+		return 1
+	if box.size.z <= box.size.x and box.size.z <= box.size.y:
+		return 2
+	return 0
+
+
 func _r(v: float) -> float:
 	return snappedf(v, pow(10.0, -ROUND_DP))
 
@@ -176,6 +253,15 @@ func _run(scene_path: String, report_path: String) -> void:
 		if maxf(box.size.x, maxf(box.size.y, box.size.z)) < MIN_EXTENT_M:
 			_counts["too_small"] = int(_counts["too_small"]) + 1
 			continue
+		# THE BOX IS NOT THE MESH when the mesh has an opening cut in it, and
+		# an occluder over an opening caps what can be seen through it. See
+		# `HOLE_MIN_M2` for the measurement that set the bound and for the
+		# basement this shipped without.
+		var axis: int = _thin_axis(box)
+		var uncovered: float = _uncovered_m2(n, box, axis)
+		if uncovered > HOLE_MIN_M2:
+			_counts["holed"] = int(_counts["holed"]) + 1
+			continue
 		var size := Vector3(
 			maxf(SHRINK_M, box.size.x - SHRINK_M * 2.0),
 			maxf(SHRINK_M, box.size.y - SHRINK_M * 2.0),
@@ -185,6 +271,9 @@ func _run(scene_path: String, report_path: String) -> void:
 		rows.append({
 			"node": String(n.name),
 			"module": stem,
+			# The measured figure, not a flag: a number a reader can argue
+			# with, and the one `occluders.assert_no_capped_openings` checks.
+			"uncovered_m2": _r(uncovered),
 			"size": [_r(size.x), _r(size.y), _r(size.z)],
 			"basis": [
 				_r(t.basis.x.x), _r(t.basis.x.y), _r(t.basis.x.z),
@@ -212,9 +301,10 @@ func _run(scene_path: String, report_path: String) -> void:
 		return
 	fh.store_string(JSON.stringify(report, "  "))
 	fh.close()
-	print("[occluders] measured=%d solid=%d porous=%d glass=%d filler=%d other=%d"
+	print("[occluders] measured=%d solid=%d porous=%d glass=%d filler=%d other=%d holed=%d"
 		% [rows.size(), int(_counts["solid"]), int(_counts["porous"]),
-		   int(_counts["glass"]), int(_counts["filler"]), int(_counts["other"])])
+		   int(_counts["glass"]), int(_counts["filler"]), int(_counts["other"]),
+		   int(_counts["holed"])])
 	_cleanup(site)
 	quit(0)
 

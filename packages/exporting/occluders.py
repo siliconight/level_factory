@@ -237,7 +237,55 @@ def measure(export_dir: Path, godot_executable, *,
         raise OccluderError(f"bake failed: {report.get('error')}")
     if not isinstance(report.get("modules"), list):
         raise OccluderError("report carries no `modules` list")
+    assert_no_capped_openings(report)
     return report
+
+
+#: Mirrors `bake_occluders.HOLE_MIN_M2`. Derived there, and the derivation is
+#: worth repeating because it is the whole reason this gate exists: the
+#: smallest opening this pipeline cuts is a 1.10 x 1.30 m ladder hole
+#: (1.43 m2), and the measured uncovered area of every module WITHOUT an
+#: opening was 0.000000 m2 across 381 of them on cold run 9072's package.
+HOLE_MIN_M2 = 0.25
+
+
+def assert_no_capped_openings(report: dict) -> int:
+    """Raise `OccluderError` if any emitted occluder covers an opening.
+
+    WHAT THIS CAUGHT. Cold run 9072 shipped 17 floor and 17 ceiling occluders
+    as full-room horizontal boxes -- `floor_main_floor` was 36 x 13 m, 2 cm
+    thick, spanning a stair opening. Standing on that floor and looking down
+    the stair, the basement was culled. The walker found it by turning the
+    flag off; five gates had passed the package.
+
+    An UNRECOGNISED SHAPE FAILS. A report whose rows carry no `uncovered_m2`
+    came from a bake that cannot have taken this measurement, and reading its
+    absence as "nothing over the limit" is the `or []` mistake CLAUDE.md
+    records -- a checker that cannot find its field has learned nothing.
+    """
+    rows = report.get("modules")
+    if not isinstance(rows, list):
+        raise OccluderError("report carries no `modules` list to check")
+    missing = [r for r in rows if "uncovered_m2" not in r]
+    if missing:
+        raise OccluderError(
+            "%d of %d occluder row(s) carry no `uncovered_m2`: this bake did "
+            "not measure whether its boxes cap an opening, and an unmeasured "
+            "occluder must not ship as a measured one"
+            % (len(missing), len(rows)))
+    bad = [r for r in rows if float(r["uncovered_m2"]) > HOLE_MIN_M2]
+    if bad:
+        worst = sorted(bad, key=lambda r: -float(r["uncovered_m2"]))[:6]
+        lines = ["OCCLUDER_CAPS_AN_OPENING: %d occluder(s) cover more hole "
+                 "than %.2f m2" % (len(bad), HOLE_MIN_M2)]
+        for r in worst:
+            lines.append("    %-34s %-22s %8.2f m2 uncovered"
+                         % (str(r.get("module"))[:34], str(r.get("node"))[:22],
+                            float(r["uncovered_m2"])))
+        lines.append("  an occluder over an opening hides whatever is visible "
+                     "through it -- a stair, a mezzanine, a basement")
+        raise OccluderError("\n".join(lines))
+    return len(rows)
 
 
 def _fmt(v) -> str:

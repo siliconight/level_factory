@@ -1,3 +1,78 @@
+## [0.107.0] - an occluder must not cap an opening it cannot block
+
+WALKED. The walker turned occlusion culling off in a copy of cold run 9072's
+package and a basement stairwell appeared that had not been visible with it
+on, along with walls that came and went over 0.7 m of movement. Five gates had
+passed that package.
+
+Measured A/B, in a WINDOW -- the first attempt ran `--headless` and returned 0
+objects at every station with the flag both ways, which is the dead instrument
+this repo keeps rediscovering:
+
+    station     yaw   occlusion ON   OFF        culled
+    A x3.4      180      940 obj     940 obj       0
+    B x4.1      180      469 obj     930 obj     461
+    C x6.8       90      220 obj    2430 obj    2210
+    D stair      90      894 obj    2532 obj    1638
+
+### The cause was a proxy, which is this repo's recurring defect
+
+`bake_occluders` classifies `wall_ roof_ floor_ ceiling_` as solid, takes the
+node's AABB, shrinks it 2 cm and emits that box. The AABB stands in for "what
+this module blocks", and for a floor plate with a stairwell cut through it the
+AABB is the whole room while the mesh is not:
+
+    floor_main_floor   x -65.98..-30.02   y 0.00..0.02   z -10.98..1.98
+
+A 36 x 13 m horizontal box, 2 cm thick, spanning the stair opening. Stand on
+that floor, look down the stair, and the basement is behind the box.
+
+### The bound is derived, and a ratio would have been the wrong instrument
+
+    smallest opening the pipeline cuts   1.10 x 1.30 m ladder hole = 1.43 m2
+    uncovered area, 381 modules with no opening      0.000000 m2
+    uncovered area, the 11 with one         12.74 .. 36.00 m2
+
+`HOLE_MIN_M2 = 0.25` sits 5.7x below the smallest real opening and infinitely
+above a noise floor that is exactly zero. AREA, not ratio: that same 1.43 m2
+hole in a 36 x 13 m floor is 0.3% of its area, so any tolerant ratio misses
+precisely the case this exists for. Absolute area does not care about room
+size.
+
+### What it costs, measured rather than asserted
+
+32 stations, same package, occluders the only difference. The instrument's own
+noise was measured first by running one config twice: mean 3.5 objects, worst
+113, so deltas in the hundreds are real and anything under ~120 is not.
+
+    occlusion OFF           41,992 objects
+    old occluders (392)     25,422   culling 39.5%
+    fixed occluders (381)   31,168   culling 25.8%
+
+65.3% of the occlusion benefit retained; 5,746 object-frames restored that
+were being wrongly hidden. Correctness costs about a third of the occlusion
+win, because the 11 dropped occluders are floor and ceiling plates -- the
+largest boxes in the set.
+
+**The expensive version, priced and deliberately not taken here:** emit those
+11 plates' actual faces as an `ArrayOccluder3D` with the hole cut, instead of
+dropping them. It recovers most of that third and stays correct, at the cost
+of triangles in the occlusion rasteriser. Worth measuring; not worth bundling
+into the same change as the fix.
+
+### And the gate, which can refuse
+
+`occluders.assert_no_capped_openings` checks the measured figure the bake now
+records on every row it emits. A gate that only trusts the thing it is gating
+has learned nothing, so the number is in the artefact where a reader can argue
+with it.
+
+Verified both ways on the same package: it refuses the report that package
+actually shipped (`392 of 392 occluder row(s) carry no uncovered_m2`) and
+passes the rebaked one (381 rows, largest uncovered 0.000000 m2). A report
+whose rows lack the field is REFUSED rather than read as clean -- the `or []`
+mistake this repo has already made once.
+
 ## [0.106.1] - the census must leave the package as it found it
 
 Cold run 9071's export died `exit 5`, `EXPORT_CLOSURE_BROKEN`, three steps
