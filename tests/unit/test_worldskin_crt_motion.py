@@ -186,14 +186,27 @@ def test_the_snow_grain_is_read_off_the_picture_not_assumed():
         "a face with no texture still needs a grain at picture scale")
 
 
+#: The passes allowed to REPLACE a surface's material outright, smallest set
+#: that is true. `_assign_slabs` joined `_assign_stairs` for roadmap 168: the
+#: greybox slab's cut edge lines every ladder shaft and stairwell, theming
+#: never reached it, and the walker found it on a ladder. Both replace rather
+#: than decorate for the same reason -- a greybox box carries no UVs, so the
+#: material has to be swapped for a world-triplanar one.
+#:
+#: THE POINT OF THIS LIST IS THAT IT IS SHORT. Adding a name here is a
+#: decision; arriving at this test by accident means a pass started replacing
+#: materials without anyone choosing that, which is how a level quietly stops
+#: looking like the packs it was dressed from.
+MATERIAL_REPLACERS = {"_assign_stairs", "_assign_slabs"}
+
+
 def test_nothing_elses_material_class_changes():
     src = _src()
-    # the only place a surface's material is REPLACED is the stair skin; the
-    # CRT pass hangs a second pass off the material that is already there
-    owners = [_func(src, n) for n in re.findall(r"^func (\w+)\(", src, re.M)
+    # the CRT pass hangs a second pass off the material that is already there
+    # rather than replacing it, and must stay out of this set.
+    owners = [n for n in re.findall(r"^func (\w+)\(", src, re.M)
               if "surface_set_material" in _func(src, n)]
-    assert len(owners) == 1, [o.splitlines()[0] for o in owners]
-    assert "_assign_stairs" in owners[0].splitlines()[0]
+    assert set(owners) == MATERIAL_REPLACERS, owners
     # and no pass turns anything into a ShaderMaterial in place
     assert "surface_set_material(i, sm" not in src
     assert re.search(r"ShaderMaterial", _func(src, "_crt_motion")) is None

@@ -174,6 +174,22 @@ class ExportGlbReferenceError(RuntimeError):
     see `packages.exporting.glb_refs`, which owns the check."""
 
 
+class ExportGreyboxSkinError(RuntimeError):
+    """A themed package still draws greybox where theming claims to reach.
+
+    Every other gate here measures traversal correctness or resource closure.
+    This one measures whether the result reads as DESIGNED, which is the gap
+    CLAUDE.md names: of the three problems found by actually playing a
+    generated level, one was caught by an instrument and two by a person
+    looking at the screen. The defect it was built from -- a bare `gb_floor`
+    collar lining every ladder shaft and stairwell, 10.44 m2 over 8 openings
+    on cold run 9070's package -- was found on a ladder, by the walker.
+
+    Refuses on SLABS only; see `packages.exporting.greybox_skin` for the
+    census that set that threshold and for what it deliberately only
+    reports."""
+
+
 class ExportWarmupError(RuntimeError):
     """The package's shader warm-up could not be shipped, or what shipped is
     not what `packages.exporting.warmup` writes.
@@ -1657,6 +1673,39 @@ def export_mission(
             + str(export_dir / "glb_reference_scan.json")
             + "\n  a package whose GLBs name files it does not carry renders "
               "as greybox and passes every other gate in this exporter") from exc
+
+    # 4.87 DOES THIS THEMED PACKAGE STILL DRAW GREYBOX? See
+    # `packages.exporting.greybox_skin`, which owns the verdict, and
+    # `assets/godot/greybox_census.gd`, which owns the measurement.
+    #
+    # IN THE ENGINE, not over the GLBs: `zoo_worldskin.gd` is an import
+    # post-processor, so a shipped GLB keeps its `gb_*` materials by design
+    # and a glTF-level check would refuse every package ever built.
+    #
+    # ABOVE THE CLOSURE VERDICT, so `greybox_skin_scan.json` is inside the
+    # package the verdict describes and inside the manifest that lists it --
+    # the same reasoning as the GLB reference gate above, and the same
+    # consequence: it must NOT be added to `_WRITTEN_AFTER_VERDICT`.
+    #
+    # ENFORCED ONLY WITH A GODOT TO RUN IT, matching the occluder bake. A
+    # build with no engine cannot take this census, and a census not taken
+    # must say so rather than read as a clean package.
+    from packages.exporting import greybox_skin
+    if godot_executable:
+        try:
+            gb_report = greybox_skin.measure(export_dir, godot_executable)
+            print("[export] greybox skin: " + greybox_skin.summary(gb_report))
+            greybox_skin.assert_skinned(export_dir, gb_report)
+        except greybox_skin.GreyboxCensusError as exc:
+            raise ExportGreyboxSkinError(
+                "the greybox census failed and this build had a Godot to run "
+                "it with: %s\n  a package that cannot be measured must not "
+                "be shipped claiming it was" % exc) from exc
+        except greybox_skin.GreyboxSkinError as exc:
+            raise ExportGreyboxSkinError(str(exc)) from exc
+    else:
+        print("[export] greybox skin: no Godot in this build, so the census "
+              "was not taken and nothing is certified about it")
 
     # 4.9 Resource-closure VERDICT -- see `_closure_verdict`. LAST, after
     # every step that writes into the package and before the manifests, which

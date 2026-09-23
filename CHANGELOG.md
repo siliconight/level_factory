@@ -1,3 +1,104 @@
+## [0.106.0] - the grey collar around every ladder shaft and stairwell
+
+Found by the walker, on a ladder, looking down: the floor below read grey and
+untextured from above and the real texture appeared on the way down -- then the
+same on a staircase. Four cheaper explanations were measured and all four are
+wrong, and they are kept in `assets/godot/zoo_worldskin.gd` above the rule that
+replaced them:
+
+    NOT draw distance    every mesh in the column reports
+                         `visibility_range begin/end = 0`, `lod_bias = 1.0`,
+                         no distance fade. Nothing in the scene changes with
+                         camera distance at all.
+    NOT occlusion        two package copies differing only in
+                         `use_occlusion_culling` in `project.godot` drew
+                         identical counts at four eye heights (52/38/82/12).
+    NOT z-fighting       the two VISIBLE faces are 20 mm apart (+3.320 against
+                         +3.300) and a 24-bit buffer separates ~0.03 mm at that
+                         range. The coplanar pair is the themed floor's
+                         UNDERSIDE, which backface culling never draws.
+    NOT a gap            themed floor area equals slab area to 0.1 m2 (3192.0
+                         against 3192.0), and the hole is cut through BOTH to
+                         the same rectangle -- x 53.45..54.55, z 21.9..23.2.
+
+What it is: theming skins a slab's TOP as a floor and its BOTTOM as a ceiling,
+and never touches the faces a hole cut through it CREATES.
+`deli_counter._slab_holes_cut` boolean-subtracts the opening and the new
+interior faces inherit the slab's flat `gb_floor`. A slab is `floor_thick`
+deep, so a 1.10 x 1.30 m ladder hole is ringed by 1.44 m2 of bare greybox --
+the same area as the opening it surrounds, which is why it fills the view from
+anywhere but straight down. 8 of 344 slabs in cold run 9070's package are cut,
+carrying 10.44 m2 between them: every ladder shaft and every stairwell.
+
+IT WAS NOT NEW AND IT WAS NOT THE PERFORMANCE PASS, which was the first guess
+and is recorded because it was wrong. Every package measured back to
+`walk_export_county_hospital_001` (2026-09-11, before any of that work) ships
+`[('gb_floor', False)]` on its slabs, and no commit has ever touched "slab" in
+`zoo_worldskin.gd`. What changed is that cold run 9070 was the first package
+since Zoo 1.2.0 to ship the textures its GLBs name: before it, everything was
+grey and a grey collar was unremarkable. The performance work revealed this,
+it did not cause it.
+
+### The fix: `_skin_slabs`, beside `_skin_stairs`
+
+Same shape as roadmap 144's stair pass, for the same reason -- a greybox box
+carries POSITION and NORMAL only, and a boolean's new faces carry no usable
+UVs either way, so world triplanar is the tool. The slab takes the floor
+family: the collar's top edge abuts the themed floor plane, so sharing that
+family makes the one seam a walker actually sees continuous.
+
+THE WHOLE SLAB IS SKINNED, NOT THE COLLAR. The buried top and bottom cost
+nothing to dress -- one mesh, one material either way -- and picking interior
+faces out of a boolean result would mean trusting normals the cut generated.
+
+Measured on 9070's package, re-imported with this pass and nothing else
+changed:
+
+    slabs skinned            120 + 80 + 144 = 344, 0 left flat
+    slab material            gb_floor [FLAT]  ->  M_Skin_slab_reveal [tex]
+    distinct materials       261 -> 262   (+1: one duplicate per base)
+    surfaces submitted       unchanged -- the material is swapped, not added
+
+It refuses out loud, like the stair pass: a base with no `art/zoo` beside it,
+or none carrying a floor family module, `push_error`s rather than printing.
+
+### And the gate, because an instrument did not catch this and a person did
+
+`packages/exporting/greybox_skin.py` (verdict) and
+`assets/godot/greybox_census.gd` (measurement). Every other gate in this
+exporter asks whether a body can get from A to B or whether a `res://`
+reference resolves; none asks whether the result reads as designed. This one
+counts surfaces still drawing a `gb_*` material in a themed package.
+
+IN THE ENGINE, not over the GLBs: `zoo_worldskin.gd` is an import
+post-processor, so a shipped GLB keeps its greybox materials by design and a
+glTF-level check would refuse every package ever built.
+
+WHAT IT REFUSES AND WHAT IT ONLY REPORTS, decided from the census rather than
+chosen. On 9070's package before the fix, attributed in full:
+
+    gb_floor    346 surfaces   (344 slabs + 2 vault ledges)
+    gb_ladder    38 surfaces
+    gb_wall      28 surfaces   (roof parapets)
+    ---------------------------
+                412 surfaces
+
+It refuses on SLABS, where the pass now guarantees zero, and reports the rest.
+A greybox ladder is not a regression -- nothing has ever skinned one -- it is a
+capability the toolchain does not have, and refusing over it would block every
+export on work nobody has done.
+
+Verified both ways on the same package: before, `344 slab surface(s) still
+carry a greybox material` and the export refuses; after, `68 surface(s) on a
+greybox material (gb_ladder 38, gb_wall 28, gb_floor 2); slabs 0` and it
+passes. A gate that cannot refuse is not evidence, so the refusal was measured
+before the fix as well as after.
+
+AREA IS TOTAL MESH SURFACE AREA, NOT VISIBLE AREA, and the census says so at
+length: `gb_floor` reports 17,447 m2, almost all of it slab faces buried under
+a themed floor and ceiling, against the 10.44 m2 the walker could actually
+see. The refusal keys on surface COUNT for exactly that reason.
+
 ## [0.105.1] - the two figures externalisation was sold on, retracted and re-measured with the pixels in the package
 
 ### RETRACTED

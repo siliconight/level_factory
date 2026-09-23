@@ -112,6 +112,60 @@ const STAIR_FLIGHT_FAMILY: Array = ["floor_"]
 ## that rather than report it.
 const STAIR_GUARD_PREFIX: String = "stair_guard_"
 
+## The greybox slab's CUT EDGE, which theming never reaches (roadmap 168).
+##
+## Walked 2026-09-23: on a ladder, looking down reads grey and untextured and
+## the real floor appears on the way down; the walker reported the same on the
+## stairs independently. Measured on cold run 9070's package before a line of
+## this was written, because four cheaper explanations were on the table and
+## every one of them is wrong:
+##
+##  * NOT draw distance. Every mesh in that column reports
+##    `visibility_range_begin/end = 0`, `lod_bias = 1.0` and no distance fade.
+##    Nothing in the scene changes with camera distance at all.
+##  * NOT occlusion culling. Two package copies differing only in
+##    `use_occlusion_culling` in `project.godot` drew identical counts at four
+##    eye heights (52/38/82/12).
+##  * NOT z-fighting. The themed floor's top and the slab's top are 20 mm
+##    apart and a 24-bit buffer separates about 0.03 mm at that range. The
+##    coplanar pair is the floor's UNDERSIDE against the slab's top, which
+##    backface culling never draws.
+##  * NOT a gap in the floor. Themed floor area equals slab area to 0.1 m2
+##    (3192.0 against 3192.0), and the ladder hole is cut through BOTH to the
+##    same rectangle -- slab x 53.45..54.55 z 21.9..23.2, themed floor the
+##    same to the raster's own 5 cm cell.
+##
+## What is left is the only untextured surface in the column. Theming skins a
+## slab's TOP (as a floor) and its BOTTOM (as a ceiling) and never touches the
+## faces that a hole cut through it CREATES. `deli_counter._slab_holes_cut`
+## boolean-subtracts the opening and the new interior faces inherit the slab's
+## flat `gb_floor`. A slab is `floor_thick` deep, so a 1.10 x 1.30 m ladder
+## hole is ringed by 1.44 m2 of bare greybox -- the same area as the opening it
+## surrounds, which is why it fills the view from anywhere but straight down.
+## 8 of 344 slabs in that package are cut, carrying 10.44 m2 between them:
+## every ladder shaft and every stairwell.
+##
+## THE WHOLE SLAB IS SKINNED, NOT THE COLLAR. The buried top and bottom cost
+## nothing to dress -- it is one mesh with one material either way, so the
+## submission count does not move -- and picking the interior faces out of a
+## boolean result would mean trusting normals that the cut generated.
+##
+## A BOOLEAN'S NEW FACES CARRY NO USABLE UVs, which is the same problem
+## `_skin_stairs` was written for and takes the same answer: world triplanar
+## projects from position and needs none.
+const SLAB_PREFIX: String = "slab_"
+## Deli Counter's collision slabs are `slab_col_<story>`; its visual ones are
+## `slab_<story>` and `slab_<story>_t<j>_<i>`. One spelling of the test, shared
+## with the stair pass's shape rather than written a second way.
+const SLAB_COLLISION_MARK: String = "col"
+## A REVEAL TAKES THE FAMILY OF THE SURFACE IT MEETS. The collar's top edge
+## abuts the themed floor plane, so sharing that family makes the one seam a
+## walker actually sees continuous. The wall family was considered and left:
+## it would match a seam that is not there. Same value as
+## `STAIR_FLIGHT_FAMILY` and written out rather than aliased to it, so the two
+## can diverge later without one silently moving the other.
+const SLAB_REVEAL_FAMILY: Array = ["floor_"]
+
 ## Families whose module is ONE TILE of a surface that repeats: the kit above,
 ## and the panels a floor, ceiling or roof is laid from, and Patina's building
 ## dressing (`<building>_dressing.glb`, runs of edge strips and base courses
@@ -380,6 +434,10 @@ func _post_import(scene: Node) -> Object:
 			print("[worldskin] %s  stairs: %d flight surface(s) skinned on %d mesh(es), %d mesh(es) left flat%s"
 				% [base, int(n["flight_surfaces"]), int(n["flight_meshes"]),
 					int(n["unskinned_meshes"]), String(n["note"])])
+			var sl: Dictionary = _skin_slabs(scene, get_source_file().get_base_dir())
+			print("[worldskin] %s  slabs: %d surface(s) skinned on %d mesh(es), %d mesh(es) left flat%s"
+				% [base, int(sl["slab_surfaces"]), int(sl["slab_meshes"]),
+					int(sl["unskinned_meshes"]), String(sl["note"])])
 			return scene
 		print("[worldskin] %s  not a kit module, left alone" % base)
 		return scene
@@ -780,7 +838,7 @@ func _skin_stairs(scene: Node, base_dir: String) -> Dictionary:
 		out["note"] = "; NO art/zoo BESIDE THE BASE -- %d flight mesh(es) left in the greybox material" % flights
 		push_error("[worldskin] %s%s" % [get_source_file(), String(out["note"])])
 		return out
-	var flight: Array = _family_material(art, dir, STAIR_FLIGHT_FAMILY, "flight")
+	var flight: Array = _family_material(art, dir, STAIR_FLIGHT_FAMILY, "stair_flight")
 	if flight.is_empty():
 		out["unskinned_meshes"] = flights
 		# `%` binds tighter than `+`, so the formatted piece is built whole
@@ -827,7 +885,7 @@ func _family_material(art: String, dir: DirAccess, families: Array,
 			inst.free()
 			if dup == null:
 				continue
-			dup.resource_name = "M_Skin_stair_%s" % part
+			dup.resource_name = "M_Skin_%s" % part
 			if not dup.uv1_world_triplanar:
 				# The module imported before the kit pass touched it: its
 				# uv1_scale is still the authored tile period. World-project
@@ -897,4 +955,82 @@ func _assign_stairs(n: Node, flight_mat: Material) -> Array:
 		guards += int(sub[3])
 		flat += int(sub[4])
 	return [fs, fm, seen, guards, flat]
+
+
+## Skin the greybox base's floor slabs, for the reasons written on
+## `SLAB_PREFIX` above.
+##
+## Mirrors `_skin_stairs` deliberately, including refusing OUT LOUD: a base
+## whose slabs this cannot dress ships bare grey around every ladder and
+## stairwell in it, which is exactly the failure that reached the walker and
+## exactly the kind that a `print` nobody reads does not stop.
+##
+## Returns {slab_surfaces, slab_meshes, unskinned_meshes, note}.
+func _skin_slabs(scene: Node, base_dir: String) -> Dictionary:
+	var out: Dictionary = {"slab_surfaces": 0, "slab_meshes": 0,
+		"unskinned_meshes": 0, "note": ""}
+	# The census and the work use ONE definition of a visual slab mesh: a null
+	# material counts instead of assigning (see `_assign_stairs`).
+	var present: Array = _assign_slabs(scene, null)
+	var slabs: int = int(present[2])
+	if slabs == 0:
+		out["note"] = "; no visual slab in this base, nothing to skin"
+		return out
+	var art: String = base_dir.path_join("art").path_join("zoo")
+	var dir := DirAccess.open(art)
+	if dir == null:
+		out["unskinned_meshes"] = slabs
+		out["note"] = "; NO art/zoo BESIDE THE BASE -- %d slab mesh(es) left in the greybox material" % slabs
+		push_error("[worldskin] %s%s" % [get_source_file(), String(out["note"])])
+		return out
+	var reveal: Array = _family_material(art, dir, SLAB_REVEAL_FAMILY, "slab_reveal")
+	if reveal.is_empty():
+		out["unskinned_meshes"] = slabs
+		# `%` binds tighter than `+`, so the formatted piece is built whole
+		# before it is joined (the trap `tools/gdcheck.py` exists to catch).
+		out["note"] = ("; NO MODULE UNDER art/zoo IN FAMILIES %s -- %d slab mesh(es) left in the greybox material"
+			% [str(SLAB_REVEAL_FAMILY), slabs])
+		push_error("[worldskin] %s%s" % [get_source_file(), String(out["note"])])
+		return out
+	var counts: Array = _assign_slabs(scene, reveal[0] as Material)
+	out["slab_surfaces"] = int(counts[0])
+	out["slab_meshes"] = int(counts[1])
+	out["unskinned_meshes"] = int(counts[3])
+	out["note"] = "; reveal from %s" % String(reveal[1])
+	return out
+
+
+## A mesh named for a floor slab that is DRAWN rather than collided with.
+func _is_visual_slab(nm: String) -> bool:
+	return nm.begins_with(SLAB_PREFIX) and not nm.contains(SLAB_COLLISION_MARK)
+
+
+## Assign the reveal material. A null `mat` counts the meshes it would have
+## dressed as unskinned instead of assigning, so the census `_skin_slabs`
+## takes before it goes looking for a pack and the work it does afterwards
+## share one definition rather than two that can drift.
+##
+## Returns [slab_surfaces, slab_meshes, slab_seen, unskinned_meshes].
+func _assign_slabs(n: Node, mat: Material) -> Array:
+	var fs: int = 0
+	var fm: int = 0
+	var seen: int = 0
+	var flat: int = 0
+	var mi: MeshInstance3D = n as MeshInstance3D
+	if mi != null and mi.mesh != null and _is_visual_slab(String(mi.name)):
+		seen += 1
+		if mat == null:
+			flat += 1
+		else:
+			for i in range(mi.mesh.get_surface_count()):
+				mi.mesh.surface_set_material(i, mat)
+				fs += 1
+			fm += 1
+	for c in n.get_children():
+		var sub: Array = _assign_slabs(c, mat)
+		fs += int(sub[0])
+		fm += int(sub[1])
+		seen += int(sub[2])
+		flat += int(sub[3])
+	return [fs, fm, seen, flat]
 
