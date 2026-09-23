@@ -301,6 +301,61 @@ def test_an_unreadable_glb_does_not_stop_a_job_publishing(tmp_path):
         work / "broken.glb"]
 
 
+# --- the gate refuses the build ---------------------------------------------
+
+def _handoff(tmp_path):
+    """The smallest thing `export_mission` will build a package from."""
+    handoff = tmp_path / "handoff"
+    handoff.mkdir()
+    (handoff / "mission.tscn").write_text("[gd_scene]\n", encoding="utf-8")
+    # The entry stub replaces mission.tscn, so without a second scene the
+    # package instances nothing and 0.37.0's guard refuses it first.
+    (handoff / "site.tscn").write_text("[gd_scene]\n", encoding="utf-8")
+    return handoff
+
+
+def test_the_export_refuses_a_package_whose_glb_names_a_missing_file(tmp_path):
+    """REFUSES, not warns. `occluders.py` records what a warning nobody reads
+    is worth -- 0.98.0 shipped a package with the culling flag on and nothing
+    to cull behind one. This shipped three packages of greybox behind no
+    warning at all, so it raises and the CLI exits non-zero."""
+    from packages.exporting.export import (ExportGlbReferenceError,
+                                           ExportProfile, export_mission)
+
+    handoff = _handoff(tmp_path)
+    _glb_naming(handoff / "wall.glb", ["_tex/brick_a1b2c3d4.png"])
+    with pytest.raises(ExportGlbReferenceError) as exc:
+        export_mission(mission_id="m1", handoff_dir=handoff,
+                       presentation_dir=None, source_dir=None,
+                       profile=ExportProfile(), tool_versions={},
+                       out_root=tmp_path / "exports")
+    assert "EXPORT_GLB_REFERENCES_BROKEN" in str(exc.value)
+    assert "_tex/brick_a1b2c3d4.png" in str(exc.value)
+    # and the report is in the package it refused, for whoever has to read it
+    report = (tmp_path / "exports" / "LF_m1.portable-godot"
+              / "glb_reference_scan.json")
+    assert json.loads(report.read_text(encoding="utf-8"))["ok"] is False
+
+
+def test_the_same_export_passes_once_the_file_is_there(tmp_path):
+    """THE CONTROL. One file apart from the test above, so the refusal is
+    about the reference and not about anything else in the fixture."""
+    from packages.exporting.export import ExportProfile, export_mission
+
+    handoff = _handoff(tmp_path)
+    _glb_naming(handoff / "wall.glb", ["_tex/brick_a1b2c3d4.png"])
+    _png(handoff / "_tex" / "brick_a1b2c3d4.png")
+    result = export_mission(mission_id="m1", handoff_dir=handoff,
+                            presentation_dir=None, source_dir=None,
+                            profile=ExportProfile(), tool_versions={},
+                            out_root=tmp_path / "exports")
+    report = json.loads(
+        (result.export_dir / "glb_reference_scan.json").read_text(
+            encoding="utf-8"))
+    assert report["ok"] is True
+    assert (report["references"], report["resolved"]) == (1, 1)
+
+
 # --- where the gate sits ----------------------------------------------------
 
 def test_the_gate_runs_above_the_closure_verdict_and_is_in_the_manifest():
