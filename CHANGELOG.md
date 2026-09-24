@@ -1,3 +1,40 @@
+## [0.108.1] - the Dispatch staging carries a building's ladders
+
+The third link in a chain this had been wrong about twice. The capability is
+"an AI can path up a ladder the player climbs", and it was claimed and
+falsified twice by the falsifier its own brief wrote down -- a package whose
+buildings carry ladders and whose `navigation_hints.json` `links[]` is empty.
+
+Traced on cold run 9076's own files rather than guessed. Four hops, and only
+the middle two had been fixed:
+
+    deli_counter/build/arena_a03.gameplay.json      ladders: 1   OK
+    lot .../site.site.gameplay.json                 ladders: 1   OK (Lot 0.76.0)
+    .../dispatch_inputs/lot/lot.gameplay.json       no `ladders` KEY AT ALL
+    navigation_hints.json                           links: 0
+
+`stage_dispatch_inputs` does not copy Lot's file; it PROJECTS it into a literal
+dict keyed `schema, license, up_axis, anchors, props, interactives`. Anything
+else is dropped, and a whitelist that drops is indistinguishable from an
+upstream that never sent. Both the deli_counter and lot sides did it.
+
+NOT `derive_nav`'s `links`, which was checked before patching: that is
+`[[node_id, node_id], ...]` edges chaining the coarse anchor graph, a different
+quantity that happens to share a name.
+
+**CONFIRMED BY COLD RUN 9077**, which is the proof neither earlier attempt had:
+0 interventions, export exit 0, and `links: 1` --
+`lot:07_ladder_0_navlink`, [67.0, 3.6, -23.0] to [67.0, 7.2, -23.0], a 3.6 m
+climb, bidirectional, `required_capability: climb`, agent_types player and
+ai_humanoid. The run's candidate was selected FOR the falsifier rather than on
+its grade: seed_9279 graded best and carried no ladder, so choosing it would
+have read `links: 0` correctly and proved nothing.
+
+Also in this release: VERSION now reads 0.108.1. It read 0.108.0 while the
+0.108.1 commit was titled as such -- the same defect as Dispatch's stale
+`__version__`, reproduced in the next repo touched, and caught by `cold_run
+--begin` printing `level_factory 0.108.0` at the top of 9077.
+
 ## [0.108.0] - the export's blocker query knows which candidate it is exporting
 
 COLD RUN 9074 COULD NOT PRODUCE A PACKAGE, and two instruments disagreed about
