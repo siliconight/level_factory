@@ -1105,27 +1105,25 @@ GROUND_SKIN_KINDS = {"ground": "asphalt", "path": "sidewalk", "courtyard": "conc
                      "paint": "road_paint"}
 
 
-#: The street's dimensions, from Lot's own hand-authored specs (`gs_heist`,
-#: `coldrun_kerb_probe`): a 10 m road, 3 m sidewalks, and 2 m of plate
-#: between a sidewalk and anything else. A spur is a crossing's width.
-ROAD_WIDTH = 10.0
-SIDEWALK_WIDTH = 3.0
-ROAD_MARGIN = 2.0
-SPUR_WIDTH = 4.0
+#: THE STREET'S DIMENSIONS NOW LIVE IN `packages.pipeline.road_grammar`,
+#: beside the grammars that build with them, and are re-exported here because
+#: `tests/unit/test_street_in_site_spec.py` and several call sites below read
+#: them as `cmds.ROAD_BAND`. One definition, two names -- not two definitions.
+from packages.pipeline.road_grammar import (        # noqa: E402  (re-export)
+    ROAD_WIDTH, SIDEWALK_WIDTH, ROAD_MARGIN, SPUR_WIDTH, SPUR_INTO_WALK,
+    ROAD_BAND, FRONTAGE,
+)
 #: How far into the sidewalk a door spur runs, as a fraction of the walk's
 #: depth from its BACK edge. Deep enough that the path and the walk overlap
 #: with no seam; short of the walk's centre line, which is where Lot's
 #: `kerb_crossings` tests a path for a crossing -- a spur that reached it
 #: would be cut, painted and signed like a street crossing again.
-SPUR_INTO_WALK = 0.15
-ROAD_BAND = ROAD_MARGIN + SIDEWALK_WIDTH + ROAD_WIDTH + SIDEWALK_WIDTH + ROAD_MARGIN
 #: How much plate stands between a building's front face and its sidewalk.
 #: The walker's art direction (docs/DELCO_1997_ART_DIRECTION.md point 4):
 #: commercial Delco grew out of ROADS, buildings close to the road with
 #: parking beside or behind. 2.0 m is `ROAD_MARGIN`, the same margin this
 #: module already keeps between a sidewalk and anything else, and it is a
 #: stoop and a meter strip rather than a yard.
-FRONTAGE = ROAD_MARGIN
 
 
 def _segment_crosses_road(p, q, roads):
@@ -1139,78 +1137,6 @@ def _segment_crosses_road(p, q, roads):
     return any(_cross(p, q, r["a"], r["b"]) for r in roads or [])
 
 
-def _street_for(buildings, footprints, span_x, span_y):
-    """One road along the plate's south edge, a cross street north from it,
-    a spur path from every building to the road, and the plate that holds
-    them. Returns (roads, spurs, span_x, span_y).
-
-    The road runs the full plate width in the band between the southernmost
-    footprint edge and the south perimeter; when the plate as sized for the
-    row is too shallow for the band, it is deepened (symmetrically -- the
-    plate stays centred on the row) rather than the road squeezed. Each spur
-    starts a metre clear of its building's south face, so no path runs under
-    a floor, and ends on the road's centre line, so `_kerb_crossings` drops
-    the kerb there and nowhere else.
-
-    THE CROSS STREET (roadmap 153, intersections). A second road begins on
-    the first's centre line and runs north to the plate's edge, making a T:
-    Lot cuts the through road's kerb for its mouth, begins its slab at the
-    through road's band edge, and paints the junction. It runs through the
-    widest gap between two neighbouring buildings that holds a full band,
-    else past the west end of the row, with the plate widened (again
-    symmetrically) to hold it. A street with one road is a strip; a street
-    with a corner is a block.
-    """
-    from packages.pipeline.site_variation import DEFAULT_FOOTPRINT
-    import math as _m
-    if not buildings:
-        return [], [], span_x, span_y
-    south, faces, edges = None, [], []
-    for b, fp in zip(buildings, footprints):
-        w, d = tuple(fp) if fp else DEFAULT_FOOTPRINT
-        turned = int(round(float(b.get("rot", 0)))) % 180 == 90
-        ext_x, ext_y = (d, w) if turned else (w, d)
-        x = float(b["at"][0])
-        face = float(b["at"][1]) - float(ext_y) / 2.0
-        faces.append((x, face))
-        edges.append((x - float(ext_x) / 2.0, x + float(ext_x) / 2.0))
-        south = face if south is None else min(south, face)
-    # THE ROAD IS DERIVED FROM THE FACE, AND THE PLATE FROM THE ROAD. It used
-    # to be the other way round -- `y_road` from `-span_y/2`, the plate's own
-    # south edge -- and since the plate is sized by the building row and by
-    # whatever the shape asked for, the distance between a front door and the
-    # kerb was a residue rather than a decision. Measured on cold run 9041:
-    # 21.5 m of empty ground between a bank's south face and its sidewalk.
-    y_road = south - FRONTAGE - SIDEWALK_WIDTH - ROAD_WIDTH / 2.0
-    # the plate must still hold the road's far sidewalk and its margin
-    need_half = -(y_road - ROAD_WIDTH / 2.0 - SIDEWALK_WIDTH - ROAD_MARGIN)
-    if span_y / 2.0 < need_half:
-        span_y = int(_m.ceil(2.0 * need_half))
-    # the cross street's line: the widest gap that holds a band, else west
-    edges.sort()
-    x_cross, widest = None, ROAD_BAND
-    for (_l0, r0), (l1, _r1) in zip(edges, edges[1:]):
-        if l1 - r0 >= widest:
-            x_cross, widest = (r0 + l1) / 2.0, l1 - r0
-    if x_cross is None:
-        x_cross = edges[0][0] - ROAD_BAND / 2.0
-        need_half_x = -(x_cross - ROAD_BAND / 2.0)
-        if span_x / 2.0 < need_half_x:
-            span_x = int(_m.ceil(2.0 * need_half_x))
-    road = {"a": [-span_x / 2.0, y_road], "b": [span_x / 2.0, y_road],
-            "width": ROAD_WIDTH, "sidewalk": SIDEWALK_WIDTH}
-    cross = {"a": [x_cross, y_road], "b": [x_cross, span_y / 2.0 - ROAD_MARGIN],
-             "width": ROAD_WIDTH, "sidewalk": SIDEWALK_WIDTH}
-    # A DOOR PATH ENDS AT THE SIDEWALK. It ran to the road's centre line so
-    # Lot would cut the kerb there, and Lot duly treated every door as a
-    # street crossing: both kerbs dropped, a crosswalk with stop bars, and a
-    # stop sign each side (the walker, cold run 9048). A door opens onto the
-    # sidewalk; crossings belong at junctions (docs/STREET_RULES.md).
-    walk_back = y_road + ROAD_WIDTH / 2.0 + SIDEWALK_WIDTH
-    spur_end = walk_back - SIDEWALK_WIDTH * SPUR_INTO_WALK
-    spurs = [{"a": [x, face - 1.0], "b": [x, spur_end], "width": SPUR_WIDTH}
-             for x, face in faces if face - 1.0 - spur_end > 0.3]
-    return [road, cross], spurs, span_x, span_y
 
 
 #: Which family of business an archetype belongs to, by the first keyword
@@ -1347,7 +1273,7 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
     degrees). Extra keys Lot ignores (site_shape/route_shape/target_minutes) are
     kept for LF's own readers.
     """
-    from packages.pipeline import site_variation
+    from packages.pipeline import road_grammar, site_variation
     from packages.pipeline.site_variation import (
         STREET, ground_size, row_spacing, shell_footprint, site_placements)
 
@@ -1586,7 +1512,8 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
     # sidewalks, and a spur path from each building's south face to it, so
     # the kerb is cut where the crew crosses and a wall everywhere else --
     # which is what a street is.
-    roads, spurs, span_x, span_y = _street_for(buildings, fp_list, span_x, span_y)
+    roads, spurs, span_x, span_y = road_grammar.roads_for(
+        model.road_grammar, buildings, fp_list, span_x, span_y)
     spec = {
         # Lot names its outputs from this field (site.tscn / site_walk.tscn /
         # site.site.gameplay.json), so it must be the canonical LF stem "site",
@@ -1666,9 +1593,27 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
             "got": site_variation.shape_of(model.site_shape),
             "known": site_variation.shape_known(model.site_shape),
         },
+        "road_grammar": model.road_grammar,
+        # THE SAME TREATMENT FOR THE ROAD, and for the same reason. The
+        # grammar falls back to a T for a spelling it does not know, so a
+        # fallback that left no trace would be a wrong-but-plausible street.
+        "road_grammar_resolved": {
+            "asked": str(model.road_grammar or ""),
+            "got": road_grammar.grammar_of(model.road_grammar),
+            "known": road_grammar.grammar_known(model.road_grammar),
+        },
         "route_shape": model.route_shape,
         "target_minutes": list(model.target_minutes),
     }
+    if not road_grammar.grammar_known(model.road_grammar):
+        err = sys.stderr
+        print("  road_grammar: %r is not a spelling road_grammar knows -- "
+              "streets laid out as a T" % (model.road_grammar,), file=err)
+        print("    known: " + ", ".join(road_grammar.known_spellings()),
+              file=err)
+        print("    add the spelling to _GRAMMAR_ALIASES, or change the brief; "
+              "the fallback is recorded in the site spec as "
+              "road_grammar_resolved", file=err)
     if not site_variation.shape_known(model.site_shape):
         # The capability-gap voice USING_THE_FACTORY.md asks every tool for:
         # what was asked, what exists, who is short. Non-blocking, because a

@@ -66,6 +66,12 @@ class MissionBrief:
     archetype: str = ""
     building_count: int = 1
     site_shape: str = ""
+    #: The ROAD graph, separate from `site_shape`'s building arrangement.
+    #: Two axes, because they are two decisions: a row of buildings can
+    #: stand on a T or on a crossroads, and until this existed every site
+    #: ever generated stood on a T. Empty means T, the street the factory
+    #: has always built.
+    road_grammar: str = ""
     route_shape: str = ""
     objective_hypotheses: list[str] = field(default_factory=list)
     extraction_relationship: str = ""
@@ -133,6 +139,7 @@ class MissionBrief:
             "archetype": self.archetype,
             "building_count": self.building_count,
             "site_shape": self.site_shape,
+            "road_grammar": self.road_grammar,
             "route_shape": self.route_shape,
             "objective_hypotheses": list(self.objective_hypotheses),
             "extraction_relationship": self.extraction_relationship,

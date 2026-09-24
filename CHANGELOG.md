@@ -1,3 +1,67 @@
+## [0.109.0] - the street is a choice, and a crossroads is one of them
+
+`site_variation` varies where the BUILDINGS go -- a walk that turns zero times
+(`row`), once (`L`) or three times (`courtyard`). Measured on a sweep at
+matched seeds, that axis works: layout moves a plan 0.18-0.21 of the site
+diagonal against 0.071-0.074 for a seed alone.
+
+The ROAD had one option. `_street_for` emitted exactly two roads on every site
+ever generated -- one along the plate's south edge and one cross street ending
+on it, a T -- and derived them FROM the buildings after placement. Of the level
+shapes a person would name (main street, T-junction, crossroads, parallel
+streets, alley spine) this factory built the second one, every time, and could
+not be asked for another.
+
+**Lot was already ready.** `lot.site_streets.roads()` takes an arbitrary road
+list: road-to-road crossings found from geometry, `_slab` for a road that ENDS
+on another, `gaps` for one that passes THROUGH, with kerbs, dropped-kerb cuts,
+crosswalk bars, stop bars and stop signs per road against docs/STREET_RULES.md.
+Nothing in Lot or Level Factory assumes a road count -- checked. So Lot's X
+handling had never fired on a generated level, because nothing emitted an X.
+
+### What changed
+
+- `packages/pipeline/road_grammar.py`: the vocabulary (`T`, `cross`), an alias
+  table, `grammar_known` / `grammar_of` / `known_spellings`, and `roads_for`.
+  The street constants move here, beside the grammars that build with them,
+  and are re-exported from `apps.cli.commands` so `cmds.ROAD_BAND` still
+  resolves. One definition, two names.
+- `MissionBrief.road_grammar`, carried through `as_dict`.
+- The site spec records `road_grammar_resolved` -- asked, got, known -- exactly
+  as `site_shape_resolved` does, and stderr names the known spellings when a
+  brief uses a word the table lacks. A fallback that leaves no trace is a
+  wrong-but-plausible street.
+- `_street_for` is deleted. Two definitions of one street is what this removes.
+
+### T does not move
+
+Checked against ALL 74 building sets on disk -- every site plan the factory has
+ever produced -- and `roads_for("T", ...)` reproduced the old function's output
+exactly on every one. `tests/unit/test_street_in_site_spec.py` now exercises the
+grammar rather than the deleted function and still passes unchanged.
+
+### A crossroads is an X, and Lot says so
+
+The proof is behavioural, not geometric, because Lot draws the junction:
+
+    T      road 0  crossing terminal=True   kerb cuts 1
+           road 1  slab 8..81 clipped       gap (-8, 8) at its START
+    cross  road 0  crossing terminal=False  kerb cuts 2
+           road 1  slab 0..116 full         gap (27, 43) MID-SPAN
+
+A road that ends on another terminates there; one that passes through does not.
+That boolean is the difference between three approaches and four.
+
+**A correction kept in the test.** The first version asserted a `gap` on the
+FRONT road and failed against a crossroads that was working perfectly:
+`road.gaps` is filled where `0 <= c.crosser < road.index`, so the lower-index
+road owns the junction surface and the higher-index one yields -- on both a T
+and an X it is road 1 that carries the gap. A checker written against a guessed
+reading of a field, which is the defect CLAUDE.md records three instances of.
+The table above is in the test's docstring so nobody re-derives it.
+
+1680 passed, 12 skipped, 1 xfail, 0 failed.
+
 ## [0.108.2] - the census stub, and an instrument that says what the engine said
 
 Two integration tests (`test_presentation_export`, `test_facade`) were failing,

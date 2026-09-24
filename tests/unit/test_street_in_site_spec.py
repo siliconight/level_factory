@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 import apps.cli.commands as cmds
 from packages.core.models import MissionBrief
+from packages.pipeline import road_grammar
 
 
 def test_the_road_runs_south_of_every_building_and_spurs_reach_it():
@@ -19,7 +20,7 @@ def test_the_road_runs_south_of_every_building_and_spurs_reach_it():
                  {"id": "b1", "at": [3, 10], "rot": 270},
                  {"id": "b2", "at": [46, 5], "rot": 270}]
     fps = [(40, 26), (22, 16), (40, 28)]          # cold run 9021's row
-    roads, spurs, span_x, span_y = cmds._street_for(buildings, fps, 165, 69)
+    roads, spurs, span_x, span_y = road_grammar.roads_for("T", buildings, fps, 165, 69)
     road, cross = roads
     assert road["width"] == 10.0 and road["sidewalk"] == 3.0
     assert road["a"][0] == -82.5 and road["b"][0] == 82.5
@@ -43,7 +44,7 @@ def test_the_road_runs_south_of_every_building_and_spurs_reach_it():
 
 def test_a_shallow_plate_is_deepened_for_the_band_not_the_road_squeezed():
     buildings = [{"id": "b0", "at": [0, 0], "rot": 0}]
-    roads, spurs, span_x, span_y = cmds._street_for(buildings, [(20, 20)], 60, 30)
+    roads, spurs, span_x, span_y = road_grammar.roads_for("T", buildings, [(20, 20)], 60, 30)
     # the band needs 20 m below the footprint's south face at -10
     assert span_y >= 2 * (10 + cmds.ROAD_BAND)
     y = roads[0]["a"][1]
@@ -51,7 +52,7 @@ def test_a_shallow_plate_is_deepened_for_the_band_not_the_road_squeezed():
 
 
 def test_no_buildings_no_street():
-    assert cmds._street_for([], [], 50, 50) == ([], [], 50, 50)
+    assert road_grammar.roads_for("T", [], [], 50, 50) == ([], [], 50, 50)
 
 
 def test_the_cross_street_runs_through_the_widest_gap_that_holds_a_band():
@@ -62,7 +63,7 @@ def test_the_cross_street_runs_through_the_widest_gap_that_holds_a_band():
                  {"id": "b1", "at": [3, 10], "rot": 270},
                  {"id": "b2", "at": [46, 5], "rot": 270}]
     fps = [(40, 26), (22, 16), (40, 28)]
-    roads, spurs, span_x, span_y = cmds._street_for(buildings, fps, 165, 69)
+    roads, spurs, span_x, span_y = road_grammar.roads_for("T", buildings, fps, 165, 69)
     road, cross = roads
     assert cross["a"][1] == road["a"][1] and cross["b"][1] == span_y / 2 - cmds.ROAD_MARGIN
     assert cross["a"][0] == cross["b"][0] == -20.5 and span_x == 165
@@ -70,7 +71,7 @@ def test_the_cross_street_runs_through_the_widest_gap_that_holds_a_band():
     # a row with no gap that holds a band puts the street past the west
     # end and widens the plate to hold it
     tight = [{"id": "b0", "at": [-15, 0], "rot": 0}, {"id": "b1", "at": [15, 0], "rot": 0}]
-    roads, _s, span_x, _y = cmds._street_for(tight, [(20, 20), (20, 20)], 70, 60)
+    roads, _s, span_x, _y = road_grammar.roads_for("T", tight, [(20, 20), (20, 20)], 70, 60)
     assert roads[1]["a"][0] == -25 - cmds.ROAD_BAND / 2
     assert span_x >= 2 * (25 + cmds.ROAD_BAND)
     assert roads[0]["a"][0] == -span_x / 2 and roads[0]["b"][0] == span_x / 2
@@ -126,13 +127,13 @@ def test_the_buildings_meet_the_street_instead_of_standing_back_from_it():
     decision. Measured on cold run 9041's own row: 21.5 m of empty ground
     between a bank's south face and its sidewalk.
     """
-    from apps.cli.commands import (_street_for, ROAD_WIDTH, SIDEWALK_WIDTH,
+    from packages.pipeline.road_grammar import (roads_for, ROAD_WIDTH, SIDEWALK_WIDTH,
                                    ROAD_MARGIN, FRONTAGE)
     # cold run 9041's row, and a plate far larger than the street needs
     buildings = [{"at": [-54, 10], "rot": 90}, {"at": [5, 0], "rot": 0},
                  {"at": [49, -10], "rot": 270}]
     footprints = [(40, 30), (36, 28), (30, 24)]
-    roads, spurs, span_x, span_y = _street_for(buildings, footprints, 179, 99)
+    roads, spurs, span_x, span_y = roads_for("T", buildings, footprints, 179, 99)
     south = min(
         b["at"][1] - (f[0] if int(b["rot"]) % 180 == 90 else f[1]) / 2.0
         for b, f in zip(buildings, footprints))
