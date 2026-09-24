@@ -69,6 +69,23 @@ class GreyboxSkinError(RuntimeError):
     """A themed package draws greybox where theming claims to reach."""
 
 
+def _engine_tail(proc, lines: int = 12) -> str:
+    """The last few lines the engine printed, for an error message.
+
+    A census that produced no report has ALREADY failed; the only useful thing
+    left is what Godot said on the way out. Returns "" when there is nothing,
+    so the caller's message reads cleanly either way.
+    """
+    if proc is None:
+        return ""
+    out = []
+    for stream, label in ((getattr(proc, "stdout", ""), "stdout"),
+                          (getattr(proc, "stderr", ""), "stderr")):
+        for line in (stream or "").strip().splitlines()[-lines:]:
+            out.append(f"    [godot {label}] {line}")
+    return ("\n" + "\n".join(out)) if out else ""
+
+
 def measure(export_dir, godot_executable, *, script: Path = CENSUS_SCRIPT,
             timeout: int = 900) -> dict:
     """Run the census in the engine and return its report.
@@ -103,8 +120,9 @@ def measure(export_dir, godot_executable, *, script: Path = CENSUS_SCRIPT,
     occluders.ensure_imported(export_dir, godot_executable)
     bundled = export_dir / Path(script).name
     bundled.write_bytes(Path(script).read_bytes())
+    proc = None
     try:
-        subprocess.run(
+        proc = subprocess.run(
             [str(godot_executable), "--headless", "--path", str(export_dir),
              "--script", f"res://{Path(script).name}", "--",
              f"res://{REPORT_NAME}"],
@@ -117,7 +135,14 @@ def measure(export_dir, godot_executable, *, script: Path = CENSUS_SCRIPT,
             occluders.drop_cache(export_dir)
 
     if not report_path.is_file():
-        raise GreyboxCensusError("census wrote no report")
+        # SAY WHAT THE ENGINE SAID. This raised "census wrote no report" and
+        # discarded the output that explains it, which is a probe failing
+        # silently -- the reader is told the instrument produced nothing and
+        # not why. The same shape cost a round-trip on tools/navmesh_demo.py,
+        # where a one-line parse error hid behind that exact sentence.
+        raise GreyboxCensusError(
+            "census wrote no report (godot exit %s)%s"
+            % (getattr(proc, "returncode", "?"), _engine_tail(proc)))
     try:
         report = json.loads(report_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:

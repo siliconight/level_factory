@@ -1,3 +1,31 @@
+## [0.108.2] - the census stub, and an instrument that says what the engine said
+
+Two integration tests (`test_presentation_export`, `test_facade`) were failing,
+and the gate was right: `tests/fixtures/bin/godot.py` has branches for the
+laser-tag runner, lux, the fixture gate, `--import`, the occluder bake and the
+portability check, and **no branch for `greybox_census.gd`**. It returned 0 and
+wrote nothing, so `greybox_skin.measure` correctly refused to certify a package
+it could not measure. The fixture was incomplete, not the gate.
+
+The stub now answers the census, mirroring the real rule the way its occluder
+branch already does rather than rubber-stamping a pass: it reads
+`run/main_scene` from `project.godot` and scans the scene text for `M_Skin_`
+and `gb_`. On the staged fixtures that is a legitimate `themed: false` -- a
+package carrying no skin material has had no theming applied, so its greybox is
+the product rather than a defect and the Python side declines to judge it. It
+scans for both prefixes rather than hardcoding false, so a fixture that one day
+stages a themed scene flips the result instead of passing a check that cannot
+fail. It reproduces the real script's two refusals too: no main_scene, and a
+main_scene that does not load.
+
+`greybox_skin.measure` now prints what Godot said. It captured the engine's
+output and discarded it, raising only "census wrote no report" -- a probe
+failing silently, where the reader is told the instrument produced nothing and
+not why. The same shape cost a round-trip on `tools/navmesh_demo.py` the same
+day, where a one-line GDScript parse error hid behind that exact sentence.
+
+1667 passed, 12 skipped, 1 xfail, 0 failed.
+
 ## [0.108.1] - the Dispatch staging carries a building's ladders
 
 The third link in a chain this had been wrong about twice. The capability is

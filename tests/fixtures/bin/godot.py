@@ -98,6 +98,64 @@ def main():
         print("[fixture_gate] markers=4 spawned=4 colocation_errors=0")
         return 0
 
+    if script.endswith("greybox_census.gd") or (
+            "--script" in argv
+            and str(argv[argv.index("--script") + 1]).endswith(
+                "greybox_census.gd")):
+        # THE CENSUS HAD NO BRANCH HERE AT ALL, so this stub returned 0 and
+        # wrote nothing, and `greybox_skin.measure` correctly refused a package
+        # it could not measure. Two integration tests failed on that, and the
+        # refusal was right: the fixture was incomplete, not the gate.
+        #
+        # Mirror the real census's RULE, as the occluder branch above does.
+        # The real one walks the running scene and reads MATERIAL names, which
+        # live inside imported GLBs and cannot be seen from here -- so this
+        # reads the scene TEXT for the same two prefixes. On the staged
+        # fixtures that is a legitimate `themed: false`, which is the honest
+        # answer: a package carrying no `M_Skin_*` has had no theming applied,
+        # so its greybox is the product rather than a defect, and the Python
+        # side declines to judge it.
+        #
+        # Scanning for both prefixes rather than hardcoding false, so a fixture
+        # that one day stages a themed scene flips this instead of passing a
+        # check that cannot fail.
+        uargs2 = _uargs(argv)
+        out = Path(str(uargs2[0]).replace("res://", "")) if uargs2 else None
+        proj = Path(argv[argv.index("--path") + 1]) if "--path" in argv else Path(".")
+        if out is not None and not out.is_absolute():
+            out = proj / out
+        report = {"schema": "greybox_census/1", "main_scene": "",
+                  "themed": False, "greybox_surfaces": 0,
+                  "greybox_area_m2": 0.0, "by_role": {}, "slab_surfaces": 0,
+                  "slab_area_m2": 0.0, "worst": [], "error": ""}
+        cfg = proj / "project.godot"
+        main_scene = ""
+        if cfg.exists():
+            for ln in cfg.read_text(encoding="utf-8", errors="replace").splitlines():
+                if ln.strip().startswith("run/main_scene"):
+                    main_scene = ln.split("=", 1)[1].strip().strip('"')
+                    break
+        report["main_scene"] = main_scene
+        if main_scene == "":
+            # Same refusal the real one makes: a census that cannot find the
+            # scene has learned nothing and must say so.
+            report["error"] = "no application/run/main_scene in project.godot"
+        else:
+            scene = proj / main_scene.replace("res://", "")
+            text = scene.read_text(encoding="utf-8", errors="replace") \
+                if scene.exists() else ""
+            if not scene.exists():
+                report["error"] = "main_scene %s did not load" % main_scene
+            else:
+                report["themed"] = "M_Skin_" in text
+                report["greybox_surfaces"] = text.count("gb_")
+        if out is not None:
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(json.dumps(report, sort_keys=True))
+        print("[greybox] %d surface(s) on a gb_* material; themed=%s"
+              % (report["greybox_surfaces"], report["themed"]))
+        return 0
+
     # Bare import pass on a staged project. It leaves a `.godot` cache
     # because the REAL one does, and because the occluder bake's precondition
     # is that directory existing -- a stub that returned 0 and created nothing
