@@ -1,3 +1,48 @@
+## [0.110.0] - what a wet street costs, and what it costs it in
+
+`tools/wet_ab.gd` + `wet_ab_run.py` price a wet `next_pass` on the scene a
+package actually runs, the way the CRT roll was priced: on/off, several
+stations, with a control. Roadmap 157 slice 2, `docs/proposals/RAIN_WETNESS.md`
+item 2. Four arms -- `dry`, `wet_ground` (133 materials), `wet` (172, by name
+test), `wet_all` (802, the upper bound that cannot flatter a selective arm).
+
+Measured on `LF_crossroads_9600.portable-godot`, GL Compatibility, 1280x720,
+3 rounds x 300 samples per station:
+
+    station         dry     wet_ground   wet (named)   wet_all
+    street_along   7.51 ms    9.47         10.77        12.85
+    interior_b    12.08      14.44         17.29        21.78
+    exterior_high 19.16      22.67         27.22        33.02
+    worst station            +3.51 ms      +8.05        +13.85
+
+THE FINDING IS NOT THE MILLISECONDS, IT IS WHAT THEY ARE MADE OF. Marginal
+cost is 2.27-4.29 us per ADDED DRAW CALL, median 3.5, flat across 18
+station-arm pairs spanning 26 to 3,551 added draws and 1.17 to 19.16 ms of
+baseline. Flat per submission and not per pixel: if this were fill cost,
+`ground_near` -- 2.5 m up with road filling the frame -- would be the dearest
+per draw and the distant aerial the cheapest, and it is the other way round.
+Render-CPU is 92-96% of frame time at the loaded stations. This is the
+2026-09-16 draw-call finding turning up in a second, independent measurement.
+
+It also overturns the premise RAIN_WETNESS.md argued its cheap reference on --
+"a fixed per-pixel cost on surfaces already being drawn" -- and changes what
+the cheap option IS. A wet variant baked into the base material submits the
+same triangles once; a `next_pass` submits them twice. On this evidence the
+material variant is the cheap route and the extra pass is the expensive one.
+
+TWO CONTROLS, BOTH OF WHICH FIRED. A `next_pass` re-rasterises the same
+triangles, so draw calls MUST rise between `dry` and `wet`; the runner refuses
+a row where they did not. And a station reporting a zero CPU/GPU split was
+measured with render-time measurement off, so its frame time is
+display-limited wall clock; the runner refuses that too. The second control
+exists because this probe's own first run needed it: it omitted the four setup
+lines `occlusion_ab.gd` has carried since it was written, and three of its six
+stations came back pinned at 6.07 ms -- a refresh interval, not a frame time.
+That run is kept at `docs/experiments/wet_pass_9600/` marked superseded.
+
+Nothing is wired into the pipeline. This produces the number the decision
+needs; it does not make the decision.
+
 ## [0.109.2] - the cross street gets addresses
 
 Measured after Lot 0.77.0 taught the site graph about streets:
