@@ -1,3 +1,39 @@
+## [0.109.1] - a layout that cannot express itself says so
+
+FOUND BY A SWEEP. Three briefs identical but for `site_shape`, one seed base so
+the building selection was constant, two candidates each so the experiment
+carried its own control:
+
+    row vs L           0.2052 / 0.1773   of the site diagonal
+    row vs courtyard   0.2052 / 0.1773   the same numbers
+    L vs courtyard     0.0000 / 0.0000
+    between seeds      0.0710 - 0.0735   (the control)
+
+`courtyard` produced a plan IDENTICAL to `L`. Not because the layout axis is
+inert -- against a row both sit 2.4 to 2.9 times the control -- but because the
+brief asked for three buildings. A courtyard's walk turns three times; three
+buildings afford two steps, so the third direction never appears and the walk
+IS an L's. `_steps` returns the same list at 2 and 3, and they diverge at 4.
+
+THE DEGENERACY IS NOT THE DEFECT. You cannot walk three sides with two steps.
+The defect was that nothing said so: `shape_of` reported `courtyard`, the
+geometry was an L, and the spec recorded the first -- the same
+wrong-but-plausible record roadmap 100 fixed for unknown spellings, arriving
+by a different route.
+
+`site_variation.shape_expressible(shape, count)` and `degenerates_to(shape,
+count)` answer it from `_steps` itself rather than from a turn-count table, so
+a change to a walk is caught rather than silently disagreeing. The spec's
+`site_shape_resolved` gains `expressible` and `degenerates_to`, and stderr
+names the shape you will actually get.
+
+THE SWEEP'S OWN LESSON, recorded because it was my error: the experiment
+inherited `building_count: 3` from the club brief and held everything constant
+but the shape, which was right for row-vs-L and made courtyard untestable. A
+sweep needs its vacuity condition checked per ARM, not once.
+
+1700 passed, 12 skipped, 1 xfail, 0 failed.
+
 ## [0.109.0] - the street is a choice, and a crossroads is one of them
 
 `site_variation` varies where the BUILDINGS go -- a walk that turns zero times

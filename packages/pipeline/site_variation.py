@@ -289,6 +289,49 @@ def known_spellings() -> list:
     return sorted(k for k in _SHAPE_ALIASES if k)
 
 
+#: How many turns each layout's walk makes. A shape can only express itself if
+#: the building count affords that many steps -- and when it cannot, the walk
+#: silently degenerates to a simpler shape.
+_TURNS = {"row": 0, "L": 1, "courtyard": 3}
+
+
+def shape_expressible(site_shape, count) -> bool:
+    """Can ``count`` buildings actually express this layout?
+
+    MEASURED, NOT REASONED. `_steps` for `courtyard` and `L` return the SAME
+    walk at 2 and 3 buildings and diverge only at 4, because a courtyard turns
+    three times and three buildings afford two steps. A shape sweep at the club
+    brief's `building_count: 3` therefore produced a courtyard plan identical
+    to its L plan -- distance 0.0000 at both seeds -- which reads as an inert
+    parameter and is nothing of the kind.
+
+    The defect is not the degeneracy, which is unavoidable; it is that nothing
+    said so. `shape_of` reported `courtyard`, the geometry was an L, and the
+    spec recorded the first. That is the wrong-but-plausible shape this module
+    already fixed once for unknown spellings (roadmap 100) -- so it is answered
+    the same way, by saying which.
+
+    Compared against every SIMPLER shape rather than against a turn count, so
+    the answer comes from the walk the builder actually uses.
+    """
+    shape = shape_of(site_shape)
+    mine = _steps(shape, count)
+    for other, turns in _TURNS.items():
+        if turns < _TURNS.get(shape, 0) and _steps(other, count) == mine:
+            return False
+    return True
+
+
+def degenerates_to(site_shape, count):
+    """The simpler layout this shape collapses into at ``count``, or None."""
+    shape = shape_of(site_shape)
+    mine = _steps(shape, count)
+    for other, turns in sorted(_TURNS.items(), key=lambda kv: kv[1]):
+        if turns < _TURNS.get(shape, 0) and _steps(other, count) == mine:
+            return other
+    return None
+
+
 def shape_of(site_shape) -> str:
     """The layout a brief's ``site_shape`` names. Unknown spellings are rows.
 

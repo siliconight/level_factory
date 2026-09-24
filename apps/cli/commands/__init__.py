@@ -1592,6 +1592,17 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
             "asked": str(model.site_shape or ""),
             "got": site_variation.shape_of(model.site_shape),
             "known": site_variation.shape_known(model.site_shape),
+            # AND WHETHER THE BUILDING COUNT CAN EXPRESS IT. `courtyard` turns
+            # three times; three buildings afford two steps, so its walk IS an
+            # L's and the plan is an L. Measured on a shape sweep at matched
+            # seeds: courtyard and L came out 0.0000 apart while both sat
+            # 0.18-0.21 from a row. `got` alone said "courtyard" over an L,
+            # which is the wrong-but-plausible record this block already
+            # exists to prevent for a different cause.
+            "expressible": site_variation.shape_expressible(
+                model.site_shape, count),
+            "degenerates_to": site_variation.degenerates_to(
+                model.site_shape, count),
         },
         "road_grammar": model.road_grammar,
         # THE SAME TREATMENT FOR THE ROAD, and for the same reason. The
@@ -1614,6 +1625,16 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         print("    add the spelling to _GRAMMAR_ALIASES, or change the brief; "
               "the fallback is recorded in the site spec as "
               "road_grammar_resolved", file=err)
+    if not site_variation.shape_expressible(model.site_shape, count):
+        simpler = site_variation.degenerates_to(model.site_shape, count)
+        err = sys.stderr
+        print("  site_shape: %r needs more buildings than %d to differ from a "
+              "%s -- the plan will BE a %s"
+              % (site_variation.shape_of(model.site_shape), count, simpler,
+                 simpler), file=err)
+        print("    raise building_count, or accept the simpler shape; the "
+              "collapse is recorded in the site spec as "
+              "site_shape_resolved.degenerates_to", file=err)
     if not site_variation.shape_known(model.site_shape):
         # The capability-gap voice USING_THE_FACTORY.md asks every tool for:
         # what was asked, what exists, who is short. Non-blocking, because a
