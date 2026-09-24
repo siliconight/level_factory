@@ -15,6 +15,19 @@ from packages.core.models import MissionBrief
 from packages.pipeline import road_grammar
 
 
+def _front(doors):
+    """Doors onto the front road: they run across it, north-south."""
+    return [d for d in doors if d["a"][0] == d["b"][0]]
+
+
+def _corner(doors):
+    """Doors onto the CROSS street: east-west, and only the two buildings
+    flanking the gap the street was placed in have one. Before Level Factory
+    0.109.2 there were none, and `street_members` read `{0: [b0, b1, b2],
+    1: []}` on every site ever generated -- a side street with no addresses."""
+    return [d for d in doors if d["a"][1] == d["b"][1]]
+
+
 def test_the_road_runs_south_of_every_building_and_spurs_reach_it():
     buildings = [{"id": "b0", "at": [-49, 5], "rot": 90},
                  {"id": "b1", "at": [3, 10], "rot": 270},
@@ -30,8 +43,9 @@ def test_the_road_runs_south_of_every_building_and_spurs_reach_it():
     south = -15.0
     assert y + cmds.ROAD_WIDTH / 2 + cmds.SIDEWALK_WIDTH + cmds.ROAD_MARGIN <= south + 1e-9
     assert y - cmds.ROAD_WIDTH / 2 - cmds.SIDEWALK_WIDTH >= -span_y / 2 + cmds.ROAD_MARGIN - 1e-9
-    assert len(spurs) == 3
-    for s, b in zip(spurs, buildings):
+    assert len(_front(spurs)) == 3, "one front door per building"
+    assert len(_corner(spurs)) == 2, "and a corner door each side of the gap"
+    for s, b in zip(_front(spurs), buildings):
         assert s["a"][0] == s["b"][0] == b["at"][0]
         # a door path ends inside the back of the sidewalk, never at the
         # kerb: a spur that reached the road was cut, painted and signed
@@ -98,10 +112,10 @@ def test_the_written_spec_carries_the_road_and_the_spurs(tmp_path):
     assert spec["ground"]["size_x"] >= 2 * abs(spec["roads"][1]["a"][0]) + cmds.ROAD_BAND
     chain = [x for x in spec["paths"] if "from" in x]
     spurs = [x for x in spec["paths"] if "a" in x]
-    assert len(spurs) == 3
+    assert len(_front(spurs)) == 3 and len(_corner(spurs)) == 2
     road_y = spec["roads"][0]["a"][1]
     kerb = road_y + cmds.ROAD_WIDTH / 2
-    assert all(s["b"][1] > kerb for s in spurs)
+    assert all(s["b"][1] > kerb for s in _front(spurs))
     at = {b["id"]: b["at"] for b in spec["buildings"]}
     for c in chain:
         assert not cmds._segment_crosses_road(at[c["from"]], at[c["to"]], spec["roads"])
@@ -143,5 +157,21 @@ def test_the_buildings_meet_the_street_instead_of_standing_back_from_it():
     # and the plate still holds the road's far side
     assert -span_y / 2.0 <= y_road - ROAD_WIDTH / 2.0 - SIDEWALK_WIDTH - ROAD_MARGIN
     # a spur from each face reaches its sidewalk, and stops there
-    assert len(spurs) == len(buildings)
-    assert all(walk_edge - SIDEWALK_WIDTH / 2 < s["b"][1] < walk_edge for s in spurs)
+    assert len(_front(spurs)) == len(buildings)
+    assert all(walk_edge - SIDEWALK_WIDTH / 2 < s["b"][1] < walk_edge
+               for s in _front(spurs))
+    # THE SAME RULE ON THE OTHER AXIS. A corner door stops on the CROSS
+    # street's sidewalk: past its kerb, short of its centre line. Short of the
+    # centre because that is where `kerb_crossings` tests a path for a
+    # crossing, and a door that reached it would be cut, painted and signed
+    # like one (the walker, cold run 9048) -- the reason the front door stops
+    # short too. Asserted rather than assumed: the front-door check above ran
+    # over every door until 0.109.2 and would have passed a corner door that
+    # landed in the middle of the road.
+    x_cross = roads[1]["a"][0]
+    for s in _corner(spurs):
+        off = abs(s["b"][0] - x_cross)
+        assert ROAD_WIDTH / 2.0 < off < ROAD_WIDTH / 2.0 + SIDEWALK_WIDTH, (
+            "a corner door ends %.2f m from the cross street's centre; the "
+            "sidewalk is %.1f..%.1f" % (off, ROAD_WIDTH / 2.0,
+                                        ROAD_WIDTH / 2.0 + SIDEWALK_WIDTH))

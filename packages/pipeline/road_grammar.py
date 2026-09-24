@@ -100,23 +100,74 @@ def grammar_of(grammar) -> str:
 
 
 def _south_face(buildings, footprints):
-    """(southernmost front face, per-building [(x, face)], per-building x span).
+    """(southernmost front face, per-building [(x, face)], per-building x span,
+    per-building (x0, x1, y0, y1) box).
 
     Shared by every grammar because they all hang a street off the SAME thing:
     where the buildings' front faces are. Yaw swaps a footprint's two extents
     rather than producing an oriented box -- Lot places in 90 degree steps.
     """
-    south, faces, edges = None, [], []
+    south, faces, edges, spans = None, [], [], []
     for b, fp in zip(buildings, footprints):
         w, d = tuple(fp) if fp else DEFAULT_FOOTPRINT
         turned = int(round(float(b.get("rot", 0)))) % 180 == 90
         ext_x, ext_y = (d, w) if turned else (w, d)
         x = float(b["at"][0])
         face = float(b["at"][1]) - float(ext_y) / 2.0
-        faces.append((x, face))
+        faces.append((b.get("id"), x, face))
         edges.append((x - float(ext_x) / 2.0, x + float(ext_x) / 2.0))
         south = face if south is None else min(south, face)
-    return south, faces, edges
+        spans.append((x - float(ext_x) / 2.0, x + float(ext_x) / 2.0,
+                      float(b["at"][1]) - float(ext_y) / 2.0,
+                      float(b["at"][1]) + float(ext_y) / 2.0))
+    return south, faces, edges, spans
+
+
+def _lateral_spurs(spans, ids, x_cross, y_road, span_y, flank):
+    """A door from each building whose SIDE faces the cross street.
+
+    `_spurs` derives every door from the front road, so until this existed the
+    cross street had no addresses at all -- measured across every generated
+    site, `street_members` read `{0: [b0, b1, b2], 1: []}`, including on the
+    first crossroads ever built.
+
+    A building fronts the cross street when its nearer lateral face is within
+    `FRONTAGE` of that street's band -- the same 2.0 m the front door is given,
+    applied on the other axis rather than a number chosen here. The door stops
+    on the sidewalk for the reason the front one does: a path that reaches the
+    centre line is read as a street crossing, and cold run 9048 shipped every
+    door dropped-kerbed, crosswalked and signed.
+
+    Skipped where a building sits across the street's line: a door needs a
+    face outside the band to start from.
+    """
+    band = ROAD_WIDTH / 2.0 + SIDEWALK_WIDTH
+    walk_in = band - SIDEWALK_WIDTH * SPUR_INTO_WALK
+    out = []
+    for i in flank:
+        x0, x1, y0, y1 = spans[i]
+        # the building's own stretch of the cross street, and its mid-point;
+        # a door is put where the building actually is, not at its centre if
+        # that centre lies off the street's run
+        y_mid = max(min((y0 + y1) / 2.0, span_y / 2.0 - ROAD_MARGIN),
+                    y_road)
+        if x1 <= x_cross:                       # building lies WEST of it
+            face, sign = x1, +1
+        elif x0 >= x_cross:                     # EAST of it
+            face, sign = x0, -1
+        else:
+            continue                            # straddles the line: no face
+        if abs(x_cross - face) < band:
+            continue                            # face inside the band
+        end = x_cross - sign * walk_in
+        if abs(end - (face + sign * 1.0)) <= 0.3:
+            continue                            # a seam, not a route
+        door = {"a": [face + sign * 1.0, y_mid], "b": [end, y_mid],
+                "width": SPUR_WIDTH}
+        if i < len(ids) and ids[i] is not None:
+            door["building"] = ids[i]
+        out.append(door)
+    return out
 
 
 def _spurs(faces, y_road):
@@ -130,8 +181,24 @@ def _spurs(faces, y_road):
     """
     walk_back = y_road + ROAD_WIDTH / 2.0 + SIDEWALK_WIDTH
     spur_end = walk_back - SIDEWALK_WIDTH * SPUR_INTO_WALK
-    return [{"a": [x, face - 1.0], "b": [x, spur_end], "width": SPUR_WIDTH}
-            for x, face in faces if face - 1.0 - spur_end > 0.3]
+    # `building` NAMES THE DOOR'S OWNER, and it is deliberately not `from`.
+    # Lot's `site_streets._endpoints` resolves `from` to the building's CENTRE,
+    # so a door carrying it would start inside the building, cross the sidewalk
+    # and be read by `kerb_crossings` as a street crossing -- every door
+    # dropped-kerbed, crosswalked and signed, which is cold run 9048's defect.
+    # `building` is inert to that resolver and read by
+    # `site_tactical.street_members`, which otherwise has to GUESS the owner
+    # from the nearest centre and cannot: a 56 m wide shell's own doorstep is
+    # 29 m from its centre while its neighbour's centre is 39 m away.
+    out = []
+    for bid, x, face in faces:
+        if face - 1.0 - spur_end <= 0.3:
+            continue
+        door = {"a": [x, face - 1.0], "b": [x, spur_end], "width": SPUR_WIDTH}
+        if bid is not None:            # a spec without ids still gets doors
+            door["building"] = bid
+        out.append(door)
+    return out
 
 
 def _through_road(south, span_x, span_y):
@@ -154,22 +221,34 @@ def _through_road(south, span_x, span_y):
 
 
 def _cross_line(edges, span_x):
-    """Where a side street meets the front road, and the plate width it needs.
+    """Where a side street meets the front road, the plate width it needs, and
+    WHICH BUILDINGS FLANK IT.
 
     The widest gap between two neighbouring buildings that holds a full band,
     else past the west end of the row.
+
+    The flanking pair is returned rather than recovered later by distance,
+    because the street was PLACED in their gap: they are its corner buildings
+    by construction, and any threshold rediscovering that fact would be a
+    number nobody chose. Measured on `crossroads_9600`: the chosen gap is
+    24.0 m, so each face sits 4.0 m clear of the band -- a distance test at
+    `FRONTAGE` (2.0) found neither of them, and one loose enough to find them
+    would also catch a building across the plate.
     """
-    edges = sorted(edges)
-    x_cross, widest = None, ROAD_BAND
-    for (_l0, r0), (l1, _r1) in zip(edges, edges[1:]):
-        if l1 - r0 >= widest:
-            x_cross, widest = (r0 + l1) / 2.0, l1 - r0
+    order = sorted(range(len(edges)), key=lambda i: edges[i])
+    x_cross, widest, flank = None, ROAD_BAND, ()
+    for a, b in zip(order, order[1:]):
+        gap = edges[b][0] - edges[a][1]
+        if gap >= widest:
+            x_cross, widest, flank = (edges[a][1] + edges[b][0]) / 2.0, gap, (a, b)
     if x_cross is None:
-        x_cross = edges[0][0] - ROAD_BAND / 2.0
+        # past the west end of the row: only the westmost building flanks it
+        x_cross = edges[order[0]][0] - ROAD_BAND / 2.0
+        flank = (order[0],)
         need_half_x = -(x_cross - ROAD_BAND / 2.0)
         if span_x / 2.0 < need_half_x:
             span_x = int(math.ceil(2.0 * need_half_x))
-    return x_cross, span_x
+    return x_cross, span_x, flank
 
 
 def roads_for(grammar, buildings, footprints, span_x, span_y):
@@ -180,9 +259,9 @@ def roads_for(grammar, buildings, footprints, span_x, span_y):
     if not buildings:
         return [], [], span_x, span_y
     shape = grammar_of(grammar)
-    south, faces, edges = _south_face(buildings, footprints)
+    south, faces, edges, spans = _south_face(buildings, footprints)
     road, y_road, span_y = _through_road(south, span_x, span_y)
-    x_cross, span_x = _cross_line(edges, span_x)
+    x_cross, span_x, flank = _cross_line(edges, span_x)
     # the through road spans the plate, which `_cross_line` may have widened
     road["a"][0], road["b"][0] = -span_x / 2.0, span_x / 2.0
 
@@ -213,4 +292,10 @@ def roads_for(grammar, buildings, footprints, span_x, span_y):
                  "b": [x_cross, span_y / 2.0 - ROAD_MARGIN],
                  "width": ROAD_WIDTH, "sidewalk": SIDEWALK_WIDTH}
 
-    return [road, cross], _spurs(faces, y_road), span_x, span_y
+    # THE CROSS STREET GETS ITS ADDRESSES. Without these it is a road through
+    # empty ground: `street_members` read `{0: [b0, b1, b2], 1: []}` on every
+    # site ever generated, so the junction added approaches nobody could use.
+    doors = _spurs(faces, y_road) + _lateral_spurs(
+        spans, [b.get("id") for b in buildings], x_cross, y_road,
+        span_y, flank)
+    return [road, cross], doors, span_x, span_y

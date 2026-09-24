@@ -1,3 +1,46 @@
+## [0.109.2] - the cross street gets addresses
+
+Measured after Lot 0.77.0 taught the site graph about streets:
+
+    street_members   {0: ['b0', 'b1', 'b2'], 1: []}
+
+Every generated site, including the first crossroads ever built, where Lot drew
+a genuine four-approach X: not one building had a door onto the cross street.
+`_spurs` derived every door from the front road's y and nothing else, so the
+side street was a road through empty ground -- a junction with nothing on its
+corners, when the walker's own archetype for a crossroads is "four corners
+become natural anchors".
+
+`_cross_line` now returns WHICH BUILDINGS FLANK the gap it placed the street
+in, and `_lateral_spurs` gives each of them a door onto it. The flanking pair
+is returned rather than recovered later by distance, because the street was
+placed in their gap: they are its corner buildings by construction. Measured on
+`crossroads_9600`, the chosen gap is 24.0 m, so each face sits 4.0 m clear of
+the band -- a distance test at `FRONTAGE` (2.0) found neither, and one loose
+enough to find them would also catch a building across the plate.
+
+Doors name their owner in a `building` key, read by `site_tactical
+.street_members`. NOT `from`: `site_streets._endpoints` resolves that to the
+building's CENTRE, so a door carrying it would start inside the building, cross
+the sidewalk, and be read as a street crossing -- every door dropped-kerbed,
+crosswalked and signed, which is cold run 9048. Checked after the change: kerb
+cuts stayed at 3 for a T and 4 for an X.
+
+    street_members after   {0: ['b0', 'b1', 'b2'], 1: ['b0', 'b1']}
+
+NOT A PLACEMENT CHANGE. No building moves; a door is declared that the geometry
+already afforded. Approaches stay at 2, honestly -- the corner buildings were
+already joined by the front road, so the second street adds no new edge. A
+third approach needs a building that is ONLY on the cross street, which is the
+placement inversion `road_grammar`'s docstring defers.
+
+`test_street_in_site_spec` gains the corner rule: a corner door stops past the
+cross street's kerb and short of its centre line, the same bound the front door
+has and for the same reason. The front-door check ran over every door until
+now and would have passed a corner door landing in the middle of the road.
+
+1700 passed, 12 skipped, 1 xfail, 0 failed.
+
 ## [0.109.1] - a layout that cannot express itself says so
 
 FOUND BY A SWEEP. Three briefs identical but for `site_shape`, one seed base so
