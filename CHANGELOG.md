@@ -1,3 +1,53 @@
+## [0.111.0] - a retuned texture is a different input, and Zoo now says so
+
+`ZooAdapter.fingerprint_inputs` hashed only `*.pack.json` for its skin library.
+A pack manifest names FILENAMES and carries no digest of their contents, so a
+grammar retune -- new pixels, same metadata -- left it byte-identical, the kit
+job's fingerprint did not move, the cache hit, and because Zoo BAKES these maps
+into the GLB what shipped was the previously baked material rather than a stale
+reference to a fresh file.
+
+MEASURED, not inferred, with Pixelcoat's own builder. `asphalt_delco` rebuilt
+with a different `base_colors` -- a pure appearance change, which is what a
+grammar edit usually is:
+
+    asphalt_delco.pack.json    fd4678dbc03ab70f -> fd4678dbc03ab70f  IDENTICAL
+    asphalt_delco_albedo.png   68e2fd2cb8509e28 -> 500265cbf2630a20  differs
+
+THE FIX IS LOT'S, AND ITS COMMENT ALREADY SAID SO. `adapters/lot/__init__.py
+:141-162` folds "the pack manifest and every map it names; a pack that is not
+there yet folds nothing", written for exactly this on the ground skins. Zoo's
+skins edge is the same situation and had half of it. `_skin_hashes` now records
+each manifest plus every map it names, keyed `<manifest>::<map>`, with a map
+the manifest names but which is absent recorded as `<missing>` rather than
+skipped -- a pack that lost a file is a different input from one that never
+named it.
+
+This is the narrow form of the general defect recorded in
+`packages/core/hashing.py:77-79`: `BuildFingerprint.upstream_artifact_hashes`
+"which nothing populates, so every DAG edge carries this blindness" (roadmap
+39). That stays open; this closes one more edge of it, as the Lot and Lux
+fixes each closed one.
+
+WHAT IT INVALIDATES, said before it happens: one rebuild of every Zoo job
+carrying a `skins_dir`, because the key's shape changed. That cost is already
+being paid -- Pixelcoat 0.46.1 moved `tool_version` inside every `*.pack.json`,
+which moves `skin_hashes` regardless -- so landing it in the same hour costs
+nothing extra, where landing it later would cost a second full cascade. The
+change can only make the key MORE sensitive, so a job that was correctly
+cached stays cached: `hash_file` is content-addressed and Pixelcoat's pack
+write is deterministic (`test_pack_write_is_deterministic`).
+
+THE BETTER LONG-TERM SHAPE, recorded rather than built. The producer should
+state what it made: a digest of its maps inside the pack manifest would make
+one hash at build time serve every consumer, instead of each consumer
+re-hashing every PNG on every fingerprint. That is a Pixelcoat pack-contract
+change and wants its own pass.
+
+`tests/unit/test_skin_map_fingerprint.py`, 7 tests. Four of them FAIL against
+the unfixed adapter, checked by stashing it -- the three that pass are the ones
+asserting unchanged behaviour. Suite 1,709 passed, 12 skipped, 1 xfail.
+
 ## [0.110.0] - what a wet street costs, and what it costs it in
 
 `tools/wet_ab.gd` + `wet_ab_run.py` price a wet `next_pass` on the scene a

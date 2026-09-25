@@ -27,6 +27,51 @@ from packages.adapters.sdk import BaseAdapter, PlannedCommand
 from packages.core.hashing import hash_file
 from packages.validation.kit_dims import kit_dimension_findings
 
+
+def _skin_hashes(skins: Path) -> dict:
+    """Every skin pack under `skins`, by manifest AND by the maps it names.
+
+    THE MANIFEST ALONE IS NOT THE MATERIAL, and this hashed only the manifest
+    until 2026-09-24. A pack manifest names FILENAMES and carries no digest of
+    their contents, so a grammar retune -- new pixels, same metadata -- leaves
+    it byte-identical. Measured on `asphalt_delco` with a changed
+    `base_colors`: the albedo PNG's digest moved, `asphalt_delco.pack.json`
+    did not. The kit job's fingerprint therefore did not move either, the
+    cache hit, and because Zoo BAKES these maps into the GLB, what shipped was
+    the previously baked material rather than a stale reference to a fresh
+    file.
+
+    This is the rule `adapters/lot/__init__.py:141-162` already applies to the
+    ground skins, in its own words: fold the pack manifest and every map it
+    names, and a pack that is not there yet folds nothing. Zoo's skins edge is
+    the same situation.
+
+    A map the manifest names but which is missing is recorded as absent rather
+    than skipped: a pack that lost a file is a different input from one that
+    never named it, and a fingerprint that cannot tell them apart would serve
+    the complete build's output for the broken one.
+    """
+    import json as _json
+
+    out: dict[str, str] = {}
+    for pk in sorted(skins.rglob("*.pack.json")):
+        out[pk.name] = hash_file(pk)
+        try:
+            maps = (_json.loads(pk.read_text(encoding="utf-8"))
+                    .get("maps") or {})
+        except (OSError, ValueError):
+            # An unreadable manifest is still hashed above, so the fingerprint
+            # notices it changed; there is simply nothing to enumerate.
+            continue
+        if not isinstance(maps, dict):
+            continue
+        for key in sorted(maps):
+            f = pk.parent / str(maps[key])
+            out["%s::%s" % (pk.name, key)] = (
+                hash_file(f) if f.is_file() else "<missing>")
+    return out
+
+
 # `tools/shape_metrics.py` is a FACTORY-level tool, not a Zoo one: it measures
 # any GLB. Zoo's job runs it because Zoo is what built the GLBs -- measuring
 # your own output belongs with the build, lands in the same artifact set, and
@@ -172,10 +217,7 @@ class ZooAdapter(BaseAdapter):
                 fp[key + "_hash"] = hash_file(Path(str(p)))
         skins = job_spec.get("skins_dir")
         if skins and Path(str(skins)).exists():
-            fp["skin_hashes"] = {
-                pk.name: hash_file(pk)
-                for pk in sorted(Path(str(skins)).rglob("*.pack.json"))
-            }
+            fp["skin_hashes"] = _skin_hashes(Path(str(skins)))
         return fp
 
     def plan_commands(self, job_spec, context) -> Sequence[PlannedCommand]:
