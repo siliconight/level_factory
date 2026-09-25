@@ -161,4 +161,68 @@ class PixelcoatAdapter(BaseAdapter):
                         "message": f"pack {p.name} references missing map '{fname}'",
                         "blocking": True, "raw_source_path": str(p),
                     })
+            issues.extend(self._digest_findings(p, pack))
         return issues
+
+    @staticmethod
+    def _digest_findings(pack_path, pack) -> list[dict]:
+        """A map that is present but is not what the pack says it is.
+
+        Pixelcoat >= 0.47.0 writes `map_sha256`, the digest of each map read
+        back from disk by the process that wrote it, so a pack can be checked
+        INTACT and not merely complete. A truncated write, a half-copied stage
+        directory or a file edited in place shows up here rather than inside
+        Blender.
+
+        ADVISORY, not blocking, unlike the missing-map check above it. A
+        missing map cannot be drawn; a mismatched one can, and may be a pack
+        somebody retouched deliberately. Nobody has seen this fire on a real
+        run yet, so it reports before it gates.
+
+        Silent on a pack with no `map_sha256`: everything written before
+        0.47.0 has nothing to disagree with, and findings about files that are
+        fine are how a checker teaches people to ignore it.
+
+        The comparison is done here rather than by importing
+        `pixelcoat.core.pack` because Level Factory drives tool repos as
+        subprocesses and never imports them -- that is what lets a workspace
+        pin a Pixelcoat other than the one on this machine.
+        """
+        import hashlib
+
+        claimed = pack.get("map_sha256")
+        maps = pack.get("maps")
+        if not isinstance(claimed, dict) or not claimed \
+                or not isinstance(maps, dict):
+            return []
+        out: list[dict] = []
+        for key in sorted(claimed):
+            fname = maps.get(key)
+            if not fname:
+                continue                    # the check above owns absent maps
+            f = pack_path.parent / str(fname)
+            if not f.is_file():
+                continue                    # likewise
+            try:
+                got = hashlib.sha256(f.read_bytes()).hexdigest()
+            except OSError as exc:
+                out.append({
+                    "code": "PIXELCOAT_PACK_MAP_UNREADABLE",
+                    "severity": "major", "category": "presentation",
+                    "message": f"pack {pack_path.name}: map '{key}' "
+                               f"({fname}) could not be read: {exc}",
+                    "blocking": False, "raw_source_path": str(pack_path),
+                })
+                continue
+            want = str(claimed[key])
+            if got != want:
+                out.append({
+                    "code": "PIXELCOAT_PACK_MAP_MODIFIED",
+                    "severity": "major", "category": "presentation",
+                    "message": f"pack {pack_path.name}: map '{key}' "
+                               f"({fname}) does not match the digest the pack "
+                               f"states -- manifest {want[:16]}, "
+                               f"file {got[:16]}",
+                    "blocking": False, "raw_source_path": str(pack_path),
+                })
+        return out

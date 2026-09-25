@@ -1,3 +1,39 @@
+## [0.112.0] - a pack that is present is not necessarily a pack that is intact
+
+`PixelcoatAdapter.normalize_validation` has always refused a manifest naming a
+map that is not there. Pixelcoat 0.47.0 writes `map_sha256` -- each map's
+digest, read back from disk by the process that wrote it -- so the adapter now
+also reports a map that IS there and is not what the pack says it is: a
+truncated write, a half-copied stage directory, a file edited in place.
+`PIXELCOAT_PACK_MAP_MODIFIED`, and `PIXELCOAT_PACK_MAP_UNREADABLE` for a map
+that cannot be opened at all.
+
+ADVISORY, NOT BLOCKING, unlike the missing-map check beside it, and the split
+is the one `advise_configuration` states in `packages/adapters/sdk.py`: a
+refusal says the tool cannot produce information from these inputs, an advisory
+says it will run and mark the result down. A missing map cannot be drawn; a
+mismatched one can, and may be a pack somebody retouched deliberately. Nobody
+has seen this fire on a real run, so it reports before it gates -- promoting it
+later is one word.
+
+THE TWO CHECKS DO NOT BOTH CLAIM THE SAME FILE. A map that is gone belongs to
+the older check, and a digest finding on top would make one defect read as two.
+Held by a test, because this repo has paid for the opposite: a gate reporting
+one number for three defects (`LOT_STEP_BLOCKS_A_ROUTE`, 7 findings that were
+three causes).
+
+SILENT ON A PACK WITH NO `map_sha256`. Everything written before Pixelcoat
+0.47.0 has nothing to disagree with, and findings about files that are fine are
+how a checker teaches people to ignore it.
+
+NO IMPORT OF PIXELCOAT. The comparison is done over the manifest the adapter
+already parsed rather than by importing `pixelcoat.core.pack` -- Level Factory
+drives tool repos as subprocesses and never imports them, which is what lets a
+workspace pin a Pixelcoat other than the one on this machine.
+
+`tests/unit/test_pack_intact.py`, 9 tests; 4 fail against the unfixed adapter,
+checked by stashing it. Suite 1,719 passed, 12 skipped, 1 xfail.
+
 ## [0.111.0] - a retuned texture is a different input, and Zoo now says so
 
 `ZooAdapter.fingerprint_inputs` hashed only `*.pack.json` for its skin library.
