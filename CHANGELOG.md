@@ -1,3 +1,39 @@
+## [0.114.0] - the wet flag reaches the tool that actually skins the road
+
+0.113.0 said "a brief that says it is raining gets a wet road". It did not.
+Cold run 9079 shipped the counter-example: brief `weather: rain`, Lux raining,
+170 distinct `M_Skin` materials across 247 GLBs and ZERO ending `_wet`.
+
+WHY, and it is a design error rather than a bug. 0.113.0 passed `--wet` to
+Zoo, and Zoo does not skin the ground. Its 24 kinds on that package were
+canvas, carpet, carpet_club, ceiling_tile, cloth, concrete, drywall, glass,
+glass_facade, leather, metal, metal_bare, metal_painted, paint_block, paper,
+plaster, plastic, rubber, tile, vegetation, velvet, wallpaper_club, wood and
+wood_stained -- no asphalt, no sidewalk, no road paint, no gravel, dirt, tar,
+cobblestone or flagstone, which are precisely the ten grammars Pixelcoat
+0.48.0 gave wet variants to. The flag was passed, was honoured, and had nothing
+to choose.
+
+The ground is Lot's: `site.tscn` carries `StandardMaterial3D` nodes whose
+`albedo_texture` is an `ExtResource` pointing at `skins/asphalt_delco_albedo
+.png`. So `_write_site_spec` now sets `wet_ground` on the site spec when
+`_is_raining(model)`, and Lot 0.78.0 does the substitution.
+
+NEITHER REPO'S TESTS COULD HAVE CAUGHT THIS, which is the part worth keeping.
+Zoo's assert that the chooser resolves wet maps when asked about a pack that
+HAS them -- true, and beside the point. LF's assert the flag reaches the
+adapter -- also true. Nothing asserted that Zoo is the thing which skins a
+road, because that was an assumption nobody had written down. A cold run found
+it in one pass over four green suites.
+
+0.113.0'S ZOO WIRING STAYS, and is honestly inert today. No kind Zoo skins has
+a wet variant, so `--wet` changes nothing there; it will start mattering the
+day a prop or wall grammar declares wetness. Left in place rather than reverted
+because it is correct and cost-free, but it is not what wets a road and this
+entry says so.
+
+Suite 1,743 passed, 12 skipped, 1 xfailed.
+
 ## [0.113.0] - a brief that says it is raining gets a wet road
 
 The last link in a chain built backwards. Pixelcoat has written `wet_albedo`

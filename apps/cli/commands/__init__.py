@@ -1701,6 +1701,18 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
     # than the run that used it is the provenance trap roadmap 33 is about.
     if ground_skins:
         spec["ground_skins"] = dict(ground_skins)
+        # WET GROUND WHEN THE BRIEF SAYS IT IS RAINING, read through the same
+        # `_is_raining` the sky uses. Cold run 9079 shipped a level whose
+        # brief said `weather: rain`, whose sky rained, and whose road was
+        # dry: the chooser had been wired into Zoo, and Zoo does not skin the
+        # ground -- its 24 kinds hold no asphalt, sidewalk or road paint. Lot
+        # writes those materials, so Lot is where the flag has to land.
+        #
+        # A pack with no wet maps is read exactly as before, so this is not a
+        # claim about which families are wet; that lives in Pixelcoat's
+        # grammars, and Lot reports what it actually substituted.
+        if _is_raining(model):
+            spec["wet_ground"] = True
     # THE SHOP SIGNS (roadmap 153): which business each building is, as the
     # Pixelcoat pack its band wears. Themed sites only -- the greybox one is
     # what the candidate is judged on.
