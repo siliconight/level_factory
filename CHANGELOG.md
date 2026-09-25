@@ -1,3 +1,48 @@
+## [0.113.0] - a brief that says it is raining gets a wet road
+
+The last link in a chain built backwards. Pixelcoat has written `wet_albedo`
+and `wet_roughness` into every ground pack since 0.47.0; Zoo 1.3.0 chooses them
+with `--wet`. Nothing asked. Cold run 9078's brief said `weather: rain`, Lux
+rained on it, and the road shipped dry.
+
+ONE PREDICATE FOR THE SKY AND THE GROUND. `_is_raining` reads `_RAIN_WEATHER` --
+the same frozenset `_preset_for` reads to pick Lux's "Heavy Rain". A second
+spelling of "is it raining" is precisely how a level comes to rain on a dry
+road, so adding a word there now moves both.
+
+THREE BUILDS TAKE THE FLAG: `zoo_kit_build`, `zoo_dressing_build` and
+`zoo_clutter_build` -- everything that passes `--skins`. That is not a claim
+about which surfaces are wet: a pack with no wet maps is unaffected either way,
+and which grammars carry them is Pixelcoat's decision. The kit build is the one
+that matters, since it is the walls, floors and ground slabs; dressing and
+clutter are props on top of them, and a wet street reaching only the props
+would be the wrong half of the effect.
+
+GATED ON THE LIBRARY, caught by its own test. `--wet` without `--skins` asks a
+flat material to be wet, which is not a thing -- zoo_cli only calls
+`set_skin_library` when `--skins` is given, so the flag would be silently inert
+rather than wrong, and a planned command that asks for something inert is one
+somebody later has to work out the meaning of. The first draft emitted it on
+two branches regardless; the test refused it.
+
+AND THE FINGERPRINT CARRIES IT. This adapter was caught by the neighbouring
+defect a day earlier -- `skin_hashes` hashed pack manifests and not their maps,
+so a retuned texture cache-hit and shipped the previously baked material
+(0.111.0). A `wet` flag outside the fingerprint is the same shape: the same
+mission rebuilt with the weather changed would read `cache` and ship the dry
+road. Folded in ONLY when true, on the rule the `habitat` key already states --
+a new key on every zoo fingerprint would retire every cached kit, dressing and
+clutter bake in every workspace for a flag none of them carries.
+
+WHAT IS STILL NOT PROVED. That a wet package costs no extra draw calls. The
+structural half is asserted in Zoo (the resolved map count does not change);
+the measured half is a rebuilt package read at fixed stations against a dry
+one, which `tools/wet_ab.gd` already has the stations and the control for. And
+nobody has looked at a lit wet street yet.
+
+`tests/unit/test_wet_when_it_rains.py`, 23 tests. Suite 1,743 passed, 12
+skipped, 1 xfailed.
+
 ## [0.112.0] - a pack that is present is not necessarily a pack that is intact
 
 `PixelcoatAdapter.normalize_validation` has always refused a manifest naming a

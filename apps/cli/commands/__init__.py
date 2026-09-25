@@ -579,6 +579,10 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                     "mode": "habitat",
                     "habitat": ",".join(species),
                     "theme": model.theme or batch.get("theme_family", "") or "delco",
+                    # WET WHEN THE BRIEF SAYS SO. A pack with no wet maps
+                    # is unaffected, so this is not a claim about which
+                    # surfaces are wet -- that lives in Pixelcoat's grammars.
+                    "wet": _is_raining(model),
                     "skins_dir": (str(_latest_output(jobs_dir / pix_job, "."))
                                   if pix_job else ""),
                     "seed": int(job.candidate_id.rsplit("_", 1)[-1]),
@@ -630,6 +634,10 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                     "mode": "dress",
                     "seed": int(str(job.candidate_id).rsplit("_", 1)[-1]),
                     "theme": model.theme or batch.get("theme_family", ""),
+                    # WET WHEN THE BRIEF SAYS SO. A pack with no wet maps
+                    # is unaffected, so this is not a claim about which
+                    # surfaces are wet -- that lives in Pixelcoat's grammars.
+                    "wet": _is_raining(model),
                     "skins_dir": (str(_latest_output(jobs_dir / pix_job, "."))
                                   if pix_job else ""),
                     # Zoo --dress consumes Patina's <stem>.patina.dressing.json,
@@ -678,6 +686,10 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                     "slots_path": (site_slots if site_slots
                                    else str(entry["slots"]) if entry
                                    else str(_lot_slots(ws, jobs_dir, job))),
+                    # WET WHEN THE BRIEF SAYS SO. A pack with no wet maps
+                    # is unaffected, so this is not a claim about which
+                    # surfaces are wet -- that lives in Pixelcoat's grammars.
+                    "wet": _is_raining(model),
                     "skins_dir": (str(_latest_output(jobs_dir / pix_job, "."))
                                   if pix_job else ""),
                     "exit_advisory": True,
@@ -973,6 +985,18 @@ def _deli_for(plan, job):
 #: Brief weather words that mean water falling from the sky. The briefs in
 #: examples/ use "clear", "rain" and "hurricane"; "storm" is the obvious third.
 _RAIN_WEATHER = frozenset({"rain", "storm", "hurricane"})
+
+
+def _is_raining(model) -> bool:
+    """Does this brief's weather put water on the ground?
+
+    ONE PREDICATE, read by the sky and by the ground. `_preset_for` uses the
+    same set to pick Lux's "Heavy Rain"; a second spelling of "is it raining"
+    is how a level comes to rain on a dry road, which is what cold run 9078
+    shipped. Adding a word to `_RAIN_WEATHER` now moves both.
+    """
+    return (getattr(model, "weather", "") or "").strip().lower() \
+        in _RAIN_WEATHER
 
 
 def _preset_for(model: MissionBrief) -> str:

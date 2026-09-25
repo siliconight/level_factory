@@ -206,6 +206,15 @@ class ZooAdapter(BaseAdapter):
         # layer none of them contains.
         if job_spec.get("mode") == "habitat":
             fp["habitat"] = str(job_spec.get("habitat") or "")
+        # THE WET VARIANT IS AN INPUT. Without it the same mission rebuilt
+        # with the weather changed reads `cache` and ships the dry road --
+        # which is the defect LF 0.111.0 fixed one field along, where
+        # `skin_hashes` hashed manifests and not their maps. Folded in ONLY
+        # when true, on the rule the `habitat` key above states: a new key on
+        # every zoo fingerprint would retire every cached kit, dressing and
+        # clutter bake in every workspace for a flag none of them carries.
+        if job_spec.get("wet"):
+            fp["wet"] = True
         # The measuring tool's own source is an input: a change to how a
         # footprint or a height is computed changes the catalogue the dressing
         # planner is built from, with every other input byte-identical.
@@ -286,6 +295,8 @@ class ZooAdapter(BaseAdapter):
                 zoo_args += ["--skins", str(job_spec["skins_dir"])]
                 if job_spec.get("theme"):
                     zoo_args += ["--theme", str(job_spec["theme"])]
+                if job_spec.get("wet"):
+                    zoo_args += ["--wet"]
             if job_spec.get("seed") is not None:
                 zoo_args += ["--seed", str(job_spec["seed"])]
             args = ["--background", "--python", cli, "--", *zoo_args]
@@ -326,6 +337,8 @@ class ZooAdapter(BaseAdapter):
             # saying so: the two flags are one input, not two.
             if job_spec.get("theme"):
                 zoo_args += ["--theme", str(job_spec["theme"])]
+            if job_spec.get("wet") and job_spec.get("skins_dir"):
+                zoo_args += ["--wet"]
             if job_spec.get("seed") is not None:
                 zoo_args += ["--seed", str(job_spec["seed"])]
             bid = _bid(job_spec.get("manifest_path")) or "building"
@@ -344,6 +357,19 @@ class ZooAdapter(BaseAdapter):
                 zoo_args += ["--skins", str(job_spec["skins_dir"])]
             if job_spec.get("theme"):
                 zoo_args += ["--theme", str(job_spec["theme"])]
+            # THE BRANCH THAT ACTUALLY WETS A ROAD. The kit build is the walls,
+            # floors and ground slabs; dressing and clutter are props on top of
+            # them. A wet street that reached only the props would be the wrong
+            # half of the effect.
+            #
+            # Gated on the library, like the flag it rides with: `--wet`
+            # without `--skins` asks a flat material to be wet, which is not a
+            # thing. zoo_cli only calls `set_skin_library` when `--skins` is
+            # given, so the flag would be silently inert rather than wrong --
+            # and a planned command that asks for something inert is one
+            # somebody later has to work out the meaning of.
+            if job_spec.get("wet") and job_spec.get("skins_dir"):
+                zoo_args += ["--wet"]
             if job_spec.get("seed") is not None:
                 zoo_args += ["--seed", str(job_spec["seed"])]
             if job_spec.get("roof_props_slots"):
