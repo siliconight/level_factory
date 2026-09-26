@@ -1,3 +1,19 @@
+## [0.121.0] - a `night` brief stops asking for dusk
+
+`_preset_for` mapped both `night` and `evening` to `Blue Hour`. That preset
+describes itself as "Cool, quiet dusk just after sunset" and carries a sun at
+4 degrees elevation with 0.9 energy and shadows on, over 0.9 ambient -- which
+washes out every fixture in a level and lays long hard shadows across it. The
+walker, looking at cold run 9083: "this sun angle is very hard for lighting in
+general."
+
+`night` now maps to Lux 0.44.0's `Delco Night`, whose sun is off. `evening`
+keeps `Blue Hour`, which is what that preset actually is.
+
+Worth recording that the first diagnosis was wrong: the pipeline was not
+missing a night preset. `Gothic Street Night` and `PS1 Storm Night` both
+existed, both with the sun off, and a `night` brief reached neither.
+
 ## [0.120.0] - the apply step asks Lux which types the manifest bake owns
 
 Cold run 9081's forecourt shipped dark, and one of the two reasons was here.

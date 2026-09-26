@@ -1017,7 +1017,16 @@ def _preset_for(model: MissionBrief) -> str:
     if (model.weather or "").strip().lower() in _RAIN_WEATHER:
         return "Heavy Rain"
     tod = (model.time_of_day or "").lower()
-    if tod in ("night", "evening"):
+    # `night` MEANT DUSK until 0.121.0, and it is what the walker was looking
+    # at when they said "this sun angle is very hard for lighting in general".
+    # `Blue Hour` describes itself as "Cool, quiet dusk just after sunset" and
+    # carries a sun at 4 degrees elevation, 0.9 energy, shadows on, over 0.9
+    # ambient -- which washes out every fixture in the level and casts the long
+    # hard shadows across it. There was no night preset to ask for; Lux 0.44.0
+    # adds `Delco Night`, whose sun is off.
+    if tod == "night":
+        return "Delco Night"
+    if tod == "evening":
         return "Blue Hour"
     if tod == "afternoon":
         return "Delco Summer Afternoon"
