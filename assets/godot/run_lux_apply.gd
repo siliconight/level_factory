@@ -225,11 +225,23 @@ func _initialize() -> void:
 	var club_hw_msg := "not evaluated"
 	if not lights_path.is_empty():
 		var club_loader: GDScript = load("res://addons/lux/runtime/lux_light_loader.gd")
-		var club_types: Variant = club_loader.get("CLUB_TYPES") if club_loader != null else null
+		# WHICH TYPES THE MANIFEST BAKE OWNS. Lux 0.42.0 renamed the set
+		# `MANIFEST_BAKE_TYPES`, because it was never only the club's --
+		# `canopy_wash` joined it, and a wash whose pool size cannot ride a
+		# marker has nowhere else to go. `CLUB_TYPES` is the fallback and not
+		# a deprecation: an older addon still answers to it, and reading only
+		# the new name would make this step silently count zero and never
+		# call the bake, which is the shape of the defect cold run 9081
+		# shipped.
+		var club_types: Variant = null
+		if club_loader != null:
+			club_types = club_loader.get("MANIFEST_BAKE_TYPES")
+			if typeof(club_types) != TYPE_ARRAY:
+				club_types = club_loader.get("CLUB_TYPES")
 		if typeof(club_types) == TYPE_ARRAY:
 			club_in_manifest = _count_anchor_types(lights_path, club_types)
 		if club_in_manifest == 0:
-			club_msg = "manifest carries no club anchors"
+			club_msg = "manifest carries no manifest-bake anchors (club or canopy)"
 		elif club_loader != null and club_loader.has_method("bake_club"):
 			var cres: Dictionary = club_loader.bake_club(lights_path, scene)
 			club_ok = bool(cres.get("ok", false))

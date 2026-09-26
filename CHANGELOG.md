@@ -1,3 +1,19 @@
+## [0.120.0] - the apply step asks Lux which types the manifest bake owns
+
+Cold run 9081's forecourt shipped dark, and one of the two reasons was here.
+`run_lux_apply.gd` reads `CLUB_TYPES` off the Lux loader to decide whether the
+manifest bake is worth calling at all -- and when Lux 0.42.0 widened that set
+to include `canopy_wash`, it did so under a new name (`MANIFEST_BAKE_TYPES`)
+precisely because this reader exists.
+
+So this step prefers the new name and FALLS BACK to the old one. Reading only
+the new name would make an older addon count zero anchors and never call the
+bake, which is the same silence in the other direction. Both names are read;
+neither is required.
+
+The message when the count is zero said "manifest carries no club anchors",
+which is now wrong on a fuel stop with no club in it. It names both.
+
 ## [0.119.0] - what collapsing Zoo's tint variants buys, measured
 
 MEASURED, 2026-09-26, cold run 9080's package, GL Compatibility, 1280x720,
