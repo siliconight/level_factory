@@ -196,6 +196,30 @@ def main(argv=None) -> int:
               "them.")
         return 1
 
+    # THE CONTROL THAT WAS MISSING, and its absence voided this probe's first
+    # result. Draw calls rising proves a SUBMISSION. It does not prove a
+    # shaded pixel, and a `next_pass` with `depth_draw_never` and no vertex
+    # offset is rejected by GL Compatibility's depth test -- measured in
+    # `assets/godot/zoo_worldskin.gd` before this file existed, and true of
+    # this probe's own first shader. Its 2026-09-24 figures therefore priced
+    # submission with a fragment that never ran, and the conclusion drawn from
+    # them -- "the pass bills per submission, not per pixel" -- is withdrawn.
+    #
+    # A frame's own mean luminance can tell the two apart.
+    if any("frame_luma" in x for s in dry for x in dry[s]):
+        drew = [s for s in dry
+                if abs(st.median([x.get("frame_luma", 0.0) for x in wet[s]])
+                       - st.median([x.get("frame_luma", 0.0) for x in dry[s]]))
+                > 1e-4]
+        if not drew:
+            print("\nREFUSED: the frame is identical at every station with "
+                  "the pass on and off. Draw calls rose, so the geometry was "
+                  "submitted -- and nothing was shaded. That is exactly what "
+                  "this probe measured the first time.")
+            return 1
+        print("  the frame CHANGED at %d of %d station(s) -- the pass is "
+              "visible, not merely submitted" % (len(drew), len(dry)))
+
     print(f"\n  materials wet: {rounds['wet'][0]['materials_wet']} selective, "
           f"{rounds['wet_all'][0]['materials_wet']} all")
     print(f"  draw calls rose at {len(moved)} of {len(dry)} station(s) "

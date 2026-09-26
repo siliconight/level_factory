@@ -1,3 +1,72 @@
+## [0.115.0] - the wet pass was never drawn, so its price is withdrawn
+
+RETRACTION FIRST. 0.110.0 priced a wet `next_pass` and reported 2.27-4.29 us
+per added draw call, median 3.5, FLAT across 18 station-arm pairs, and
+concluded from that flatness that "the pass bills per SUBMISSION, not per
+pixel". The measurement was of a pass that almost certainly never shaded a
+pixel, and the conclusion is withdrawn.
+
+WHY, and the answer was already in this repo before that probe was written.
+`assets/godot/zoo_worldskin.gd` measured it in the club at 1600x900, painting
+the face solid black and reading the mean luminance of its projected rect:
+
+    variant                                   in front    from behind
+    no next pass (baseline)                     99.15         39.55
+    unshaded, blend_mix                            --         (not drawn)
+    + depth_draw_never                             --         (not drawn)
+    + depth_test_disabled                        1.41          1.08  LEAKS
+    + VERTEX along NORMAL, 2 mm                  1.49         39.53
+
+A `next_pass` rasterises the SAME triangles at the SAME depth the base pass
+has already written, and GL Compatibility's depth test rejects it. `wet_ab.gd`
+declared `blend_mix, depth_draw_never` and offset nothing -- row three, "not
+drawn".
+
+THE CONTROL COULD NOT HAVE CAUGHT IT. It was "draw calls must rise between the
+dry and wet arms", and they rose at 6 of 6 stations. Draw calls rising proves a
+SUBMISSION. It says nothing about whether a fragment ran. That is the same
+distinction `zoo_worldskin.gd` had already paid for -- its first render probe
+"reported pixel-identical from frames that were 99.7% black" -- in the file
+this probe named as its precedent.
+
+FIXED: `VERTEX += NORMAL * 0.002`, the value that file settled on as the
+largest of four that changed nothing about occlusion (39.53 from behind
+against a 39.55 baseline) while leaving least residue at a silhouette. And a
+control that cannot be satisfied by submissions: each station reads back its
+frame's mean luminance, and the runner REFUSES a wet arm whose frame matches
+the dry one.
+
+RE-MEASURED on cold run 9080's package, GL Compatibility, 1280x720:
+
+                       withdrawn        corrected
+    wet_ground worst   +3.51 ms         +3.12 ms
+    wet        worst   +8.05 ms         +6.00 ms
+    wet_all    worst  +13.85 ms        +15.19 ms
+    us/draw, wet        3.51 median      5.75 median
+                        2.27-4.29 FLAT   3.79-12.63
+
+THE SHAPE IS WHAT CHANGED, not just the size. The old figure was flat across
+stations whose wet-surface screen coverage differs wildly, which is what made
+"per submission" look measured rather than assumed. The corrected spread is
+3.22-21.11 us across the ground arm, a 6.5x range, and the cheapest per-draw
+arm is the one covering the LEAST screen. That is fill cost behaving like fill
+cost.
+
+WHAT SURVIVES: the architectural call. A baked material variant costs zero
+extra submissions and a pass costs at least one, so choosing the variant for
+the ground (Pixelcoat 0.47.0, Lot 0.78.0) was right whatever the fragment
+costs. The reasoning published beside it was not, and RAIN_WETNESS.md and
+roadmap 157 are corrected to match.
+
+The runner reported "the frame CHANGED at 3 of 6 station(s)" on the corrected
+run -- the three with real geometry; the near-empty views legitimately do not
+move.
+
+ALSO FOUND: `tools/gdcheck.py` passed a file Godot rejected at load. `var c:
+Color` shadowed an enclosing `var c: Vector3`, which is the same parse error
+as shadowing a parameter, and trap 4 only inspects parameters. Recorded here;
+not fixed in this release.
+
 ## [0.114.0] - the wet flag reaches the tool that actually skins the road
 
 0.113.0 said "a brief that says it is raining gets a wet road". It did not.

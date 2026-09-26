@@ -44,6 +44,19 @@ const WET_SHADER := """
 shader_type spatial;
 render_mode blend_mix, depth_draw_never, cull_back, specular_schlick_ggx;
 
+// LIFTED OFF ITS OWN SURFACE, or it is not drawn at all. A next_pass
+// rasterises the same triangles at the same depth the base pass already
+// wrote, and GL Compatibility's depth test rejects it -- measured by
+// `assets/godot/zoo_worldskin.gd` in the club at 1600x900: blend_mix with
+// depth_draw_never and no offset produced NO drawn pixels. 2 mm along the
+// normal is the value that file settled on, the largest of four that changed
+// nothing about occlusion (39.53 from behind against a 39.55 baseline) while
+// leaving least residue at a curved silhouette.
+//
+// The first version of THIS probe had no offset, so its 2026-09-24 figures
+// priced submission with a fragment that never ran.
+const float PROUD_M = 0.002;
+
 uniform float wetness : hint_range(0.0, 1.0) = 0.85;
 uniform float sky_bias : hint_range(0.0, 8.0) = 2.0;
 
@@ -51,6 +64,10 @@ varying vec3 world_n;
 
 void vertex() {
 	world_n = (MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz;
+	// MODEL space, not view space. `zoo_worldskin.gd` records biasing
+	// VERTEX.z on the assumption vertex() runs in view space, which drew the
+	// overlay from behind the set at every magnitude tried. Along the normal.
+	VERTEX += NORMAL * PROUD_M;
 }
 
 void fragment() {
@@ -260,7 +277,22 @@ func _run(out_path: String, arm: String, wetness: float) -> void:
 		for x in samples:
 			total += float(x)
 		var n_s: float = float(samples.size())
+		# DID IT DRAW? Draw calls rising proves a submission, not a shaded
+		# pixel, and the first run of this probe could not tell them apart.
+		# The frame's own mean luminance can: a wet arm whose frame matches
+		# the dry one is a pass nobody can see, and the runner refuses to
+		# tabulate a cost for it.
+		var img: Image = root.get_texture().get_image()
+		var lum: float = 0.0
+		var step_px: int = maxi(1, img.get_width() / 160)
+		var taken: int = 0
+		for py in range(0, img.get_height(), step_px):
+			for px in range(0, img.get_width(), step_px):
+				var texel: Color = img.get_pixel(px, py)
+				lum += 0.2126 * texel.r + 0.7152 * texel.g + 0.0722 * texel.b
+				taken += 1
 		report["stations"].append({
+			"frame_luma": snappedf(lum / maxf(float(taken), 1.0), 0.0001),
 			"station": String(s["n"]),
 			"draw_calls": int(RenderingServer.get_rendering_info(
 				RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)),
