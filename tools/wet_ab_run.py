@@ -91,24 +91,17 @@ def stage(pkg: Path, work: Path, arm: str) -> Path:
 
 
 def _stage_atlas(pixelcoat: Path, dest: Path) -> None:
-    """Write Pixelcoat's drop atlas into the staged arm as drop_atlas.png.
+    """Stage the drip's shader and atlas into the arm, through `drip_assets`.
 
-    GENERATED, not carried. The atlas is Pixelcoat's output and this is the
-    only thing that should ever make one; a PNG checked in beside the probe
-    would be a second copy to drift from the generator.
+    THE SAME TWO FILES THE WALK GETS. `drip_assets` owns the atlas size, the
+    seed and the shader's location so that what is measured here and what a
+    person looks at in a walk copy cannot be different textures or different
+    text. It refuses rather than half-staging: a drip sampling nothing is
+    exactly the shape of failure that got 0.110.0's figure withdrawn.
     """
-    import sys
-    sys.path.insert(0, str(pixelcoat))
-    try:
-        from pixelcoat.core import droplets
-    except ImportError as exc:                       # pragma: no cover
-        raise SystemExit(
-            f"wet_ab: the drip arm needs pixelcoat on the path ({exc}); "
-            f"point --pixelcoat at the repo") from exc
-    from PIL import Image
-    a = droplets.drop_atlas(512, seed=1999)
-    Image.fromarray(a, "RGBA").save(dest / "drop_atlas.png")
-    print(f"  staged drop_atlas.png (512 px) from pixelcoat")
+    import drip_assets
+    for name in drip_assets.stage(dest, pixelcoat):
+        print(f"  staged {name}")
 
 
 def run_arm(godot: str, dest: Path, arm: str, wetness: float) -> dict:

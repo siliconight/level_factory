@@ -1,3 +1,73 @@
+## [0.117.0] - the drip can be walked, and 0.116.0's "19 wall families" was one
+
+CORRECTION FIRST, and the measurement is not the part that was wrong. 0.116.0
+priced `drip_few` at +1.85 ms worst-station over "19 wall families". It is 19
+MATERIAL RESOURCES and they are ONE family: every one of them is
+`M_Skin_brick_delco_1997`, a separate copy per imported GLB. Measured by the
+runtime node printing what it attached to, on the same package:
+
+    narrow family   entries in the package
+    brick                19   (1 distinct name, M_Skin_brick_delco_1997)
+    siding                0
+    stucco                0
+    corrugated            0
+    shingle               0
+
+So +1.85 ms is what drips on THIS package's brick cost. A package whose
+buildings wear siding or stucco pays for those too and the figure does not
+cover them. The four unmatched names cost nothing here and were not measured at
+all -- which is the ordinary trap of a name-matched set: an empty pattern is
+indistinguishable in a total from a cheap one.
+
+For scale, from the package's 295 GLBs: 908 material entries, 242 distinct
+names, of which 55 distinct (254 entries) match the wide arm's patterns --
+glass 22, drywall 22, concrete 20, brick 19, then a long tail of
+`metal_painted` colour variants. The wide arm's 250 is consistent with that
+count. Nothing about the non-proportionality finding changes: 250 resources
+against 19 still costs 4.65x rather than 13.16x.
+
+NOTED IN PASSING, not fixed and not this change's business: that tail is 20+
+materials of the shape `M_Skin_metal_painted_delco_1997_<hexcolour>` --
+colour-only variation expressed as separate materials, which is the first rule
+under "draw calls are the budget" and the defect Zoo's `pennant_row` shipped.
+It is a real finding about the skinning path and it wants its own measurement.
+
+SHIPPED, so the look can be judged:
+
+  * `assets/godot/rain_drip.gdshader` -- the fragment, EXTRACTED from
+    `wet_ab.gd` rather than retyped, so the text that was priced and the text
+    that runs are the same bytes. The probe now loads it instead of carrying
+    its own copy.
+  * `assets/godot/rain_drip.gd` -- the runtime node. Attaches the pass to the
+    priced family set, dedupes by material resource the way the probe did,
+    idempotent on `next_pass`, and PRINTS what it touched. It refuses loudly on
+    a missing shader or atlas and warns when it matched nothing: a pass that
+    attached to zero materials looks exactly like rain that is not falling, and
+    that silence is what this correction was caught by breaking.
+  * `tools/drip_assets.py` -- one stager for the shader and the atlas, used by
+    the measurement AND the walk, so a walk cannot judge a different texture
+    from the one that was measured. Atlas size and seed live here because they
+    are part of what was measured.
+  * `tests/test_drip_assets.py` -- the shader keeps the 2 mm offset and the
+    drop clock and reads no screen texture; nothing carries a second copy of
+    the fragment; and `rain_drip.gd`'s family list EQUALS the probe's narrow
+    arm. That last one fails if the set is widened without re-measuring, which
+    was confirmed by widening it (`drywall` added: the test named both lists
+    and the figure they belong to).
+  * `tools/walk_export.py --drip` (factory root) -- stages the three files into
+    a walk copy and adds the node to `_walk.tscn`. OFF by default, printed in
+    the summary, and no package the factory builds carries drips.
+
+VERIFIED on cold run 9080's package: `19 of 880 materials, 12189 mesh
+instances visited`, import exit 0, and the atlas loads as an imported resource
+rather than off disk -- the first assembly read it with `Image.load_from_file`,
+which Godot warns "will not work on export", so the node loads the resource and
+keeps the raw read only as a fallback for an unimported copy.
+
+WHERE THIS DOES NOT GO YET. The pipeline attaches nothing. When the look is
+approved the attachment belongs in the presentation compose step, gated on the
+brief's weather the way Lot's wet ground already is.
+
 ## [0.116.0] - the drip fragment is priced, and material count does not predict it
 
 MEASURED, 2026-09-26, on cold run 9080's package, GL Compatibility, 1280x720,
