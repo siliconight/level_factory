@@ -25,6 +25,7 @@ import json
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
+from packages.validation import material_census
 from packages.adapters.sdk import BaseAdapter, PlannedCommand
 from packages.core.hashing import hash_file
 
@@ -471,6 +472,15 @@ class PresentationAdapter(BaseAdapter):
 
     def normalize_validation(self, output_paths) -> Sequence[Mapping[str, object]]:
         issues: list[dict] = []
+
+        # MATERIALS FIRST, and deliberately before the manifest guard below.
+        # Everything after this point returns early when the manifest is
+        # missing or unparseable, and the material census does not need it --
+        # it reads the .glb files themselves. Gating it on the manifest would
+        # make a broken manifest silence a finding about the geometry, which
+        # is the shape of "I cannot see it" reported as "it is not there".
+        issues.extend(material_census.issues(output_paths))
+
         manifest = next((p for p in output_paths
                          if p.name == "portable_resource_manifest.json"), None)
         if manifest is None:

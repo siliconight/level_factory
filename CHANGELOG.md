@@ -1,3 +1,60 @@
+## [0.118.0] - the material census: 76% of a package's materials differ only in a colour
+
+MEASURED, 2026-09-26, on three shipped packages. The first rule under "draw
+calls are the budget" is "never express colour-only variation as a new
+material", and nothing has ever counted materials, so the rule has been a
+paragraph rather than a check:
+
+    package            .glb   entries   distinct   tint families   in them
+    cold 9080 walk      295       908        242        11            183
+    crossroads 9600     251       832        220        11            170
+    cold 9078           272      1116        304        12            216
+
+    worst families, cold 9080
+      M_Skin_plastic_delco_1997        x44
+      M_Skin_metal_painted_delco_1997  x43
+      M_Skin_paper_delco_1997          x36
+      M_Skin_metal_bare_delco_1997     x19
+      M_BackBar_bulb_Face              x11
+
+76%, 77% and 71% of each package's distinct material names differ from a
+sibling in nothing but `baseColorFactor` -- same images, same atlas rect, same
+metallic, same everything else. Verified by hand on
+`prop_counter_delco_1997_05...glb`: three plastic materials, one texture,
+`_tex/plastic_neutral_albedo_50ed9ac2.png`, three colours.
+
+THE NAIVE VERSION OF THIS CHECK REPORTS EVERY PACKAGE CLEAN, and that is the
+whole reason this file is 250 lines rather than 40. The writer emits a separate
+texture ENTRY per material even when every entry resolves to the same image --
+`prop_fire_hydrant_...glb` has 4 materials, 8 texture entries and 4 distinct
+image payloads -- so comparing the glTF material dicts as written finds three
+materials with three different textures and no colour variation anywhere.
+Confirmed by falsification: with the texture resolver replaced by an identity,
+the census finds 0 of the 1 tint family that is there. The key resolves every
+texture reference to its image, sampler and atlas transform first, then
+compares the definition with the tint fields removed.
+
+IT REPORTS AND DOES NOT GATE. `PRESENTATION_TINT_MATERIALS` is moderate and
+non-blocking, and stays that way until somebody measures what a tint family
+costs in draw calls on this renderer. A material count is NOT a frame cost --
+measured on this same package hours earlier, 13.16x the material resources cost
+4.65x the milliseconds -- so a threshold set from these counts would be chosen
+rather than derived. The finding names the families and the suggested fix
+(instance data, a vertex colour channel, an atlas UV); the decision is a
+person's.
+
+WHAT IT DOES NOT CLAIM. Duplication across files is reported as `entries`
+against `distinct_names` (3.67-3.78 entries per name on all three packages) and
+is NOT counted as colour variation: the brick skin appears 19 times under one
+name and merging it with itself buys nothing. An unreadable `.glb` is reported
+separately from a zero, so a count that could not be taken never reads as a
+count of none.
+
+Wired into the presentation adapter ahead of its manifest guard, because that
+guard returns early and the census reads the `.glb` files rather than the
+manifest -- gating it there would let a broken manifest silence a finding about
+the geometry.
+
 ## [0.117.0] - the drip can be walked, and 0.116.0's "19 wall families" was one
 
 CORRECTION FIRST, and the measurement is not the part that was wrong. 0.116.0
