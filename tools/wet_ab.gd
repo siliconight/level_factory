@@ -87,6 +87,61 @@ void fragment() {
 """
 
 
+## THE DRIP FRAGMENT, priced rather than guessed at. Pixelcoat 0.50.0's drop
+## atlas: RG is the drop normal's XY, B a per-drop random that gives each drop
+## its own clock, A the small drops surface tension holds still.
+##
+## No screen read. Refraction through `hint_screen_texture` is the expensive
+## reference and is unmeasured on GL Compatibility; pricing it here would
+## price two things at once.
+const DRIP_SHADER := """
+shader_type spatial;
+render_mode blend_mix, depth_draw_never, cull_back, specular_schlick_ggx;
+
+uniform sampler2D drops : source_color, filter_linear_mipmap, repeat_enable;
+uniform float drip_speed : hint_range(0.0, 1.0) = 0.08;
+uniform float drip_scale : hint_range(0.5, 16.0) = 4.0;
+uniform float amount : hint_range(0.0, 1.0) = 0.9;
+
+const float PROUD_M = 0.002;
+
+varying vec3 world_n;
+
+void vertex() {
+	world_n = (MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz;
+	VERTEX += NORMAL * PROUD_M;
+}
+
+void fragment() {
+	vec4 drop = texture(drops, UV * drip_scale);
+
+	// EACH DROP ON ITS OWN CLOCK. `fract(b - t)` decays from the drop's own
+	// random value to zero and snaps back, which reads as a drop landing,
+	// soaking in, and another landing after it. Multiplied by B again so a
+	// texel with no drop stays at zero rather than pulsing the whole wall.
+	float run = fract(drop.b - TIME * drip_speed) * drop.b;
+	// the small drops do not move at all -- surface tension holds them.
+	float wet = clamp(max(run, drop.a), 0.0, 1.0) * amount;
+
+	// RAIN DOES NOT FALL ON A SOFFIT, and it does not run down one either.
+	// A vertical face takes the most; a ceiling takes none.
+	float up = dot(normalize(world_n), vec3(0.0, 1.0, 0.0));
+	wet *= smoothstep(-0.35, 0.15, up);
+
+	// Z is reconstructed, not stored: a drop's normal is near-vertical
+	// almost everywhere and the error does not survive a normal map.
+	NORMAL_MAP = vec3(drop.r, drop.g, 1.0);
+	NORMAL_MAP_DEPTH = wet * 2.0;
+
+	ALBEDO = vec3(0.0);
+	ALPHA = wet * 0.30;
+	ROUGHNESS = mix(0.55, 0.06, wet);
+	SPECULAR = mix(0.5, 1.0, wet);
+	METALLIC = 0.0;
+}
+"""
+
+
 func _initialize() -> void:
 	var a: PackedStringArray = OS.get_cmdline_user_args()
 	if a.size() < 3:
@@ -139,11 +194,51 @@ func _is_ground(nm: String) -> bool:
 	return false
 
 
+## A VERTICAL face's material. Drips run DOWN something; the wet variant
+## already owns the ground. Named families rather than a normal test, because
+## a material is attached to a mesh and does not know which way any one of its
+## triangles faces -- the shader's own `up` term does that per fragment.
+func _is_wall(nm: String) -> bool:
+	var s: String = nm.to_lower()
+	for p in ["brick", "concrete", "cinder", "stucco", "plaster", "siding",
+			"drywall", "panel", "glass", "wall", "shingle", "corrugated",
+			"metal_painted", "paint_block"]:
+		if s.contains(p):
+			return true
+	return false
+
+
+## THE SET A SHIPPING DRIP WOULD ACTUALLY USE. `_is_wall` above is the wide
+## net and it caught 250 materials on cold run 9080's package -- nearly every
+## wall-ish kind in the theme. Water running down a face is worth paying for
+## on the EXTERIOR surfaces a player walks past, not on every interior
+## partition and shelf, so this is the narrow arm: the street-facing families
+## and nothing else.
+##
+## Measured rather than divided. The wide arm's cost is not divided by a ratio
+## to get this one -- assuming proportionality is what produced the withdrawn
+## figure in LF 0.115.0.
+func _is_wall_few(nm: String) -> bool:
+	var s: String = nm.to_lower()
+	for p in ["brick", "siding", "stucco", "corrugated", "shingle"]:
+		if s.contains(p):
+			return true
+	return false
+
+
 func _attach(scene: Node, arm: String, wetness: float) -> int:
 	if arm == "dry":
 		return 0
+	var drip: bool = arm == "drip" or arm == "drip_few"
 	var shader := Shader.new()
-	shader.code = WET_SHADER
+	shader.code = DRIP_SHADER if drip else WET_SHADER
+	var atlas: Texture2D = null
+	if drip:
+		var img: Image = Image.load_from_file("res://drop_atlas.png")
+		if img == null:
+			push_error("[wet_ab] drip arm needs res://drop_atlas.png")
+			return 0
+		atlas = ImageTexture.create_from_image(img)
 	var nodes: Array = []
 	_walk(scene, nodes)
 	var seen: Dictionary = {}
@@ -158,6 +253,10 @@ func _attach(scene: Node, arm: String, wetness: float) -> int:
 				continue
 			seen[bm.get_instance_id()] = true
 			var mat_name: String = String(bm.resource_name)
+			if arm == "drip" and not _is_wall(mat_name):
+				continue
+			if arm == "drip_few" and not _is_wall_few(mat_name):
+				continue
 			if arm == "wet" and not _is_exterior(mat_name):
 				continue
 			if arm == "wet_ground" and not _is_ground(mat_name):
@@ -166,9 +265,13 @@ func _attach(scene: Node, arm: String, wetness: float) -> int:
 				continue           # idempotent, as the CRT pass is
 			var sm := ShaderMaterial.new()
 			sm.shader = shader
-			sm.resource_name = String(bm.resource_name) + "_wet"
-			sm.set_shader_parameter("wetness", wetness)
-			sm.set_shader_parameter("sky_bias", 2.0)
+			sm.resource_name = String(bm.resource_name) + ("_drip" if drip else "_wet")
+			if drip:
+				sm.set_shader_parameter("drops", atlas)
+				sm.set_shader_parameter("amount", wetness)
+			else:
+				sm.set_shader_parameter("wetness", wetness)
+				sm.set_shader_parameter("sky_bias", 2.0)
 			bm.next_pass = sm
 			count += 1
 	return count

@@ -60,6 +60,11 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 SCRIPT = HERE / "wet_ab.gd"
+#: Every arm this knows. `--arms` picks a subset; `dry` is always the baseline
+#: and is added back if a caller leaves it out, because every figure here is a
+#: difference against it.
+ALL_ARMS = ("dry", "wet_ground", "wet", "wet_all",
+            "drip_few", "drip")
 ARMS = ("dry", "wet_ground", "wet", "wet_all")
 
 
@@ -83,6 +88,27 @@ def stage(pkg: Path, work: Path, arm: str) -> Path:
     shutil.copytree(pkg, dest)
     shutil.copyfile(SCRIPT, dest / SCRIPT.name)
     return dest
+
+
+def _stage_atlas(pixelcoat: Path, dest: Path) -> None:
+    """Write Pixelcoat's drop atlas into the staged arm as drop_atlas.png.
+
+    GENERATED, not carried. The atlas is Pixelcoat's output and this is the
+    only thing that should ever make one; a PNG checked in beside the probe
+    would be a second copy to drift from the generator.
+    """
+    import sys
+    sys.path.insert(0, str(pixelcoat))
+    try:
+        from pixelcoat.core import droplets
+    except ImportError as exc:                       # pragma: no cover
+        raise SystemExit(
+            f"wet_ab: the drip arm needs pixelcoat on the path ({exc}); "
+            f"point --pixelcoat at the repo") from exc
+    from PIL import Image
+    a = droplets.drop_atlas(512, seed=1999)
+    Image.fromarray(a, "RGBA").save(dest / "drop_atlas.png")
+    print(f"  staged drop_atlas.png (512 px) from pixelcoat")
 
 
 def run_arm(godot: str, dest: Path, arm: str, wetness: float) -> dict:
@@ -120,6 +146,16 @@ def main(argv=None) -> int:
     ap.add_argument("--godot")
     ap.add_argument("--rounds", type=int, default=3)
     ap.add_argument("--wetness", type=float, default=0.85)
+    ap.add_argument("--arms", nargs="+", default=list(ARMS),
+                    choices=list(ALL_ARMS),
+                    help="which arms to run. `dry` is the baseline and is "
+                         "added back if omitted. `drip` prices the rain-drip "
+                         "fragment against Pixelcoat's drop atlas, which this "
+                         "generates and stages -- a drip measured without its "
+                         "texture fetch is not a drip.")
+    ap.add_argument("--pixelcoat", type=Path,
+                    default=Path(__file__).resolve().parents[2] / "pixelcoat",
+                    help="pixelcoat repo, for the drop atlas")
     ap.add_argument("--json", type=Path)
     args = ap.parse_args(argv)
 
@@ -136,24 +172,31 @@ def main(argv=None) -> int:
     print(f"  renderer: the package's own (GL Compatibility is what ships)")
     print(f"  wetness : {args.wetness}   rounds: {args.rounds}\n")
 
-    rounds = {a: [] for a in ARMS}
-    for arm in ARMS:
+    arms = [a for a in ALL_ARMS if a in set(args.arms) | {"dry"}]
+    rounds = {a: [] for a in arms}
+    for arm in arms:
         dest = stage(args.package, args.work, arm)
+        if arm.startswith("drip"):
+            _stage_atlas(args.pixelcoat, dest)
         for r in range(args.rounds):
             rep = run_arm(godot, dest, arm, args.wetness)
             rounds[arm].append(rep)
             print(f"  {arm:<8} round {r + 1}/{args.rounds}: "
                   f"{rep['materials_wet']} material(s) wet")
 
-    scenes = {r["main_scene"] for a in ARMS for r in rounds[a]}
+    scenes = {r["main_scene"] for a in arms for r in rounds[a]}
     if len(scenes) != 1:
         print(f"\nREFUSED: the arms ran different scenes: {scenes}")
         return 1
-    if rounds["wet"][0]["materials_wet"] == 0:
-        print("\nREFUSED: the `wet` arm wet zero materials -- the name test "
-              "found nothing, so every figure below would be the dry arm "
-              "measured twice.")
-        return 1
+    # EVERY non-dry arm must have attached something. An arm whose name
+    # test found nothing is the dry arm measured twice, and its figures
+    # would read as "free" rather than as "never ran".
+    for a in arms:
+        if a != "dry" and rounds[a][0]["materials_wet"] == 0:
+            print(f"\nREFUSED: the `{a}` arm attached to zero materials "
+                  f"-- its name test found nothing, so every figure below "
+                  f"would be the dry arm measured twice.")
+            return 1
 
     def rows(arm):
         out = {}
@@ -162,14 +205,17 @@ def main(argv=None) -> int:
                 out.setdefault(s["station"], []).append(s)
         return out
 
-    dry, grnd = rows("dry"), rows("wet_ground")
-    wet, allw = rows("wet"), rows("wet_all")
+    dry = rows("dry")
+    others = [a for a in arms if a != "dry"]
+    tbl_of = {a: rows(a) for a in others}
 
     # THE CONTROL, and it is not optional. A next_pass draws the same triangles
     # again; if the counter did not move, nothing was added and no ms below is
-    # evidence.
+    # evidence. Checked against the HEAVIEST arm that ran, which is the one
+    # most likely to move it -- and if that one did not, none did.
+    probe = tbl_of[others[-1]]
     moved = [s for s in dry
-             if st.median([x["draw_calls"] for x in wet[s]])
+             if st.median([x["draw_calls"] for x in probe[s]])
              > st.median([x["draw_calls"] for x in dry[s]])]
     if not moved:
         print("\nREFUSED: draw calls did not rise at ANY station between dry "
@@ -187,7 +233,7 @@ def main(argv=None) -> int:
     # whether narrowing the surface set would help at all.
     blind = [s for s in dry
              if max(x["cpu_ms"] + x["gpu_ms"]
-                    for x in dry[s] + wet[s]) <= 0.0]
+                    for x in dry[s] + probe[s]) <= 0.0]
     if len(blind) == len(dry):
         print("\nREFUSED: every station reported cpu_ms and gpu_ms of "
               "0.00. Render-time measurement is off, so the frame times "
@@ -208,7 +254,7 @@ def main(argv=None) -> int:
     # A frame's own mean luminance can tell the two apart.
     if any("frame_luma" in x for s in dry for x in dry[s]):
         drew = [s for s in dry
-                if abs(st.median([x.get("frame_luma", 0.0) for x in wet[s]])
+                if abs(st.median([x.get("frame_luma", 0.0) for x in probe[s]])
                        - st.median([x.get("frame_luma", 0.0) for x in dry[s]]))
                 > 1e-4]
         if not drew:
@@ -220,23 +266,26 @@ def main(argv=None) -> int:
         print("  the frame CHANGED at %d of %d station(s) -- the pass is "
               "visible, not merely submitted" % (len(drew), len(dry)))
 
-    print(f"\n  materials wet: {rounds['wet'][0]['materials_wet']} selective, "
-          f"{rounds['wet_all'][0]['materials_wet']} all")
+    print("\n  materials touched: "
+          + ", ".join("%s %d" % (a, rounds[a][0]["materials_wet"])
+                      for a in others))
     print(f"  draw calls rose at {len(moved)} of {len(dry)} station(s) "
           f"-- the instrument can see the pass\n")
-    print("  %-14s %14s %14s %14s %14s"
-          % ("station", "dry", "wet_ground", "wet (named)",
-             "wet_all (bound)"))
-    print("  %-14s %7s %6s %7s %6s %7s %6s %7s %6s"
-          % ("", "draws", "ms", "draws", "ms", "draws", "ms", "draws", "ms"))
+    others = [a for a in arms if a != "dry"]
+    print("  %-14s %14s%s"
+          % ("station", "dry", "".join("%15s" % a for a in others)))
+    print("  %-14s %7s %6s%s"
+          % ("", "draws", "ms", "".join("%8s %6s" % ("draws", "ms")
+                                        for _ in others)))
     for s in dry:
         def med(tbl, key):
             return st.median([x[key] for x in tbl[s]])
-        print("  %-14s %7d %6.2f %7d %6.2f %7d %6.2f %7d %6.2f"
-              % (s, med(dry, "draw_calls"), med(dry, "ms_median"),
-                 med(grnd, "draw_calls"), med(grnd, "ms_median"),
-                 med(wet, "draw_calls"), med(wet, "ms_median"),
-                 med(allw, "draw_calls"), med(allw, "ms_median")))
+        line = "  %-14s %7d %6.2f" % (s, med(dry, "draw_calls"),
+                                      med(dry, "ms_median"))
+        for a in others:
+            line += " %8d %6.2f" % (med(tbl_of[a], "draw_calls"),
+                                    med(tbl_of[a], "ms_median"))
+        print(line)
 
     # THE COST MODEL, stated as a number rather than a word. If the marginal
     # us-per-added-draw-call is flat across stations whose wet-surface SCREEN
@@ -246,7 +295,8 @@ def main(argv=None) -> int:
     # frame -- buys nothing. This prints the spread and lets the reader decide,
     # rather than closing with a sentence naming a cause.
     print("\n  marginal cost of the pass, per added draw call:")
-    for label, tbl in (("wet_ground", grnd), ("wet", wet), ("wet_all", allw)):
+    for label in others:
+        tbl = tbl_of[label]
         per = []
         for s in dry:
             dd = (st.median([x["draw_calls"] for x in tbl[s]])
@@ -265,8 +315,8 @@ def main(argv=None) -> int:
                 - st.median([x["ms_median"] for x in dry[s]]) for s in dry]
 
     print("")
-    for label, tbl in (("wet_ground", grnd), ("wet", wet), ("wet_all", allw)):
-        dl = delta(tbl)
+    for label in others:
+        dl = delta(tbl_of[label])
         print("  %-11s - dry : median %+.2f ms, worst %+.2f ms"
               % (label, st.median(dl), max(dl)))
     print("  The median is over ALL stations including near-empty views; the "
@@ -282,7 +332,7 @@ def main(argv=None) -> int:
         args.json.write_text(json.dumps(
             {"schema": "lf.wet_ab_run.v1", "package": str(args.package),
              "wetness": args.wetness, "rounds": args.rounds,
-             "arms": {a: rounds[a] for a in ARMS}}, indent=1), encoding="utf-8")
+             "arms": {a: rounds[a] for a in arms}}, indent=1), encoding="utf-8")
         print(f"\n  wrote {args.json}")
     return 0
 
