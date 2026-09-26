@@ -1,3 +1,67 @@
+## [0.119.0] - what collapsing Zoo's tint variants buys, measured
+
+MEASURED, 2026-09-26, cold run 9080's package, GL Compatibility, 1280x720,
+3 rounds x 300 samples, the same six stations every other figure in this repo
+was taken at. `tools/tint_merge_ab.gd` performs the fix at runtime -- groups
+single-surface meshes sharing a tint key within one placed `.glb`, concatenates
+their arrays, folds each source material's `albedo_color` into the vertex
+colour channel, and emits one surface -- so what is measured is the fix rather
+than an estimate of it.
+
+    what the merge did
+      considered              3,690 single-surface meshes
+      skipped_multi_surface     933
+      groups merged             199
+      surfaces  787 -> 199     (-588)
+      widest merged group      7.00 m across
+
+    station          as_is            merged           delta
+                   draws     ms     draws     ms     draws      ms
+    street_down      314   3.43       298   2.64      -16    -0.79
+    street_along    3467  16.81      3068  17.20     -399    +0.39
+    ground_near      180   1.91       166   1.96      -14    +0.05
+    exterior_high   4646  22.18      4058  20.86     -588    -1.33
+    interior_a       298   2.57       280   2.92      -18    +0.35
+    interior_b      4200  20.25      3670  19.82     -530    -0.43
+
+THE DRAW CALLS FALL AND THE FRAME TIME DOES NOT RELIABLY FOLLOW. 588 draw calls
+removed at `exterior_high` -- 12.7% of that station's submissions -- bought
+1.33 ms, 6.0%. But `street_along` lost 399 draws and came back 0.39 ms SLOWER,
+and `interior_a` 0.35 ms slower. Three stations faster, three slower, median
+0.19 ms saved and a spread that straddles zero.
+
+WHY THEY DISAGREE, and it is the thing the first control got wrong. Merging
+coarsens culling: one object replaces things the culler used to reject
+separately, so the merged arm submits MORE triangles for the same view --
++5.7% at `exterior_high`, +3.6% at `street_along`, under +0.1% at the three
+near-empty stations. That is the cost CLAUDE.md names ("a whole street merged
+into one mesh would be faster to submit and slower to play") appearing at prop
+scale.
+
+THE FIRST CONTROL WAS WITHDRAWN, and it is kept in `tint_merge_run.py` above
+the one that replaced it. It required in-frame triangles to be IDENTICAL
+between arms, modelled on Zoo 1.1.0's merge ("118 meshes to 4, triangles
+identical"), and it refused this probe's own first run with rises of +742 to
++64,428. Those rises are not lost geometry, they are the merge working -- Zoo's
+merge held triangles because every part of one pack wall enters view together,
+and a tint family does not. A control that forbids the cost cannot measure it.
+Conservation now counts triangles INTO the merge and OUT of it, where the
+answer does not depend on where a camera stands: 136,552 in, 136,552 out.
+
+THE MERGE IS INVISIBLE, which is the other half of the claim. Frame luminance
+moved by at most 0.0003 at any station -- the tint really does survive being
+moved from `albedo_color` into the vertex colour channel, as glTF's
+`base = factor * texture * COLOR_0` says it must. That is reported and not
+gated: "it looks identical" is a claim about a look and belongs where it can be
+argued with.
+
+WHAT THIS DOES NOT SAY. 933 multi-surface meshes were skipped, so every figure
+is a floor. One package, one theme, six stations. And the honest reading is
+that the draw-call saving is large and unambiguous while the frame-time saving
+is not distinguishable from noise at three of six stations -- so this does not
+yet justify changing `zoo/zoo_keeper/bpylayer/materials.py:157`, and saying so
+is the point of having measured it.
+
 ## [0.118.0] - the material census: 76% of a package's materials differ only in a colour
 
 MEASURED, 2026-09-26, on three shipped packages. The first rule under "draw
