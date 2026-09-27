@@ -1,3 +1,69 @@
+## [0.122.0] - the fixed-station performance harness
+
+`tools/perf_stations.gd` + `tools/perf_stations_run.py`. Until now a frame
+cost was only known when a person walked a level and read the F4 overlay out
+loud: cold run 9088's eight numbers were transcribed from screenshots.
+`docs/PERFORMANCE_CONTRACT.md` s10 has asked for a permanent benchmark set
+since it was written and recorded that it did not exist;
+`docs/DRAW_CALL_BUDGET.md` names it as the gap that makes every other
+performance item checkable.
+
+STATIONS COME FROM THE PACKAGE. `gameplay_anchors.json` already carries the
+places a player will be, with world positions; a station typed into a probe
+goes stale the first time the generator moves something. At most 12, spread
+round-robin across anchor types so a level with 27 attacker spawns does not
+report twelve attacker spawns.
+
+EACH STATION TAKES FOUR HEADINGS and reports the WORST. Cold run 9088 read
+1,091 draw calls facing one way and 5,739 facing another in the same level, so
+a station reported as one number is a station measured facing arbitrarily.
+
+First real result, on cold run 9088's own package, 12 stations warm:
+
+    extraction_10     13.55 ms p95   3,507 draws
+    player_start_28   13.35 ms p95   3,710 draws
+    attacker_spawn_16 12.77 ms p95   3,403 draws
+    ...
+    objective_4        4.64 ms p95   2,289 draws
+
+    lights per object: cap 8, 34 of 4,625 meshes over it, worst 47
+    12 of 12 stations over the 2,000-draw guardrail; 5 over 11 ms
+
+It agrees with the walk overlay independently: 11.85 ms at 2,287 draws here
+against 11.28 ms at 2,257 draws read off F4 during the walk.
+
+THREE THINGS THE FIRST TWO RUNS GOT WRONG, all now guarded, because each one
+produced a confident wrong answer:
+
+* THE PACKAGE WAS NEVER IMPORTED. It ships sidecars and no `.godot`, and its
+  own export message says to import once. Without that no GLB loads, only the
+  dressing MultiMeshes draw, and the run reported 4 draw calls at all 29
+  stations as "every station inside budget". The runner imports when the
+  cache is absent, and the probe refuses when the scene holds not one
+  MeshInstance3D -- threshold-free, because a level with no meshes is broken
+  rather than fast.
+* A TRUNCATED RUN REPORTED A PASS. The watchdog fired, the probe wrote what it
+  had, and the caller read it as finished. The report carries `complete` and
+  the runner treats false as CANNOT MEASURE.
+* THE INSTRUMENT WAS CHANGING THE MEASUREMENT.
+  `viewport_set_measure_render_time` inserts GPU timestamp queries every
+  frame; with them on, one station read 109.26 ms p95 at 3,025 draws and with
+  them off 8.35 ms -- a factor of 13. `assets/godot/debug_overlay.gd` enables
+  them only while its panel is visible and says why. Frame time is now
+  measured with the timers OFF and the GPU/CPU split comes from a separate
+  short pass with them ON, labelled as not comparable.
+
+Also: every station is warmed before any is measured, and the worst frame seen
+while warming is kept as the cold figure rather than discarded -- s3 of the
+contract separates cold launch from warm repeat, and this is the warm-repeat
+instrument.
+
+Exit codes match `tools/check_all.py`: 0 clean, 1 findings, 2 COULD NOT
+MEASURE. `tests/unit/test_perf_stations_run.py` covers each refusal and ends
+with a control that asserts the verdict moves on identical input when only the
+budget changes -- a gate that cannot fail is indistinguishable from one that
+passed.
+
 ## [0.121.0] - a `night` brief stops asking for dusk
 
 `_preset_for` mapped both `night` and `evening` to `Blue Hour`. That preset
