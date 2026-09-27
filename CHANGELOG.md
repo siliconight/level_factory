@@ -1,3 +1,35 @@
+## [0.124.0] - the harness measures the longest sightline and the highest vantage
+
+The walker's performance bible (section 8) names four camera probes: spawn,
+central combat, longest sightline, highest vantage point. `perf_stations.gd`
+drew its stations from gameplay anchors, which covers the first two and had
+never measured the view most likely to blow the budget. Both are now derived
+from the package -- never typed in -- and appended after the round-robin cap so
+it cannot displace them.
+
+HIGHEST VANTAGE is the highest anchor a player can stand at. The package ships
+no NavigationMesh (`navigation_hints.json`: `"navmesh": "bake_required"`), so
+the anchors are the reachable set; a rooftop the geometry scan would find is
+not a vantage, nobody can stand there.
+
+LONGEST SIGHTLINE casts 16 rays at eye height from every candidate against
+the package's own collision and keeps the longest that LANDS. The first run
+ranked a 500 m ray that hit nothing: a 4.6 m eye from a camera socket clears
+the perimeter wall, and it measured 260 draws of void. A miss is an escape,
+reported apart -- a ray leaving the map is a finding about the boundary, not a
+view a player has. On cold run 9089's package: 127.7 m from extraction_10 at
+yaw 293, and 37 rays left the map.
+
+The first run put the vantage at the top of the table -- 12.17 ms p95, 2,649
+draws, worse than all twelve anchor stations -- which is the bible's point
+made in one line. The second run read 22.89 ms at a different worst heading
+with fewer draws and a GPU/CPU split that does not add up to it. One sample
+each; that is instability, not a result, and it is recorded as such rather
+than as the worst station in the level.
+
+Both stations carry their own `yaw` when one defines them, and the heading
+loop honours it.
+
 ## [0.123.0] - probes always exit, and the runner kills the tree
 
 WHAT WAS ACTUALLY WRONG, before the fix is sold as more than it is. A probe

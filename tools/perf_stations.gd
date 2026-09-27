@@ -96,6 +96,7 @@ var _vp_rid: RID
 var _rows: Array = []
 var _complete: bool = false
 var _geometry: Dictionary = {}
+var _all_candidates: Array = []
 var _out_path: String = "user://perf_stations.json"
 
 
@@ -217,6 +218,7 @@ func _stations() -> Array:
 			continue
 		seen[key] = true
 		out.append({"name": "%s_%d" % [t, out.size()], "pos": v, "type": t})
+	_all_candidates = out.duplicate()
 	return _spread(out)
 
 
@@ -247,6 +249,62 @@ func _spread(all: Array) -> Array:
 			break
 		i += 1
 	return out
+
+
+## The highest position a player can stand at, from the anchors -- the
+## package ships no navmesh, and a rooftop nobody can reach is not a
+## vantage. Ties go to the first found, which is deterministic because
+## the anchor file is.
+func _highest_vantage(cands: Array) -> Dictionary:
+	var best: Dictionary = {}
+	for c in cands:
+		if best.is_empty() or (c["pos"] as Vector3).y > (best["pos"] as Vector3).y:
+			best = c
+	if best.is_empty():
+		return {}
+	return {"name": "highest_vantage", "pos": best["pos"],
+		"type": "derived", "from": best["name"]}
+
+
+## From every candidate, on 16 headings at eye height, the longest clear
+## ray against the package's own collision. The station and heading that
+## see furthest ARE the sightline. Glass has no collider, so a window
+## reads as open; a wall reads as a wall. Reported with the distance so a
+## reader can tell a 40 m street from a 200 m boundary-to-boundary view.
+func _longest_sightline(cands: Array, scene: Node) -> Dictionary:
+	var space: PhysicsDirectSpaceState3D = (scene.get_viewport() as Viewport) \
+		.find_world_3d().direct_space_state
+	var best_d: float = -1.0
+	var best: Dictionary = {}
+	var reach: float = 500.0
+	var escapes: int = 0
+	for c in cands:
+		var eye: Vector3 = (c["pos"] as Vector3) + Vector3.UP * EYE_H
+		for h in range(16):
+			var yaw: float = 360.0 * float(h) / 16.0
+			var dir := Vector3(-sin(deg_to_rad(yaw)), 0.0, -cos(deg_to_rad(yaw)))
+			var q := PhysicsRayQueryParameters3D.create(eye, eye + dir * reach)
+			var hit: Dictionary = space.intersect_ray(q)
+			# A MISS IS AN ESCAPE, NOT A SIGHTLINE. The first run ranked a 500 m
+			# ray from a camera socket at yaw 0 as the longest sightline: it hit
+			# nothing, because a 4.6 m eye clears the perimeter wall, and it
+			# measured 260 draws of void. A sightline is the longest ray that
+			# LANDS on something. Escapes are counted and reported apart, since a
+			# ray leaving the map is a finding about the boundary, not a view.
+			if hit.is_empty():
+				escapes += 1
+				continue
+			var d: float = eye.distance_to(hit["position"] as Vector3)
+			if d > best_d:
+				best_d = d
+				best = {"name": "longest_sightline", "pos": c["pos"],
+					"type": "derived", "from": c["name"], "yaw": yaw,
+					"sightline_m": d}
+	if not best.is_empty():
+		print("[perf] longest sightline: %.1f m from %s at yaw %.0f  (%d ray(s) left the map)"
+			% [best_d, String(best["from"]), float(best["yaw"]), escapes])
+		best["rays_escaped"] = escapes
+	return best
 
 
 func _sample(cam: Camera3D, eye: Vector3, yaw: float) -> Dictionary:
@@ -388,6 +446,14 @@ func _run() -> void:
 			break
 
 	var stations: Array = _stations()
+	# THE TWO THE BIBLE NAMES AND ANCHORS DO NOT GIVE. Appended after the
+	# spread so the cap never displaces them.
+	var vantage: Dictionary = _highest_vantage(_all_candidates)
+	if not vantage.is_empty():
+		stations.append(vantage)
+	var sight: Dictionary = await _longest_sightline(_all_candidates, scene)
+	if not sight.is_empty():
+		stations.append(sight)
 	if stations.is_empty():
 		print("[perf] REFUSED: no stations -- gameplay_anchors.json absent or")
 		print("[perf] carried no anchor of a type worth standing at. A report")
@@ -480,8 +546,12 @@ func _run() -> void:
 	for s in stations:
 		var eye: Vector3 = (s["pos"] as Vector3) + Vector3.UP * EYE_H
 		var per: Array = []
-		for h in range(HEADINGS):
-			var yaw: float = 360.0 * float(h) / float(HEADINGS)
+		# a derived station may carry the ONE heading that defines it
+		var yaws: Array = [float(s["yaw"])] if s.has("yaw") else []
+		if yaws.is_empty():
+			for h in range(HEADINGS):
+				yaws.append(360.0 * float(h) / float(HEADINGS))
+		for yaw in yaws:
 			per.append(await _sample(cam, eye, yaw))
 		# THE WORST HEADING IS THE STATION. A player looks where they like,
 		# and the median across headings hides the view that drops the frame.
