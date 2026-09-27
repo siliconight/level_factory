@@ -111,7 +111,7 @@ func _watchdog() -> void:
 		if Time.get_ticks_msec() - t0 > int(WATCHDOG_SEC * 1000.0):
 			print("[perf] WATCHDOG: %.0f s elapsed, quitting" % WATCHDOG_SEC)
 			_write()
-			quit(2)
+			_exit(2)
 			return
 
 
@@ -125,6 +125,26 @@ func _walk(n: Node, out: Array) -> void:
 	for c in n.get_children():
 		_walk(c, out)
 
+
+
+
+## AN EXIT THAT CANNOT BE REFUSED. `quit()` asks the main loop to stop at
+## the end of the frame; it cannot close an in-engine modal dialog, and a
+## probe has raised one on the walker's desktop twice (CLAUDE.md, GDScript
+## section). So: ask, allow two frames for the loop to honour it, and if a
+## third frame ever arrives, end the process outright. A normal exit never
+## gets past the awaits -- the loop has stopped -- so this costs nothing
+## on the path that works and is the only thing that works on the path
+## that does not.
+##
+## The exit code is lost on the kill path. Callers that need a verdict
+## read the report's `complete` flag, not the code, for exactly this
+## reason.
+func _exit(code: int) -> void:
+	quit(code)
+	await process_frame
+	await process_frame
+	OS.kill(OS.get_process_id())
 
 func _arg(name: String, fallback: String) -> String:
 	var args: PackedStringArray = OS.get_cmdline_user_args()
@@ -345,7 +365,7 @@ func _run() -> void:
 	var packed: PackedScene = load(main_path) as PackedScene
 	if packed == null:
 		print("[perf] REFUSED: no main scene at %s" % main_path)
-		quit(2)
+		_exit(2)
 		return
 	var scene: Node = packed.instantiate()
 	current_scene = scene
@@ -372,7 +392,7 @@ func _run() -> void:
 		print("[perf] REFUSED: no stations -- gameplay_anchors.json absent or")
 		print("[perf] carried no anchor of a type worth standing at. A report")
 		print("[perf] over zero stations is not a clean report.")
-		quit(2)
+		_exit(2)
 		return
 
 	var cam := Camera3D.new()
@@ -385,7 +405,7 @@ func _run() -> void:
 	await _settle(60)
 	if root.get_camera_3d() != cam:
 		print("[perf] REFUSED: the rendering camera is not the probe's")
-		quit(2)
+		_exit(2)
 		return
 	# A FRAME THAT NEVER DREW is not a fast frame. The first read of a run is
 	# black regardless of how long you wait, and this repo has twice nearly
@@ -399,7 +419,7 @@ func _run() -> void:
 			break
 	if not drew:
 		print("[perf] REFUSED: no draw calls recorded; nothing was rendered")
-		quit(2)
+		_exit(2)
 		return
 
 	# DID THE LEVEL ACTUALLY LOAD? A portable package ships sidecars and
@@ -427,7 +447,7 @@ func _run() -> void:
 		print("[perf] before measuring it, or nothing but the dressing")
 		print("[perf] MultiMeshes will load and the report will read fast.")
 		_write()
-		quit(2)
+		_exit(2)
 		return
 	var cap: int = int(ProjectSettings.get_setting(
 		"rendering/limits/opengl/max_lights_per_object", 8))
@@ -485,4 +505,4 @@ func _run() -> void:
 			census["worst"], census["worst_mesh"]])
 	_complete = true
 	_write()
-	quit(0)
+	_exit(0)

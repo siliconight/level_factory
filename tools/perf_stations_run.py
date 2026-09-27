@@ -71,6 +71,67 @@ def _find_godot(explicit: str | None) -> str | None:
     return shutil.which("godot")
 
 
+def _godot_pids() -> list[int]:
+    """Every Godot process on the machine, by image name. Used only to CHECK,
+    never to kill -- a kill by image name would take the walker's own editor
+    with it, and the standing rule is PIDs matching our own work only."""
+    if sys.platform != "win32":
+        return []
+    out = subprocess.run(
+        ["powershell", "-NoProfile", "-Command",
+         "Get-Process | Where-Object { $_.ProcessName -like '*Godot*' } "
+         "| Select-Object -ExpandProperty Id"],
+        capture_output=True, text=True)
+    return [int(x) for x in out.stdout.split() if x.strip().isdigit()]
+
+
+def _run_godot(cmd: list[str], timeout: int):
+    """Run Godot to completion, or kill its whole process TREE on timeout.
+
+    `subprocess.run(timeout=)` kills its direct child. Godot's console
+    launcher (`*_console.exe`) spawns the real engine as a grandchild, so a
+    plain timeout killed the wrapper and left the engine drawing to the
+    walker's desktop with nobody waiting on it. On Windows `taskkill /T`
+    takes the tree; elsewhere the launcher IS the engine.
+
+    Returns the completed process, or None after printing why. After a
+    timeout it also refuses if any Godot is still up, because a report over
+    a level whose engine is still running is not a report about a finished
+    run -- and it names the PIDs rather than killing by image name.
+    """
+    before = set(_godot_pids())
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True)
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                           capture_output=True)
+        else:
+            proc.kill()
+        try:
+            out, err = proc.communicate(timeout=15)
+        except subprocess.TimeoutExpired:
+            out, err = "", ""
+        print("CANNOT MEASURE: Godot did not finish in %ds; its process "
+              "tree was killed" % timeout)
+        left = sorted(set(_godot_pids()) - before)
+        if left:
+            print("  Godot process(es) still running that were not there "
+                  "before this run: %s" % left)
+            print("  Not killed by image name (that would take an open "
+                  "editor with it). Kill those PIDs by hand.")
+        return None
+    class _Done:
+        pass
+    done = _Done()
+    done.returncode = proc.returncode
+    done.stdout = out
+    done.stderr = err
+    return done
+
+
 def _table(rows, draw_budget, ms_budget):
     over = []
     print()
@@ -153,11 +214,8 @@ def main(argv=None) -> int:
     cmd = [godot, "--path", str(pkg), "--script", "res://" + PROBE.name,
            "--", "--out", "res://perf_stations.json"]
     print("$ " + " ".join(cmd))
-    try:
-        proc = subprocess.run(cmd, timeout=args.timeout,
-                              capture_output=True, text=True)
-    except subprocess.TimeoutExpired:
-        print("CANNOT MEASURE: Godot did not finish in %ds" % args.timeout)
+    proc = _run_godot(cmd, args.timeout)
+    if proc is None:
         return EXIT_CANNOT
     for line in (proc.stdout or "").splitlines():
         if line.startswith("[perf]") or line.startswith("  "):

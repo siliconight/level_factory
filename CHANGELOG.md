@@ -1,3 +1,41 @@
+## [0.123.0] - probes always exit, and the runner kills the tree
+
+WHAT WAS ACTUALLY WRONG, before the fix is sold as more than it is. A probe
+was reported as leaving two Godot processes behind after `quit(0)`. Re-run
+four times with the count taken at +0, +700 and +2500 ms after the launcher
+returned: 0, 0, 0 every time. The two were the console launcher and the
+engine mid-teardown, counted the instant a shell pipeline closed, and then
+killed while exiting. The watchdog was never the defect; the check was. The
+one genuine hang that day was a million-`get_pixel` loop, fixed in 0.122.0.
+
+Two real gaps remained and this closes both:
+
+* `SceneTree.quit()` asks the main loop to stop at the end of the frame and
+  cannot close an in-engine modal -- which a probe has raised on the
+  walker's desktop twice (CLAUDE.md). `perf_stations.gd` and
+  `draw_attrib.gd` now exit through `_exit(code)`: quit, two frames, then
+  `OS.kill` on the process's own PID. A normal exit never reaches the kill,
+  because the loop has stopped and no third frame fires. Proven with a probe
+  that skipped `quit()` entirely: the kill path ended a windowed engine on
+  its own, and the line after it never printed.
+
+* `subprocess.run(timeout=)` kills its DIRECT child. Godot's console
+  launcher spawns the real engine as a grandchild, so on a timeout the
+  launcher died and the engine lived on, drawing to the desktop with nobody
+  waiting on it. `perf_stations_run.py` now kills the process tree
+  (`taskkill /T /F` on Windows) and refuses with CANNOT MEASURE if any Godot
+  it did not start is still up afterwards -- naming PIDs, never killing by
+  image name, which would take an open editor with it. Proven against a
+  probe that never exits: tree gone at 15.9 s, zero processes left.
+
+The exit code is lost on the kill path. The runner reads the report's
+`complete` flag rather than the code, for exactly this reason, and did
+already.
+
+Also: two prints in `draw_attrib.gd` split a format across `+`, which is
+correct by operator precedence and one of the four traps `gdcheck` refuses
+on sight. Built first, then formatted.
+
 ## [0.122.0] - the fixed-station performance harness
 
 `tools/perf_stations.gd` + `tools/perf_stations_run.py`. Until now a frame

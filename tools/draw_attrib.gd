@@ -73,7 +73,7 @@ func _watchdog() -> void:
 		if Time.get_ticks_msec() - t0 > int(WATCHDOG_SEC * 1000.0):
 			print("[attrib] WATCHDOG")
 			_write()
-			quit(2)
+			_exit(2)
 			return
 
 
@@ -87,6 +87,26 @@ func _walk(n: Node, out: Array) -> void:
 	for c in n.get_children():
 		_walk(c, out)
 
+
+
+
+## AN EXIT THAT CANNOT BE REFUSED. `quit()` asks the main loop to stop at
+## the end of the frame; it cannot close an in-engine modal dialog, and a
+## probe has raised one on the walker's desktop twice (CLAUDE.md, GDScript
+## section). So: ask, allow two frames for the loop to honour it, and if a
+## third frame ever arrives, end the process outright. A normal exit never
+## gets past the awaits -- the loop has stopped -- so this costs nothing
+## on the path that works and is the only thing that works on the path
+## that does not.
+##
+## The exit code is lost on the kill path. Callers that need a verdict
+## read the report's `complete` flag, not the code, for exactly this
+## reason.
+func _exit(code: int) -> void:
+	quit(code)
+	await process_frame
+	await process_frame
+	OS.kill(OS.get_process_id())
 
 func _arg(name: String, fallback: String) -> String:
 	var args: PackedStringArray = OS.get_cmdline_user_args()
@@ -239,7 +259,7 @@ func _run() -> void:
 		"application/run/main_scene", ""))) as PackedScene
 	if packed == null:
 		print("[attrib] REFUSED: no main scene")
-		quit(2)
+		_exit(2)
 		return
 	# THE ENGINE'S OWN LOAD PATH. `current_scene = scene` before `add_child`
 	# is REFUSED outright -- "Condition p_scene->get_parent() != root is
@@ -252,7 +272,7 @@ func _run() -> void:
 	var scene: Node = current_scene
 	if scene == null:
 		print("[attrib] REFUSED: the scene never became current")
-		quit(2)
+		_exit(2)
 		return
 
 	var nodes: Array = []
@@ -284,21 +304,21 @@ func _run() -> void:
 		else:
 			continue
 		items.append({"node": gi, "surf": surfaces, "origin": _origin(gi)})
-	print("[attrib] %d drawable(s), %d shadow-casting local light(s), "
-		% [items.size(), shadow_casters]
-		+ "%d extra pass(es) from next_pass chains" % _pass_extra)
+	# built first, then formatted -- a format split across `+` is a gdcheck trap
+	var _summary := "[attrib] %d drawable(s), %d shadow-casting local light(s), %d extra pass(es) from next_pass chains"
+	print(_summary % [items.size(), shadow_casters, _pass_extra])
 	if items.is_empty():
 		print("[attrib] REFUSED: nothing drawable. A portable package ships")
 		print("[attrib] sidecars and no import cache -- import it once first.")
 		_write()
-		quit(2)
+		_exit(2)
 		return
 
 	var stations: Array = _stations()
 	if stations.is_empty():
 		print("[attrib] REFUSED: no stations in gameplay_anchors.json")
 		_write()
-		quit(2)
+		_exit(2)
 		return
 
 	var cam := Camera3D.new()
@@ -310,7 +330,7 @@ func _run() -> void:
 	await _settle(40)
 	if root.get_camera_3d() != cam:
 		print("[attrib] REFUSED: the rendering camera is not the probe's")
-		quit(2)
+		_exit(2)
 		return
 
 	for s in stations:
@@ -407,10 +427,11 @@ func _run() -> void:
 			"draws_restored": back, "restore_drifted": drifted,
 			"shadow_casters": shadow_casters, "groups": ranked})
 		print("")
-		print("[attrib] %s yaw %.0f -- actual %d draws, predicted %d surfaces "
-			% [String(s["name"]), best_yaw, actual, predicted]
-			+ "on %d object(s), model/actual %.2f"
-			% [visible_objs, float(predicted) / maxf(float(actual), 1.0)])
+		# BUILT FIRST, then formatted: `%` binds tighter than `+`, and a format
+		# split across a `+` is one of the four traps gdcheck refuses on sight.
+		var _line := "[attrib] %s yaw %.0f -- actual %d draws, predicted %d surfaces on %d object(s), model/actual %.2f"
+		print(_line % [String(s["name"]), best_yaw, actual, predicted,
+			visible_objs, float(predicted) / maxf(float(actual), 1.0)])
 		print("[attrib]   local shadows off: %d (%d fewer, %.0f%%)"
 			% [no_shadow, actual - no_shadow,
 				100.0 * float(actual - no_shadow) / maxf(float(actual), 1.0)])
@@ -429,4 +450,4 @@ func _run() -> void:
 					String(r["origin"]).left(46)])
 	_complete = true
 	_write()
-	quit(0)
+	_exit(0)
