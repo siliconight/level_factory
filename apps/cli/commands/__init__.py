@@ -3286,6 +3286,21 @@ def cmd_export(args) -> int:
     out_root = ws.internal_dir / "exports"
     repos = ws.load_tools_local().get("repositories", {})
     addon_sources = {name: Path(str(p)) for name, p in repos.items()}
+    # ADDONS A TOOL REPO CARRIES BUT DOES NOT NAME ITSELF. `addon_sources` is
+    # keyed by TOOL name, and the localizer resolves `res://addons/<key>/...`
+    # through it -- so an addon vendored inside a tool repo under a different
+    # name is invisible to it. Lux ships SkyMint that way
+    # (`lux/addons/skymint`), and cold run 9089's package came out with
+    # `runtime/lux` and no sky provider because of this one gap. Registering
+    # every `addons/*` directory each repo actually has is the general fix;
+    # a repo's own name still wins, so nothing existing changes.
+    for _name, _repo in list(addon_sources.items()):
+        _addons = Path(_repo) / "addons"
+        if not _addons.is_dir():
+            continue
+        for _child in sorted(_addons.iterdir()):
+            if _child.is_dir() and _child.name not in addon_sources:
+                addon_sources[_child.name] = Path(_repo)
     result = export_mission(
         mission_id=mission_id, handoff_dir=handoff_dir,
         presentation_dir=presentation_dir, source_dir=source_dir,
