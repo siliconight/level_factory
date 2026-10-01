@@ -361,6 +361,12 @@ func _sample(cam: Camera3D, eye: Vector3, yaw: float) -> Dictionary:
 
 
 ## Lights per mesh against the renderer's cap. One pass for the package.
+#: The most over-cap meshes a report lists (`_light_census`): enough for any
+#: package walked so far (44 on club_block_014), small enough to keep a
+#: report readable on one that has thousands.
+const OVER_LIST_MAX := 200
+
+
 func _light_census(nodes: Array, cap: int) -> Dictionary:
 	var lights: Array = []
 	var meshes: Array = []
@@ -376,6 +382,12 @@ func _light_census(nodes: Array, cap: int) -> Dictionary:
 	var over: int = 0
 	var worst: int = 0
 	var worst_name: String = "-"
+	# WHICH MESHES, not only how many. Cold run 9125 moved one light and the
+	# count went 43 -> 44, and nothing could say which mesh had crossed: the
+	# report kept the count and the single worst name, and names repeat
+	# (`Prop_Panel`). Every mesh over the cap by its node PATH, worst first,
+	# at most OVER_LIST_MAX, and a flag that says when the list was cut.
+	var over_list: Array = []
 	for m in meshes:
 		var mi2: MeshInstance3D = m as MeshInstance3D
 		var n_reach: int = 0
@@ -385,11 +397,17 @@ func _light_census(nodes: Array, cap: int) -> Dictionary:
 				n_reach += 1
 		if n_reach > cap:
 			over += 1
+			over_list.append({"mesh": String(mi2.get_path()), "lights": n_reach})
 		if n_reach > worst:
 			worst = n_reach
 			worst_name = String(mi2.name)
+	over_list.sort_custom(func(a, b): return int(a["lights"]) > int(b["lights"]) 		or (int(a["lights"]) == int(b["lights"]) and String(a["mesh"]) < String(b["mesh"])))
+	var truncated: bool = over_list.size() > OVER_LIST_MAX
+	if truncated:
+		over_list = over_list.slice(0, OVER_LIST_MAX)
 	return {"cap": cap, "lights": lights.size(), "meshes": meshes.size(),
-		"over_cap": over, "worst": worst, "worst_mesh": worst_name}
+		"over_cap": over, "worst": worst, "worst_mesh": worst_name,
+		"over_list": over_list, "over_list_truncated": truncated}
 
 
 func _write() -> void:

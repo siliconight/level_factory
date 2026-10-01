@@ -44,6 +44,9 @@ from pathlib import Path
 
 EXIT_OK = 0
 EXIT_FINDINGS = 1
+#: How many of the over-cap meshes the console names (the report keeps all
+#: the probe listed).
+OVER_PRINT = 5
 EXIT_CANNOT = 2
 
 #: `docs/DRAW_CALL_BUDGET.md`. Provisional, derived, and meant to be replaced
@@ -265,6 +268,12 @@ def main(argv=None) -> int:
               % (census.get("cap"), census.get("over_cap"),
                  census.get("meshes"), census.get("worst"),
                  census.get("worst_mesh")))
+        # WHICH MESHES (0.125.0): the probe lists every mesh over the cap
+        # by node path, worst first; a report from before it has no list
+        for o in (census.get("over_list") or [])[:OVER_PRINT]:
+            print("    %3s lights  %s" % (o.get("lights"), o.get("mesh")))
+        if census.get("over_list_truncated"):
+            print("    (list cut at the probe's limit; `over_cap` is the full count)")
         print("  (merging and instancing buy draw calls with lighting "
               "fidelity; a change that")
         print("   improves the draw column can darken interiors, so the two "

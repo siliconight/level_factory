@@ -1,3 +1,25 @@
+## [0.125.0] - the harness names the meshes over the light cap
+
+Cold run 9125 moved one light and the perf harness's over-cap count went 43
+-> 44; nothing could say which mesh had crossed. The report kept the count
+and the single worst mesh's NAME, and names repeat (`Prop_Panel`).
+
+`perf_stations.gd`'s light census now lists every mesh over the cap by node
+path with the lights that reach it, worst first, at most `OVER_LIST_MAX`
+(200), with `over_list_truncated` saying when it was cut; the runner prints
+the worst `OVER_PRINT` (5). A report from before carries no list and still
+reads.
+
+First real list, cold run 9127's package: 44 meshes over the cap of 8, the
+worst the gas station's forecourt pad (`b2/forecourt_pad/Prop_Panel`) at 39
+lights, then the gas station's and the strip club's roofs (35, 27), the
+club's main-floor ceiling and the terminal's check-in hall floor (19 each).
+The pad receives at most 8 of the 39 lights that reach it, so which 8 decides
+how the forecourt reads -- a lead for the forecourt, not a measured cause.
+
+Tests: `test_perf_stations_run.py` -- the over-cap meshes are named, and an
+older report without the list still reads clean.
+
 ## [0.124.0] - the harness measures the longest sightline and the highest vantage
 
 The walker's performance bible (section 8) names four camera probes: spawn,

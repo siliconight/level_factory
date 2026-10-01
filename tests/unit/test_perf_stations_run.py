@@ -178,3 +178,23 @@ def test_the_budget_can_actually_fail_the_same_row(tmp_path):
     strict = _run(pkg, "--godot", stub, "--draws", "50", "--ms", "1")
     assert lenient.returncode == EXIT_OK
     assert strict.returncode == EXIT_FINDINGS
+
+
+def test_the_meshes_over_the_light_cap_are_named(tmp_path):
+    """0.125.0: cold run 9125 moved one light, the over-cap count went 43 ->
+    44, and the report could not say which mesh crossed. The probe now lists
+    them by node path; the runner names the worst. An older report, which
+    has no list, still reads."""
+    pkg = _pkg(tmp_path)
+    row = dict(ROW, light_census=dict(ROW["light_census"], over_cap=2, worst=11,
+                                      over_list=[{"mesh": "/root/Site/b2/Prop_Panel", "lights": 11},
+                                                 {"mesh": "/root/Site/b0/Floor_3", "lights": 9}],
+                                      over_list_truncated=False))
+    doc = {"schema": "level_factory.perf_stations.v1", "complete": True, "rows": [row]}
+    out = _run(pkg, "--godot", str(_stub_godot(tmp_path, pkg, doc)), "--draws", "2000", "--ms", "11")
+    assert "/root/Site/b2/Prop_Panel" in out.stdout and "/root/Site/b0/Floor_3" in out.stdout
+    (tmp_path / "old").mkdir()
+    pkg2 = _pkg(tmp_path / "old")
+    doc2 = {"schema": "level_factory.perf_stations.v1", "complete": True, "rows": [ROW]}
+    out2 = _run(pkg2, "--godot", str(_stub_godot(tmp_path / "old", pkg2, doc2)), "--draws", "2000", "--ms", "11")
+    assert out2.returncode == EXIT_OK
