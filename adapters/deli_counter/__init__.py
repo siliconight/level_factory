@@ -49,7 +49,7 @@ _VALID_PRESETS = {
     "corner_deli", "facade_industrial", "facade_rowhome",
     "facade_storefront", "gas_station", "hospital", "office",
     "parking_garage", "pawn_shop", "police_station", "rowhome",
-    "strip_club", "suburban_safehouse", "twin", "warehouse",
+    "strip_club", "suburban_safehouse", "twin", "video_store", "warehouse",
 }
 # LF archetype -> DC preset aliases (extend as briefs introduce new archetypes).
 _ARCHETYPE_ALIASES = {
@@ -68,6 +68,11 @@ _ARCHETYPE_ALIASES = {
     # should find it beside the others rather than have to derive it.
     "trading_card_shop": "card_shop", "hobby_shop": "card_shop",
     "comic_shop": "card_shop", "collectibles_shop": "card_shop",
+    # The video store (Deli Counter 0.171.0). `video_store_*` resolves on
+    # the keyword rule; these contain no preset's name and would raise.
+    "video_rental": "video_store", "video_rental_store": "video_store",
+    "vhs_store": "video_store", "vhs_rental": "video_store",
+    "movie_rental": "video_store",
 }
 
 

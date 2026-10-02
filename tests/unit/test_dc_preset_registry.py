@@ -73,6 +73,15 @@ def test_the_card_shop_preset_resolves():
         assert _preset_for(alias) == "card_shop", alias
 
 
+def test_the_video_store_preset_resolves():
+    """Deli Counter 0.171.0's `video_store`, and the names a brief reaches
+    for that contain no preset's name."""
+    assert _preset_for("video_store") == "video_store"
+    for alias in ("video_rental", "video_rental_store", "vhs_store", "vhs_rental",
+                  "movie_rental"):
+        assert _preset_for(alias) == "video_store", alias
+
+
 def test_this_check_can_actually_find_deli_counter():
     """A test that skips is a test that learned nothing, and this one used
     to skip in exactly the place the work is done. It is allowed to skip on

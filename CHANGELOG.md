@@ -1,3 +1,21 @@
+## [0.126.0] - a brief may ask for a video store
+
+Deli Counter 0.171.0 registers the `video_store` preset (the walker's VHS
+rental store, MACDADE MOVIES). The adapter's copy of that list learns it, or
+a brief is refused at graybox as the strip club's were in cold runs 9055 and
+9056. `tests/unit/test_dc_preset_registry.py` failed the moment Deli
+Counter's registry grew -- "missing here: ['video_store']" -- which is what
+it is for.
+
+Aliases, for the names a brief reaches for that contain no preset's name:
+`video_rental`, `video_rental_store`, `vhs_store`, `vhs_rental`,
+`movie_rental`.
+
+Three tests fail on this commit and failed on 0.125.0 before it, unrelated:
+`test_lux_rain` (night resolves to a preset the test does not expect) and
+two `test_sibling_locator` cases (`tools/drip_assets.py`,
+`tools/wet_ab_run.py` count parents to leave the repo).
+
 ## [0.125.0] - the harness names the meshes over the light cap
 
 Cold run 9125 moved one light and the perf harness's over-cap count went 43
