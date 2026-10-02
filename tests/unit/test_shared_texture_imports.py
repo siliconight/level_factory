@@ -163,3 +163,89 @@ def test_the_folder_name_agrees_with_zoo():
               and isinstance(n.value, ast.Constant)
               for t in n.targets if isinstance(t, ast.Name)}
     assert values.get("TEX_DIR") == export.SHARED_TEX_DIR
+
+
+# --- 0.128.0: a texture every sampler filters ships compressed -----------------------
+
+
+def _glb(path, images, samplers, textures):
+    """A binary glTF holding only the JSON chunk this reads."""
+    import json
+    import struct
+    body = json.dumps({"asset": {"version": "2.0"}, "images": images, "samplers": samplers,
+                       "textures": textures}).encode("utf-8")
+    body += b" " * (-len(body) % 4)
+    path.write_bytes(b"glTF" + struct.pack("<II", 2, 20 + len(body))
+                     + struct.pack("<I", len(body)) + b"JSON" + body)
+
+
+def _two_textures(tmp_path):
+    d = _tex(tmp_path)
+    (d / "smooth.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"y" * 64)
+    (d / "smooth.png.import").write_text(REAL_SIDECAR, encoding="utf-8")
+    return d
+
+
+def _mode(sidecar):
+    return _params(sidecar.read_text(encoding="utf-8"))["compress/mode"]
+
+
+def test_a_texture_every_sampler_filters_is_pinned_to_vram_compression(tmp_path):
+    """Read off a real GLB's records (cold run 9135's ATM): images carry a
+    `uri` under `_tex/`, a texture names a sampler and a source, and a
+    filtering sampler's `magFilter` is 9729."""
+    d = _two_textures(tmp_path)
+    zoo = d.parent
+    _glb(zoo / "prop_atm.glb",
+         [{"name": "ATM", "uri": "_tex/smooth.png"}],
+         [{"magFilter": 9729, "minFilter": 9987, "wrapS": 33071, "wrapT": 33071}],
+         [{"sampler": 0, "source": 0}])
+    _glb(zoo / "prop_shelving.glb",
+         [{"name": "paper", "uri": "_tex/t.png"}],
+         [{"magFilter": 9728, "minFilter": 9984}],
+         [{"sampler": 0, "source": 0}])
+    assert export._filtered_shared_textures(tmp_path) == {(d / "smooth.png").resolve()}
+    export._pin_shared_texture_imports(tmp_path)
+    assert _mode(d / "smooth.png.import") == "2"
+    assert _mode(d / "t.png.import") == "0"
+    # the other two pins hold on both
+    for name in ("smooth.png.import", "t.png.import"):
+        got = _params((d / name).read_text(encoding="utf-8"))
+        assert got["mipmaps/generate"] == "true" and got["process/fix_alpha_border"] == "false"
+    assert export._pin_shared_texture_imports(tmp_path) == 0
+
+
+def test_one_closest_use_anywhere_keeps_a_texture_lossless(tmp_path):
+    """A texture shown at its own pixel size by ANY module is pixel art
+    there, whatever another module does with it."""
+    d = _two_textures(tmp_path)
+    zoo = d.parent
+    _glb(zoo / "a.glb", [{"uri": "_tex/smooth.png"}], [{"magFilter": 9729}],
+         [{"sampler": 0, "source": 0}])
+    _glb(zoo / "b.glb", [{"uri": "_tex/smooth.png"}], [{"magFilter": 9728}],
+         [{"sampler": 0, "source": 0}])
+    assert export._filtered_shared_textures(tmp_path) == set()
+    export._pin_shared_texture_imports(tmp_path)
+    assert _mode(d / "smooth.png.import") == "0"
+
+
+@pytest.mark.parametrize("samplers,texture", [
+    ([], {"source": 0}),                                   # no sampler named
+    ([{"minFilter": 9987}], {"sampler": 0, "source": 0}),   # no magFilter stated
+    ([{"magFilter": 9729}], {"sampler": 3, "source": 0}),   # a sampler that is not there
+])
+def test_a_use_that_does_not_say_it_filters_is_not_taken_to(tmp_path, samplers, texture):
+    d = _two_textures(tmp_path)
+    _glb(d.parent / "a.glb", [{"uri": "_tex/smooth.png"}], samplers, [texture])
+    assert export._filtered_shared_textures(tmp_path) == set()
+
+
+def test_a_file_that_is_not_a_glb_and_an_image_outside_the_shared_folder_are_ignored(tmp_path):
+    d = _two_textures(tmp_path)
+    zoo = d.parent
+    (zoo / "broken.glb").write_bytes(b"not a gltf at all")
+    _glb(zoo / "a.glb", [{"uri": "loose.png"}, {"name": "embedded"}], [{"magFilter": 9729}],
+         [{"sampler": 0, "source": 0}, {"sampler": 0, "source": 1}, {"sampler": 0, "source": 9}])
+    assert export._filtered_shared_textures(tmp_path) == set()
+    export._pin_shared_texture_imports(tmp_path)
+    assert _mode(d / "smooth.png.import") == "0"

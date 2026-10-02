@@ -445,16 +445,13 @@ void fragment() {
 var _shutter_shader: Shader = null
 var _shutter_materials: Dictionary = {}
 
-## THE REGISTER'S DISPLAY (0.127.0). Zoo's cash register lights its customer
-## display on a material of its own, `M_Register_<art>_Face`, and its picture
-## is a price -- which does not animate. A vacuum-fluorescent display does
-## shimmer, so it takes the CRT pass's overlay with a display's numbers: a
-## two-rate flicker, no sync bar, no snow. Darkening only, for the CRT pass's
-## reason.
-const VFD_FACE_MARK: String = "Register_"
-const VFD_FLICKER_DEPTH: float = 0.07
-const VFD_FLICKER_HZ_A: float = 3.1
-const VFD_FLICKER_HZ_B: float = 4.7
+## THE REGISTER'S DISPLAY HAD A FLICKER (0.127.0) AND DOES NOT (0.128.0).
+## It was the CRT pass's overlay under `M_Register_<art>_Face` with no roll
+## and no snow, depth 0.07. Kept here because it is cheaper to keep than to
+## rediscover: measured, the display's green swung 5.3 % between its
+## brightest and dimmest frame, the pass cost the register one more draw, and
+## it never reached the tills on store and bar counters, whose material is
+## `M_Counter_VFD_<art>_Face`. The walker's call: off, everywhere.
 
 
 func _post_import(scene: Node) -> Object:
@@ -480,9 +477,6 @@ func _post_import(scene: Node) -> Object:
 	var shut: int = _shutters(scene)
 	if shut > 0:
 		print("[worldskin] %s  %d shutter surface(s) given their clock" % [base, shut])
-	var vfd: int = _vfd_motion(scene, {})
-	if vfd > 0:
-		print("[worldskin] %s  %d register display(s) given a flicker" % [base, vfd])
 	var is_kit: bool = false
 	for p in KIT_PREFIXES:
 		if base.begins_with(p):
@@ -795,41 +789,6 @@ func _shutter_shader_material(bm: BaseMaterial3D) -> ShaderMaterial:
 	sm.set_shader_parameter("closed_color", Color(c.r, c.g, c.b, 1.0))
 	_shutter_materials[key] = sm
 	return sm
-
-
-## The register's lit display: the CRT pass's shape exactly -- the display's
-## own StandardMaterial3D untouched, a darkening ShaderMaterial under it as
-## `next_pass` -- with the roll and the snow at zero.
-func _vfd_motion(n: Node, seen: Dictionary) -> int:
-	var count: int = 0
-	var mi: MeshInstance3D = n as MeshInstance3D
-	if mi != null and mi.mesh != null:
-		for i in range(mi.mesh.get_surface_count()):
-			var bm: BaseMaterial3D = mi.mesh.surface_get_material(i) as BaseMaterial3D
-			if bm == null or seen.has(bm.get_instance_id()):
-				continue
-			seen[bm.get_instance_id()] = true
-			if not _is_vfd_face(String(bm.resource_name)):
-				continue
-			if bm.next_pass != null:
-				continue
-			var sm: ShaderMaterial = _motion_material(bm)
-			sm.set_shader_parameter("roll_depth", 0.0)
-			sm.set_shader_parameter("noise_depth", 0.0)
-			sm.set_shader_parameter("flicker_depth", VFD_FLICKER_DEPTH)
-			sm.set_shader_parameter("flicker_hz_a", VFD_FLICKER_HZ_A)
-			sm.set_shader_parameter("flicker_hz_b", VFD_FLICKER_HZ_B)
-			bm.next_pass = sm
-			count += 1
-	for c in n.get_children():
-		count += _vfd_motion(c, seen)
-	return count
-
-
-## `M_Register_<art>_Face`: the lit-face contract's prefix and suffix, and the
-## register's own mark between them.
-func _is_vfd_face(nm: String) -> bool:
-	return nm.begins_with(CRT_FACE_PREFIX + VFD_FACE_MARK) and nm.ends_with(CRT_FACE_SUFFIX)
 
 
 func _is_tiled(base: String) -> bool:

@@ -386,6 +386,67 @@ SHARED_TEX_PINS = {
     "mipmaps/generate": "true",
 }
 
+#: And on the ones every sampler FILTERS (0.128.0): VRAM compression. The
+#: lossless pin above protects pixel art, which is sampled Closest -- every
+#: changed pixel is on screen at its own size. A filtered texture is already
+#: an average of its neighbours on screen, and Zoo 1.46.0's painted atlases
+#: are filtered, three times as dense, and the largest textures a store
+#: holds. Measured (see `_write_import_sidecars`): 7,304,813 B lossless,
+#: 1,374,528 B compressed, for the same three props.
+FILTERED_TEX_PINS = {"compress/mode": "2"}
+#: glTF's `magFilter` for LINEAR. 9728 is NEAREST.
+GLTF_LINEAR = 9729
+
+
+def _glb_json(path: Path):
+    """The JSON chunk of a binary glTF, or None when the file is not one."""
+    import json as _json
+    import struct as _struct
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(20)
+            if len(head) < 20 or head[:4] != b"glTF" or head[16:20] != b"JSON":
+                return None
+            return _json.loads(fh.read(_struct.unpack("<I", head[12:16])[0]))
+    except (OSError, ValueError):
+        return None
+
+
+def _filtered_shared_textures(export_dir: Path) -> set:
+    """Every shared texture that EVERY sampler reaching it filters.
+
+    Read off the GLBs: a texture names an image and a sampler, and a sampler
+    whose `magFilter` is `GLTF_LINEAR` filters. One Closest use anywhere in
+    the package -- or a use with no sampler, or no `magFilter`, which is the
+    importer's default and not a statement -- keeps the texture lossless,
+    because that use shows its pixels at their own size.
+
+    A GLB this cannot read contributes nothing either way; its textures stay
+    at the lossless pin unless another GLB names them.
+    """
+    filtered, other = set(), set()
+    for glb in export_dir.rglob("*.glb"):
+        doc = _glb_json(glb)
+        if not isinstance(doc, dict):
+            continue
+        images = doc.get("images") or []
+        samplers = doc.get("samplers") or []
+        for tex in doc.get("textures") or []:
+            src = tex.get("source")
+            if not isinstance(src, int) or not 0 <= src < len(images):
+                continue
+            uri = images[src].get("uri")
+            if not uri:
+                continue
+            png = (glb.parent / uri).resolve()
+            if png.parent.name != SHARED_TEX_DIR:
+                continue
+            si = tex.get("sampler")
+            linear = (isinstance(si, int) and 0 <= si < len(samplers)
+                      and samplers[si].get("magFilter") == GLTF_LINEAR)
+            (filtered if linear else other).add(png)
+    return filtered - other
+
 
 def _pin_shared_texture_imports(export_dir: Path) -> int:
     """Pin `SHARED_TEX_PINS` on the shared textures' sidecars.
@@ -398,8 +459,12 @@ def _pin_shared_texture_imports(export_dir: Path) -> int:
     off what Godot wrote on the first pass; a file that does not carry one is
     a file this function has not been shown, and adding the line would be
     guessing at a schema.
+
+    A texture every sampler filters takes `FILTERED_TEX_PINS` over these
+    (0.128.0, `_filtered_shared_textures`).
     """
     changed = 0
+    filtered = _filtered_shared_textures(export_dir)
     for sidecar in export_dir.rglob("*.png.import"):
         if sidecar.parent.name != SHARED_TEX_DIR:
             continue
@@ -407,10 +472,13 @@ def _pin_shared_texture_imports(export_dir: Path) -> int:
             lines = sidecar.read_text(encoding="utf-8").splitlines()
         except OSError:
             continue
+        pins = dict(SHARED_TEX_PINS)
+        if sidecar.with_name(sidecar.name[:-len(".import")]).resolve() in filtered:
+            pins.update(FILTERED_TEX_PINS)
         out, hit = [], False
         for ln in lines:
             key = ln.split("=", 1)[0]
-            want = SHARED_TEX_PINS.get(key)
+            want = pins.get(key)
             if want is not None and ln != f"{key}={want}":
                 out.append(f"{key}={want}")
                 hit = True
@@ -504,6 +572,23 @@ def _write_import_sidecars(export_dir: Path, godot_executable) -> int:
                                    twenty-GLB control against an empty-scene
                                    baseline -- the renderer allocates the chain
                                    either way.
+
+    AND ONE EXCEPTION TO THE FIRST PIN (0.128.0): a shared texture that every
+    sampler reaching it FILTERS is pinned to `compress/mode=2`. Zoo 1.46.0
+    paints its machines' atlases at three times the density and samples them
+    Linear; the lossless pin's reason is pixels shown at their own size, and a
+    filtered texture's are not. Measured in a scratch project on Zoo 1.46.0's
+    ATM, video poker and cash register together, Godot 4.7, GL Compatibility,
+    the renderer's texture-memory figure with the three loaded less the
+    figure before them:
+
+        compress/mode=0, mip chain     7,304,813 B
+        compress/mode=2, mip chain     1,374,528 B
+
+    Mean difference between the two in a frame, 8-bit codes: 5.6 at arm's
+    length on the ATM's head, 2.6 at nine metres. NOT MEASURED: any target
+    other than desktop -- mode 2 imports S3TC here, and a platform without it
+    needs its own import flag before this pin means anything there.
 
     Best-effort. A missing Godot is a setup problem, not an export failure, and
     HANDOFF.md tells the recipient what to do either way.

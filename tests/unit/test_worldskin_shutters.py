@@ -1,4 +1,4 @@
-"""Zoo's shutters get their clock at import, and the register's display a flicker (0.127.0).
+"""Zoo's shutters get their clock at import (0.127.0); the register's flicker is gone (0.128.0).
 
 The walker, 2026-10-02: the lit screens are "just fixed with nothing
 dynamic/alive about them". Zoo 1.45.0 ships shutters -- black quads over
@@ -46,7 +46,7 @@ def _shader(src: str) -> str:
 
 def test_both_passes_run_for_every_glb_before_the_kit_branch():
     post = _func(_src(), "_post_import")
-    for call in ("_shutters(scene", "_vfd_motion(scene"):
+    for call in ("_shutters(scene",):
         at = post.find(call)
         assert at != -1, call
         assert at < post.find("is_kit") < post.find("return scene"), call
@@ -96,16 +96,13 @@ def test_only_the_shutter_material_is_replaced_and_only_once():
     assert "bm.albedo_color" in make and '"closed_color"' in make
 
 
-def test_the_register_keeps_its_own_material_and_gets_no_roll_and_no_snow():
-    vfd = _func(_src(), "_vfd_motion")
-    assigns = re.findall(r"\bbm\.(\w+)\s*=[^=]", vfd)
-    assert assigns == ["next_pass"], assigns
-    assert "surface_set_material" not in vfd and "emission" not in vfd
-    assert "if bm.next_pass != null:" in vfd
-    assert 'set_shader_parameter("roll_depth", 0.0)' in vfd
-    assert 'set_shader_parameter("noise_depth", 0.0)' in vfd
-    face = _func(_src(), "_is_vfd_face")
-    assert "CRT_FACE_PREFIX + VFD_FACE_MARK" in face and "CRT_FACE_SUFFIX" in face
-    assert 'const VFD_FACE_MARK: String = "Register_"' in _src()
-    # and it does not catch the CRTs, which have their own pass
-    assert "CRT_Screen" not in "M_Register_x_Face"
+def test_the_register_s_display_is_given_no_pass_of_its_own():
+    """0.127.0 gave `M_Register_*_Face` a flicker; 0.128.0 took it away: a
+    5.3 % swing for one more draw a register, and it never reached a
+    counter's tills. The reason is kept in the source where the constants
+    were; the pass, its mark and its call are gone."""
+    src = _src()
+    assert "func _vfd_motion" not in src and "func _is_vfd_face" not in src
+    assert "_vfd_motion(" not in src
+    assert not re.search(r"^const VFD_", src, re.M)
+    assert "THE REGISTER'S DISPLAY HAD A FLICKER (0.127.0) AND DOES NOT (0.128.0)" in src

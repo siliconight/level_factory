@@ -1,3 +1,60 @@
+## [0.128.0] - a filtered texture ships compressed; the register's flicker is gone
+
+Both from pricing Zoo 1.46.0's real look (smooth type, painted shading and
+chamfered bodies on the video poker, the ATM and the registers).
+
+### Changed
+- **A shared texture that every sampler filters is exported VRAM-compressed.**
+  The export pins `compress/mode=0` on every texture under `_tex/` because
+  compression changes every pixel and pixel art is shown at its own pixel
+  size. Zoo 1.46.0's painted atlases are sampled Linear, at three times the
+  density. `_filtered_shared_textures` reads which textures those are off the
+  GLBs themselves (a sampler's `magFilter` 9729), so there is no naming
+  contract with Zoo; one Closest use anywhere, or a use that names no
+  sampler, keeps a texture lossless. The mip chain and the alpha-border pin
+  are unchanged.
+
+### Removed
+- **`_vfd_motion`**, 0.127.0's flicker on `M_Register_*_Face`. Measured: a
+  5.3 % swing in the display's green for one more draw a register, and it
+  never reached the tills on store and bar counters (`M_Counter_VFD_*_Face`),
+  which are the ones a level stands. The walker's call, 2026-10-02: off
+  everywhere. The reason is kept in `zoo_worldskin.gd` where the constants
+  were.
+
+### Measured
+A scratch project, Godot 4.7, GL Compatibility; Zoo 1.46.0's ATM, video poker
+and cash register loaded together; the renderer's texture-memory figure less
+its figure before they loaded:
+
+| import | texture memory |
+|---|---|
+| `compress/mode=0`, mip chain (0.127.0's export) | 7,304,813 B |
+| `compress/mode=2`, mip chain (this export) | 1,374,528 B |
+
+Mean difference between the two frames, 8-bit codes: 5.6 at arm's length on
+the ATM's head, 2.6 at nine metres. Up close the type is slightly softer and
+a flat red sign shows faint banding.
+
+And in a level -- cold run 9135's package (gas_block_001), the pin applied to
+a copy of it, both imported fresh and loaded to `mission.tscn` with the
+warm-up finished. Eight shared textures are filtered by every sampler that
+reaches them (the ATMs', the video poker's and the counter tills' atlases);
+149 stay lossless.
+
+| package | texture memory |
+|---|---|
+| as 0.127.0 exported it | 344,910,446 B |
+| with the eight compressed | 336,561,431 B |
+
+8,349,015 B back, 2.4 % of the level's textures. The other 97.6 % is not
+this change's and nobody has attributed it.
+
+### Not measured
+- A target other than desktop. Mode 2 imports S3TC here.
+- Frame time. Texture memory is what moved; nothing here changes a draw
+  except the register's, which loses one.
+
 ## [0.127.0] - screens that run: the import gives Zoo's shutters a clock
 
 The walker, 2026-10-02, after walking cold run 9131: the lit screens are
