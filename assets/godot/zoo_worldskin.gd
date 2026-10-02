@@ -397,6 +397,65 @@ void fragment() {
 ## materials would otherwise compile five identical pipelines.
 var _motion_shader: Shader = null
 
+## SHUTTERS (0.127.0) -- screens that run. The walker, 2026-10-02: the lit
+## screens are "just fixed with nothing dynamic/alive about them". Zoo 1.45.0
+## stands black quads a hair proud of a lit screen, each over one part of its
+## picture -- a dealt card, a line that takes its turn -- on a material of this
+## name, exported fully transparent, with a schedule in the quad's UV sets:
+##
+##     UV  = (open_from, open_to)   fractions of the period
+##     UV2 = (period_s, phase_s)
+##
+## The shutter is ABSENT while fract((TIME + phase_s) / period_s + instance)
+## is in [open_from, open_to) and its CLOSED COLOUR otherwise: the base colour
+## of the placeholder material Zoo exports, which is the screen's own
+## background -- a hidden card is empty screen. (Black was the first cut and
+## read as holes in the poker's blue tube.) The name BEGINS `SHUTTER_MATERIAL`
+## and ends in that colour.
+##
+## THE INSTANCE TERM IS PER NODE, from NODE_POSITION_WORLD, as the CRT pass's
+## is: two cabinets side by side do not deal in step, and every shutter of one
+## cabinet is one mesh on one node, so one cabinet's cards still come up in
+## order.
+const SHUTTER_MATERIAL: String = "M_Shutter_Screen"
+
+const SHUTTER_SHADER: String = """
+shader_type spatial;
+render_mode unshaded, blend_mix, depth_draw_never, cull_back,
+	shadows_disabled, fog_disabled;
+
+uniform vec3 closed_color : source_color = vec3(0.0);
+
+float shutter_hash(float x) {
+	return fract(sin(x) * 43758.5453123);
+}
+
+void fragment() {
+	float inst = shutter_hash(dot(NODE_POSITION_WORLD, vec3(12.9898, 78.233, 37.719)));
+	float t = fract((TIME + UV2.y) / max(UV2.x, 0.001) + inst);
+	float open = step(UV.x, t) * (1.0 - step(UV.y, t));
+	ALBEDO = closed_color;
+	ALPHA = 1.0 - open;
+}
+"""
+
+## One Shader per imported GLB and one ShaderMaterial per placeholder: every
+## shutter reads its own schedule off its own vertices, and the only thing
+## set per material is the closed colour.
+var _shutter_shader: Shader = null
+var _shutter_materials: Dictionary = {}
+
+## THE REGISTER'S DISPLAY (0.127.0). Zoo's cash register lights its customer
+## display on a material of its own, `M_Register_<art>_Face`, and its picture
+## is a price -- which does not animate. A vacuum-fluorescent display does
+## shimmer, so it takes the CRT pass's overlay with a display's numbers: a
+## two-rate flicker, no sync bar, no snow. Darkening only, for the CRT pass's
+## reason.
+const VFD_FACE_MARK: String = "Register_"
+const VFD_FLICKER_DEPTH: float = 0.07
+const VFD_FLICKER_HZ_A: float = 3.1
+const VFD_FLICKER_HZ_B: float = 4.7
+
 
 func _post_import(scene: Node) -> Object:
 	var base: String = get_source_file().get_file()
@@ -416,6 +475,14 @@ func _post_import(scene: Node) -> Object:
 	var crt: int = _crt_motion(scene, {})
 	if crt > 0:
 		print("[worldskin] %s  %d CRT face(s) given a motion pass" % [base, crt])
+	# EVERY GLB, and before the kit branch for the CRT pass's reason: a
+	# shutter arrives in a prop GLB.
+	var shut: int = _shutters(scene)
+	if shut > 0:
+		print("[worldskin] %s  %d shutter surface(s) given their clock" % [base, shut])
+	var vfd: int = _vfd_motion(scene, {})
+	if vfd > 0:
+		print("[worldskin] %s  %d register display(s) given a flicker" % [base, vfd])
 	var is_kit: bool = false
 	for p in KIT_PREFIXES:
 		if base.begins_with(p):
@@ -687,6 +754,82 @@ func _motion_material(bm: BaseMaterial3D) -> ShaderMaterial:
 	sm.set_shader_parameter("noise_hz", NOISE_HZ)
 	sm.set_shader_parameter("proud_m", SCREEN_PROUD_M)
 	return sm
+
+
+## Every surface wearing Zoo's shutter material gets the one shader that reads
+## its schedule. The surface's own material is REPLACED, which the CRT pass
+## must not do and this may: a shutter is not a lit face, Lux's power cut has
+## no business with it, and its exported material is a transparent
+## placeholder with nothing to keep.
+##
+## IDEMPOTENT on a re-import: a surface already wearing the shader is left.
+func _shutters(n: Node) -> int:
+	var count: int = 0
+	var mi: MeshInstance3D = n as MeshInstance3D
+	if mi != null and mi.mesh != null:
+		for i in range(mi.mesh.get_surface_count()):
+			var mat: Material = mi.mesh.surface_get_material(i)
+			if mat == null or not String(mat.resource_name).begins_with(SHUTTER_MATERIAL):
+				continue
+			var bm: BaseMaterial3D = mat as BaseMaterial3D
+			if bm == null:
+				continue                      # already the shader: a re-import
+			mi.mesh.surface_set_material(i, _shutter_shader_material(bm))
+			count += 1
+	for c in n.get_children():
+		count += _shutters(c)
+	return count
+
+
+func _shutter_shader_material(bm: BaseMaterial3D) -> ShaderMaterial:
+	var key: int = bm.get_instance_id()
+	if _shutter_materials.has(key):
+		return _shutter_materials[key] as ShaderMaterial
+	if _shutter_shader == null:
+		_shutter_shader = Shader.new()
+		_shutter_shader.code = SHUTTER_SHADER
+	var sm: ShaderMaterial = ShaderMaterial.new()
+	sm.shader = _shutter_shader
+	sm.resource_name = String(bm.resource_name)
+	var c: Color = bm.albedo_color
+	sm.set_shader_parameter("closed_color", Color(c.r, c.g, c.b, 1.0))
+	_shutter_materials[key] = sm
+	return sm
+
+
+## The register's lit display: the CRT pass's shape exactly -- the display's
+## own StandardMaterial3D untouched, a darkening ShaderMaterial under it as
+## `next_pass` -- with the roll and the snow at zero.
+func _vfd_motion(n: Node, seen: Dictionary) -> int:
+	var count: int = 0
+	var mi: MeshInstance3D = n as MeshInstance3D
+	if mi != null and mi.mesh != null:
+		for i in range(mi.mesh.get_surface_count()):
+			var bm: BaseMaterial3D = mi.mesh.surface_get_material(i) as BaseMaterial3D
+			if bm == null or seen.has(bm.get_instance_id()):
+				continue
+			seen[bm.get_instance_id()] = true
+			if not _is_vfd_face(String(bm.resource_name)):
+				continue
+			if bm.next_pass != null:
+				continue
+			var sm: ShaderMaterial = _motion_material(bm)
+			sm.set_shader_parameter("roll_depth", 0.0)
+			sm.set_shader_parameter("noise_depth", 0.0)
+			sm.set_shader_parameter("flicker_depth", VFD_FLICKER_DEPTH)
+			sm.set_shader_parameter("flicker_hz_a", VFD_FLICKER_HZ_A)
+			sm.set_shader_parameter("flicker_hz_b", VFD_FLICKER_HZ_B)
+			bm.next_pass = sm
+			count += 1
+	for c in n.get_children():
+		count += _vfd_motion(c, seen)
+	return count
+
+
+## `M_Register_<art>_Face`: the lit-face contract's prefix and suffix, and the
+## register's own mark between them.
+func _is_vfd_face(nm: String) -> bool:
+	return nm.begins_with(CRT_FACE_PREFIX + VFD_FACE_MARK) and nm.ends_with(CRT_FACE_SUFFIX)
 
 
 func _is_tiled(base: String) -> bool:

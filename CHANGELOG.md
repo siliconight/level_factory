@@ -1,3 +1,59 @@
+## [0.127.0] - screens that run: the import gives Zoo's shutters a clock
+
+The walker, 2026-10-02, after walking cold run 9131: the lit screens are
+"just fixed with nothing dynamic/alive about them". Of four steps toward
+levels that feel alive, the first is screens that run. Zoo 1.45.0 ships
+SHUTTERS on the ATM's and the video poker's screens -- quads a hair proud of
+the picture, each over one part of it, a schedule in its two UV sets -- on a
+placeholder material named `M_Shutter_Screen_<colour>`, exported fully
+transparent. This is the clock.
+
+### Added
+- **`_shutters` in `zoo_worldskin.gd`, for every GLB.** A surface wearing a
+  material whose name begins `M_Shutter_Screen` gets a ShaderMaterial: absent
+  while `fract((TIME + UV2.y) / UV2.x + instance)` is in `[UV.x, UV.y)`, and
+  otherwise the placeholder's own base colour -- the screen's background, so
+  a hidden card is empty screen. The instance term is `NODE_POSITION_WORLD`:
+  two cabinets side by side do not deal in step, and one cabinet's shutters
+  are one mesh on one node, so its cards still come up in order.
+- **`_vfd_motion`.** The cash register's customer display is a lit face of
+  its own (`M_Register_*_Face`) and its picture is a price, which does not
+  animate; it takes the CRT pass's darkening overlay with no roll and no
+  snow, a two-rate flicker at depth 0.07.
+
+Both are import-time and both run off the shader's clock: no script runs in
+the level and no light is added. Each is one more draw where it is seen.
+
+### Measured
+A scratch project -- one cabinet, one ATM and one register built by Zoo
+1.45.0, imported by this script in GL Compatibility, ten frames a second
+apart (root repo, `docs/findings/screens_that_run/`):
+
+- the poker's screen: empty, Q, Q Q J, the whole hand, held for five
+  frames, empty;
+- the ATM's: its greeting and INSERT CARD alternating, never both and never
+  neither;
+- the register's display: the mean of its 2,000 brightest pixels read
+  150.8 to 153.4 across the ten frames -- under 2 %. It moves; it is
+  unlikely to be noticed.
+
+Frame cost is not measured here. It is one transparent draw a machine and
+one `next_pass` a register; cold run 9134 prices it on a level.
+
+### The material guard
+`test_nothing_elses_material_class_changes` lists the passes allowed to
+replace a material, and `_shutters` joins it on purpose: what it replaces is
+a transparent placeholder dressed from no pack and not a lit face, so
+neither the packs nor Lux's power cut has any business with it.
+
+### Known
+The closed colour is unlit: on a machine with its power cut a closed shutter
+is its dark background where the dead screen round it is the room's light on
+its picture.
+
+Tests: `tests/unit/test_worldskin_shutters.py` (6). The three failures
+0.126.0 recorded are unchanged.
+
 ## [0.126.0] - a brief may ask for a video store
 
 Deli Counter 0.171.0 registers the `video_store` preset (the walker's VHS

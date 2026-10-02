@@ -197,7 +197,13 @@ def test_the_snow_grain_is_read_off_the_picture_not_assumed():
 #: decision; arriving at this test by accident means a pass started replacing
 #: materials without anyone choosing that, which is how a level quietly stops
 #: looking like the packs it was dressed from.
-MATERIAL_REPLACERS = {"_assign_stairs", "_assign_slabs"}
+#:
+#: `_shutters` (0.127.0) WAS CHOSEN: what it replaces is Zoo's shutter
+#: placeholder -- black, fully transparent, named for the purpose, dressed
+#: from no pack and not a lit face -- and the shader it puts there is the
+#: only thing that ever draws it. It replaces nothing else: it asks for the
+#: placeholder's name first (`test_worldskin_shutters.py`).
+MATERIAL_REPLACERS = {"_assign_stairs", "_assign_slabs", "_shutters"}
 
 
 def test_nothing_elses_material_class_changes():
