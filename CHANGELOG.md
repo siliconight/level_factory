@@ -1,3 +1,32 @@
+## [0.130.1] - the leaves carry the breath; the mass leans only in strong wind
+
+The walker, 2026-10-03, on 0.130.0 walked: "the wind on the leaves doesn't
+look great right now because it's just a big blob moving vs a tree in real
+life, the branches don't move unless the wind is really strong, only the
+leaves". The numbers agreed: in a breath 0.130.0 leaned the whole mass 3 cm
+and fluttered the facets 2 mm, so what moved was the blob.
+
+### Changed
+- **The lean starts only above `SWAY_LEAN_FROM_MS` (3 m/s).** In a breath the
+  mass does not move at all; at 9 m/s it leans 12 cm at the top.
+- **The flutter is the leaves.** Each facet of a cluster takes its own phase
+  from a hash of its texture coordinate (fixed per vertex), moves across the
+  wind and up at two rates, 8 mm per metre a second at the top of the crown
+  capped at 6 m/s: 12 mm in a breath, 5 cm in a storm.
+
+### Measured
+The walk copy re-imported with this script and probed as before: 18 crowns
+on the shader; the rest frame unchanged (0 pixels moved between two frames
+at wind zero); with the walker's storm set in the copy, 2,277 pixels differ
+from the rest frame at the same camera. Not priced on the harness: the
+shader's cost is its vertex stage and the stage did not grow.
+
+### Still open
+The crown's LOOK: the walker's point that branches and leaves do not read as
+different things. That is the species, not the motion -- solid faceted
+masses on one texture -- and belongs to Zoo (cutout leaf cards, or smaller
+masses showing the twig between). Written into `docs/findings/wind/NOTES.md`.
+
 ## [0.130.0] - the wind: a street tree's crown sways
 
 Step 3a of the wind design at the factory root

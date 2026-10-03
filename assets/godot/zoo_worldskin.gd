@@ -602,14 +602,24 @@ var _churn_shader: Shader = null
 ## a per-node offset keeps two trees apart. No node moves, no script ticks,
 ## no draw is added: the crown was one surface and is one surface.
 const CROWN_NODE_PREFIX: String = "StreetTree_Crown"
-## Tip displacement per metre a second of wind, and its cap: a breath
-## (1.5 m/s) moves the top of a crown 3 cm, a storm (9) 18 cm.
+## THE LEAVES MOVE AND THE BRANCHES DO NOT, until the wind is strong. The
+## walker, 2026-10-03, on the first cut walked: "just a big blob moving vs
+## a tree in real life, the branches don't move unless the wind is really
+## strong, only the leaves". The first cut leaned the whole mass 3 cm in a
+## breath and fluttered 2 mm, so what moved was the blob. Now the LEAN --
+## the mass bending downwind -- starts only above SWAY_LEAN_FROM_MS and
+## the FLUTTER -- each facet of a cluster on its own phase, across the wind
+## and up -- carries the breath: at 1.5 m/s the facets move 12 mm at the
+## top of the crown and the mass does not move at all; at 9 m/s the mass
+## leans 12 cm and the facets 5 cm.
+const SWAY_LEAN_FROM_MS: float = 3.0
 const SWAY_M_PER_MS: float = 0.02
 const SWAY_CAP_M: float = 0.4
 const SWAY_SWELL_S: float = 7.0
 const SWAY_GUST_FRONT_MS: float = 10.0
-const SWAY_FLUTTER_HZ: float = 2.0
-const SWAY_FLUTTER_M_PER_MS: float = 0.002
+const SWAY_FLUTTER_HZ: float = 1.6
+const SWAY_FLUTTER_M_PER_MS: float = 0.008
+const SWAY_FLUTTER_CAP_MS: float = 6.0
 
 const SWAY_SHADER: String = """
 shader_type spatial;
@@ -631,12 +641,14 @@ uniform vec3 uv1_scale = vec3(1.0);
 uniform vec3 uv1_offset = vec3(0.0);
 uniform bool use_vertex_colour = false;
 uniform float alpha_scissor = -1.0;
+uniform float lean_from_ms = 3.0;
 uniform float m_per_ms = 0.02;
 uniform float cap_m = 0.4;
 uniform float swell_s = 7.0;
 uniform float front_ms = 10.0;
-uniform float flutter_hz = 2.0;
-uniform float flutter_m_per_ms = 0.002;
+uniform float flutter_hz = 1.6;
+uniform float flutter_m_per_ms = 0.008;
+uniform float flutter_cap_ms = 6.0;
 
 const float TAU_ = 6.2831853;
 
@@ -665,13 +677,21 @@ void vertex() {
 		float down = dot(VERTEX, dir) / front_ms;
 		float t = TIME - down + inst * swell_s;
 		float gust = 0.6 + 0.25 * sin(t * TAU_ / swell_s) + 0.15 * sin(t * TAU_ / (swell_s * 2.7) + 1.3);
-		// the lee lean: a crown bends away from the wind and does not
+		// the lee lean: the MASS bends away from the wind, only once the
+		// wind is strong (branches do not move in a breath), and does not
 		// swing back past upright
-		float lean = weight * weight * min(speed * m_per_ms, cap_m) * gust;
-		// the flutter: each cluster its own, across the wind
+		float lean = weight * weight * min(max(speed - lean_from_ms, 0.0) * m_per_ms, cap_m) * gust;
+		// the flutter: the LEAVES. Each facet on its own phase -- the
+		// cluster's phase plus a hash of the facet's own texture
+		// coordinate, which is fixed per vertex -- across the wind and up,
+		// two rates so it never reads as a pulse
 		vec3 across = normalize(cross(dir, vec3(0.0, 1.0, 0.0)));
-		float flutter = weight * speed * flutter_m_per_ms * sin(TIME * TAU_ * flutter_hz + phase * TAU_ + inst * 3.0);
-		VERTEX += dir * lean + across * flutter;
+		float facet = sway_hash(dot(UV, vec2(127.1, 311.7)) + phase * 7.0);
+		float f_t = TIME * TAU_ * flutter_hz + facet * TAU_ + inst * 3.0;
+		float amp = weight * min(speed, flutter_cap_ms) * flutter_m_per_ms * (0.7 + 0.3 * gust);
+		float flutter = amp * (sin(f_t) + 0.5 * sin(f_t * 2.3 + facet * 5.0));
+		vec3 up = vec3(0.0, 1.0, 0.0);
+		VERTEX += dir * lean + (across * 0.8 + up * 0.6) * flutter;
 	}
 }
 
@@ -1240,12 +1260,14 @@ func _sway_material(bm: BaseMaterial3D, tinted: bool) -> ShaderMaterial:
 	sm.set_shader_parameter("use_vertex_colour", tinted or bm.vertex_color_use_as_albedo)
 	sm.set_shader_parameter("alpha_scissor",
 		bm.alpha_scissor_threshold if bm.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR else -1.0)
+	sm.set_shader_parameter("lean_from_ms", SWAY_LEAN_FROM_MS)
 	sm.set_shader_parameter("m_per_ms", SWAY_M_PER_MS)
 	sm.set_shader_parameter("cap_m", SWAY_CAP_M)
 	sm.set_shader_parameter("swell_s", SWAY_SWELL_S)
 	sm.set_shader_parameter("front_ms", SWAY_GUST_FRONT_MS)
 	sm.set_shader_parameter("flutter_hz", SWAY_FLUTTER_HZ)
 	sm.set_shader_parameter("flutter_m_per_ms", SWAY_FLUTTER_M_PER_MS)
+	sm.set_shader_parameter("flutter_cap_ms", SWAY_FLUTTER_CAP_MS)
 	_sway_materials[key] = sm
 	return sm
 

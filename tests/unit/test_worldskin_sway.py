@@ -78,9 +78,15 @@ def test_the_shader_reads_the_one_global_and_leans_with_the_wind():
     assert "global uniform vec3 lf_wind;" in sh
     assert "world_vertex_coords" in sh
     assert "float weight = UV2.x;" in sh and "float phase = UV2.y;" in sh
-    # the lee lean: weight squared, capped, never past upright
-    assert "float lean = weight * weight * min(speed * m_per_ms, cap_m) * gust;" in sh
-    assert "VERTEX += dir * lean + across * flutter;" in sh
+    # the lee lean: the mass, weight squared, capped, never past upright,
+    # and only once the wind is strong -- the walker, 2026-10-03: branches
+    # do not move in a breath, only the leaves
+    assert "float lean = weight * weight * min(max(speed - lean_from_ms, 0.0) * m_per_ms, cap_m) * gust;" in sh
+    # the flutter: the leaves, each facet on its own phase from its own
+    # texture coordinate, across the wind and up
+    assert "float facet = sway_hash(dot(UV, vec2(127.1, 311.7)) + phase * 7.0);" in sh
+    assert "VERTEX += dir * lean + (across * 0.8 + up * 0.6) * flutter;" in sh
+    assert "const SWAY_LEAN_FROM_MS: float = 3.0" in _src()
     # the gust front walks downwind
     assert "float down = dot(VERTEX, dir) / front_ms;" in sh
     assert "if (speed > 0.0001) {" in sh                  # the calm is exactly still
