@@ -100,7 +100,7 @@ stream = _stream
 
 
 def site_placements(seed: int, count: int, *, spacing: int = 45,
-                    footprints=None, shape=None) -> dict:
+                    footprints=None, shape=None, fronts=None) -> dict:
     """Deterministic placement + role assignment for one candidate's buildings.
 
     Returns ``{"buildings": [{"at": [x, y], "rot": deg}, ...], "spawn": id,
@@ -128,6 +128,12 @@ def site_placements(seed: int, count: int, *, spacing: int = 45,
     origin = (count - 1) * spacing // 2
     for i in range(count):
         rot = _YAW[next(rng) % len(_YAW)]
+        # THE FRONT DOOR FACES THE STREET (0.132.0): `fronts[i]` is the yaw
+        # that turns building i's front door to the through road
+        # (`front_door.facing_yaw`), None where it has no ground door. The
+        # draw above is still made, so no other number this seed gives moves.
+        if fronts is not None and i < len(fronts) and fronts[i] is not None:
+            rot = int(fronts[i])
         along = _ALONG[next(rng) % len(_ALONG)]
         across = _ACROSS[next(rng) % len(_ACROSS)]
         # The nudges stay world-axis-aligned whatever the shape: `_ALONG` in x,

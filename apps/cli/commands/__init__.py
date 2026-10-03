@@ -1474,8 +1474,12 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
 
     if lot:
         footprints = building_library.footprints_for(lot, shell_footprint)
+        # each building's front door, read off its own gameplay (0.132.0)
+        from packages.pipeline import front_door as _fd
+        front_of = [_fd.front_wall_of(e["gameplay"]) for e in lot]
         placed = site_placements(seed, len(lot), footprints=footprints,
-                                 shape=model.site_shape)
+                                 shape=model.site_shape,
+                                 fronts=[_fd.facing_yaw(w) for w, _r in front_of])
         # `scene` when this archetype has been composed, `glb` otherwise --
         # never both, same rule as the single-shell path. A lot part-way
         # through the art pass therefore stands its themed buildings themed and
@@ -1497,8 +1501,9 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         buildings = [
             {"id": f"b{i}", **_source(e), "gameplay": e["gameplay"],
              "archetype": e["id"],
-             "at": p["at"], "rot": p["rot"]}
-            for i, (e, p) in enumerate(zip(lot, placed["buildings"]))
+             "at": p["at"], "rot": p["rot"],
+             "front": {"wall": fw[0], "reason": fw[1]}}
+            for i, (e, p, fw) in enumerate(zip(lot, placed["buildings"], front_of))
         ]
         span_x, span_y = ground_size(len(lot), footprints=footprints,
                                      shape=model.site_shape)
@@ -1513,7 +1518,10 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         footprints = None
         footprint = shell_footprint(glb)
         spacing = row_spacing(footprint)
-        placed = site_placements(seed, count, spacing=spacing)
+        from packages.pipeline import front_door as _fd
+        shell_front = _fd.front_wall_of(gameplay)
+        placed = site_placements(seed, count, spacing=spacing,
+                                 fronts=[_fd.facing_yaw(shell_front[0])] * count)
         # `scene` when the themed building exists, `glb` otherwise -- never
         # both. Lot prefers `scene` and warns when a building carries both, and
         # the warn would fire once per building for no information: the choice
