@@ -203,7 +203,10 @@ def test_the_snow_grain_is_read_off_the_picture_not_assumed():
 #: from no pack and not a lit face -- and the shader it puts there is the
 #: only thing that ever draws it. It replaces nothing else: it asks for the
 #: placeholder's name first (`test_worldskin_shutters.py`).
-MATERIAL_REPLACERS = {"_assign_stairs", "_assign_slabs", "_shutters"}
+#: 0.129.0: a TURNING part's material is replaced too -- a second pass cannot
+#: move the first -- by a shader carrying the flat material's own numbers,
+#: and only on a name that names a rate (`test_worldskin_moving_parts.py`).
+MATERIAL_REPLACERS = {"_assign_stairs", "_assign_slabs", "_shutters", "_turning_parts"}
 
 
 def test_nothing_elses_material_class_changes():
