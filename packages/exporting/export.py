@@ -24,7 +24,7 @@ from pathlib import Path
 from packages.core.canonical import pretty_dumps
 from packages.core.godot_project import (package_light_budget,
                                           rendering_block,
-                                          set_occlusion_culling)
+                                          set_occlusion_culling, shader_globals_block)
 from packages.core.hashing import hash_file
 from packages.core.ids import (export_archive_name,
                                export_build_dir_name,
@@ -227,6 +227,9 @@ class ExportProfile:
     require_no_addons: bool = True
     require_no_autoloads: bool = True
     require_resource_closure: bool = True
+    #: The brief's weather word (0.130.0): what the shipped project's wind is
+    #: written from. "clear" when the caller has no brief in hand.
+    weather: str = "clear"
 
     def as_dict(self) -> dict:
         return self.__dict__.copy()
@@ -714,7 +717,7 @@ def _importer_defaults_block(export_dir: Path) -> str:
 
 
 def _write_project_godot(export_dir: Path, entry_scene: str, mission_id: str,
-                         godot_version: str) -> None:
+                         godot_version: str, weather: str = "clear") -> None:
     """A minimal, autoload-free, plugin-free project so the shell is portable.
 
     `config/features` IS the version declaration, and omitting it is not
@@ -755,6 +758,8 @@ def _write_project_godot(export_dir: Path, entry_scene: str, mission_id: str,
         # that dies between the two then ships no flag and no occluders,
         # which is a consistent package; the other ordering ships 9065's.
         + rendering_block(package_light_budget(export_dir), 0)
+        # the wind (0.130.0): one global the sway shaders read
+        + shader_globals_block(weather)
         + _importer_defaults_block(export_dir) +
         "[debug]\n"
         "; Localized tool scripts are strict-clean under their home projects'\n"
@@ -1572,7 +1577,7 @@ def export_mission(
 
     # 4. project.godot, HANDOFF.md, manifests.
     _write_project_godot(export_dir, profile.entry_scene, mission_id,
-                         profile.godot_version)
+                         profile.godot_version, profile.weather)
     (export_dir / "HANDOFF.md").write_text(HANDOFF_LANGUAGE, encoding="utf-8")
     _write_import_sidecars(export_dir, godot_executable)
 

@@ -206,7 +206,9 @@ def test_the_snow_grain_is_read_off_the_picture_not_assumed():
 #: 0.129.0: a TURNING part's material is replaced too -- a second pass cannot
 #: move the first -- by a shader carrying the flat material's own numbers,
 #: and only on a name that names a rate (`test_worldskin_moving_parts.py`).
-MATERIAL_REPLACERS = {"_assign_stairs", "_assign_slabs", "_shutters", "_turning_parts"}
+#: 0.130.0: a CROWN's skin is replaced by the sway shader, which carries the
+#: skin's own numbers and refuses a skin outside its set (`test_worldskin_sway.py`).
+MATERIAL_REPLACERS = {"_assign_stairs", "_assign_slabs", "_shutters", "_turning_parts", "_sway_crowns"}
 
 
 def test_nothing_elses_material_class_changes():

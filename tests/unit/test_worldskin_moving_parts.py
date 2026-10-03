@@ -78,8 +78,9 @@ def test_the_names_are_zoo_s_when_zoo_is_beside_this_repo():
     assert "loop[uv2].uv = (0.0, -1.0)" in slush          # arrives as v = 2
     assert 'f"M_Slush_{A[\'name\']}_Face"' in slush
     pm = (zoo / "zoo_keeper" / "bpylayer" / "prim_mesh.py").read_text(encoding="utf-8")
-    assert 'bm.loops.layers.uv.new("Pivot")' in pm
-    assert "return (b, -a)" in pm                           # Blender (y, z) -> engine (z, -y)
+    assert 'bm.loops.layers.uv.new(geometry.PIVOT_LAYER)' in pm
+    ex = (zoo / "zoo_keeper" / "bpylayer" / "export.py").read_text(encoding="utf-8")
+    assert "lambda yz: (yz[1], 1.0 + yz[0])" in ex           # Blender (y, z) -> engine (z, -y), v flipped
 
 
 # --- the turning surface ------------------------------------------------------------------

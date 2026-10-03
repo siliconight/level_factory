@@ -3170,8 +3170,18 @@ def cmd_export(args) -> int:
         print(f"unknown export mode {args.mode!r}; "
               f"known: {', '.join(sorted(MODES))}", file=sys.stderr)
         return EXIT_BLOCKED
+    # THE BRIEF'S WEATHER GOES INTO THE PACKAGE (0.130.0): the shipped
+    # project.godot declares the wind the sway shaders read from it. A
+    # workspace with no brief for the mission ships the calm.
+    weather = "clear"
+    try:
+        _, _brief = _find_mission(ws, mission_id)
+        weather = str(getattr(_brief_model(_brief), "weather", "") or "clear")
+    except Exception:          # no brief in hand: the export still ships
+        pass
     profile = ExportProfile(mode=args.mode,
-                            include_walk=bool(getattr(args, "include_walk", False)))
+                            include_walk=bool(getattr(args, "include_walk", False)),
+                            weather=weather)
 
     # OPEN BLOCKERS BLOCK THE EXPORT. Cold run 9015 (2026-09-12): the Lux
     # stage exited 2 on a scene it could not parse, the scheduler filed

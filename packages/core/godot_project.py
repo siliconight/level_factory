@@ -178,6 +178,33 @@ def set_occlusion_culling(text: str, occluders: int) -> str:
     return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
 
 
+#: THE WIND (0.130.0). One global shader uniform, `lf_wind`, a direction
+#: times metres a second, declared here so every shader that moves with the
+#: weather (`zoo_worldskin.gd`'s sway) reads one value. Strength by the
+#: brief's weather word; a word nobody knows gets the calm. The direction is
+#: from the west (+X) until a brief says otherwise. Lux owns weather and is
+#: where a wind that changes while a level runs would be set from.
+WIND_BY_WEATHER = {"clear": 1.5, "rain": 4.0, "storm": 9.0, "hurricane": 15.0}
+WIND_DEFAULT_M_S = 1.5
+WIND_DIRECTION = (1.0, 0.0, 0.0)
+WIND_KEY = "lf_wind"
+
+
+def wind_for_weather(weather: str | None) -> tuple[float, float, float]:
+    """The `lf_wind` vector for a brief's weather word."""
+    speed = WIND_BY_WEATHER.get(str(weather or "").strip().lower(), WIND_DEFAULT_M_S)
+    dx, dy, dz = WIND_DIRECTION
+    return (dx * speed, dy * speed, dz * speed)
+
+
+def shader_globals_block(weather: str | None) -> str:
+    """The `[shader_globals]` section, ending with a blank line. One line a
+    global, because the agreement test reads settings a line at a time."""
+    x, y, z = wind_for_weather(weather)
+    return ("[shader_globals]\n"
+            f'{WIND_KEY}={{"type": "vec3", "value": Vector3({x:g}, {y:g}, {z:g})}}\n\n')
+
+
 def rendering_block(light_count: int, occluders: int) -> str:
     """The `[rendering]` section, ending with a blank line.
 

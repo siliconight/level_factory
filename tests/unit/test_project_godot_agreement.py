@@ -139,7 +139,7 @@ def test_the_preview_and_the_export_declare_the_same_version(tmp_path):
 # --- and the two writers still agree --------------------------------------
 
 @pytest.mark.parametrize("lights", [0, 40, 136])
-@pytest.mark.parametrize("section", ["rendering", "debug"])
+@pytest.mark.parametrize("section", ["rendering", "shader_globals", "debug"])
 def test_every_exported_setting_appears_in_the_preview(section, lights, tmp_path):
     e = _settings(_exported(tmp_path, lights), section)
     p = _settings(_preview(tmp_path, lights), section)
@@ -150,7 +150,19 @@ def test_every_exported_setting_appears_in_the_preview(section, lights, tmp_path
 def test_the_sections_being_compared_are_not_empty(tmp_path):
     t = _exported(tmp_path, 0)
     assert _settings(t, "rendering"), "no [rendering] settings parsed"
+    assert _settings(t, "shader_globals"), "no [shader_globals] settings parsed"
     assert _settings(t, "debug"), "no [debug] settings parsed"
+
+
+def test_the_wind_global_follows_the_profile_s_weather(tmp_path):
+    """0.130.0: the export declares `lf_wind` from the weather it was given;
+    the preview's text carries the calm, which is what a default profile
+    exports, so the agreement above holds for the default and this holds
+    the rest of the table."""
+    _package(tmp_path, 0)
+    _write_project_godot(tmp_path, "mission.tscn", "m", "4.7", weather="storm")
+    t = (tmp_path / "project.godot").read_text(encoding="utf-8")
+    assert _settings(t, "shader_globals")["lf_wind"] == '{"type": "vec3", "value": Vector3(9, 0, 0)}'
 
 
 @pytest.mark.parametrize("which", ["exported", "preview"])

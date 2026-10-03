@@ -68,7 +68,10 @@ config/features=PackedStringArray("4.7")
 config/name="{name} (walk preview)"
 run/main_scene="res://walk.tscn"
 
-{rendering}[debug]
+{rendering}[shader_globals]
+lf_wind={{"type": "vec3", "value": Vector3(1.5, 0, 0)}}
+
+[debug]
 ; Verbatim from export.py::_write_project_godot, and it must stay verbatim:
 ; localized tool scripts are strict-clean under their home projects' warning
 ; config, while engine DEFAULTS escalate inference-on-Variant to a load-killing
