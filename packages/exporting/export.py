@@ -230,6 +230,10 @@ class ExportProfile:
     #: The brief's weather word (0.130.0): what the shipped project's wind is
     #: written from. "clear" when the caller has no brief in hand.
     weather: str = "clear"
+    #: Bake the steady lights into a lightmap (0.131.0, roadmap item 31,
+    #: `packages/exporting/light_bake.py`). Opt-in: it needs a GPU and a
+    #: display, and opens the Godot editor for about a minute.
+    bake_lights: bool = False
 
     def as_dict(self) -> dict:
         return self.__dict__.copy()
@@ -1637,6 +1641,14 @@ def export_mission(
         print("[export] WARNING no occluders in this package: %s" % exc)
         print("[export]   occlusion culling stays OFF in project.godot; "
               "the package is consistent and buys nothing from the culler")
+
+    # THE LIGHT BAKE (0.131.0), opt-in. After the occluder bake, which leaves
+    # the import cache this needs, and before the cache is dropped; it points
+    # the entry at `bake.tscn` and ships the lightmap, or restores what it
+    # touched and ships the package unbaked, saying which in light_bake.json.
+    if profile.bake_lights:
+        from packages.exporting.light_bake import bake as _bake_lights
+        _bake_lights(export_dir, godot_executable)
 
     # Settle the flag against what shipped, then drop the cache the bake
     # needed -- before `build_resource_manifest` walks the tree, so the

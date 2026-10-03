@@ -160,6 +160,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--format", default="folder", choices=["folder", "zip"])
     sp.add_argument("--include-walk", action="store_true",
                     help="localize walk scenes (runtime scripts bundled) instead of stripping them")
+    sp.add_argument("--bake-lights", action="store_true",
+                    help="bake the steady lights into a lightmap (needs a GPU and a display; "
+                         "opens the Godot editor for about a minute)")
     sp.set_defaults(func=cmd_export)
 
     sp = sub.add_parser("portability-test", help="clean-project portability test")

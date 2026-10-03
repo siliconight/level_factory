@@ -3181,7 +3181,8 @@ def cmd_export(args) -> int:
         pass
     profile = ExportProfile(mode=args.mode,
                             include_walk=bool(getattr(args, "include_walk", False)),
-                            weather=weather)
+                            weather=weather,
+                            bake_lights=bool(getattr(args, "bake_lights", False)))
 
     # OPEN BLOCKERS BLOCK THE EXPORT. Cold run 9015 (2026-09-12): the Lux
     # stage exited 2 on a scene it could not parse, the scheduler filed
