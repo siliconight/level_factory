@@ -46,7 +46,9 @@ def test_rain_wins_over_time_of_day(tod):
 
 @pytest.mark.parametrize("tod,preset", [
     ("afternoon", "Delco Summer Afternoon"),
-    ("night", "Blue Hour"),
+    # `night` meant dusk until 0.121.0 (`_preset_for`); it asks for Lux's
+    # `Delco Night` since, and this row was left behind until 0.138.0.
+    ("night", "Delco Night"),
     ("evening", "Blue Hour"),
     ("morning", "Gas Station Fluorescent"),
 ])

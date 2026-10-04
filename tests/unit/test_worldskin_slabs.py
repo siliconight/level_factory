@@ -146,6 +146,29 @@ def test_a_slab_takes_the_floor_family(tmp_path):
 
 
 @godot_required
+def test_an_empty_s_roof_slab_takes_the_roof_family(tmp_path):
+    """FAILS BEFORE 0.138.0: an Empty has a `roof_` module and no `floor_`,
+    and cold run 9146 shipped 588 of its slabs in `gb_floor`."""
+    roof = "roof_delco_1997_01_w600_d1200_mconcrete.glb"
+    proj = _project(tmp_path, base_meshes=[("slab_3_t0_0", 0)], art_modules=(roof,))
+    line = _slab_line(_import(proj))
+    assert "1 surface(s) skinned on 1 mesh(es)" in line, line
+    assert "0 mesh(es) left flat" in line, line
+    assert f"reveal from {roof}" in line, line
+
+
+@godot_required
+def test_a_building_with_both_still_takes_the_floor_family(tmp_path):
+    """The control: the fallback must not move a building, which always has a
+    `floor_` module, off the material it took before."""
+    floor = "floor_delco_1997_05_w1000_d700.glb"
+    roof = "roof_delco_1997_01_w600_d1200_mconcrete.glb"
+    proj = _project(tmp_path, base_meshes=[(SLAB, 0)], art_modules=(roof, floor))
+    line = _slab_line(_import(proj))
+    assert f"reveal from {floor}" in line, line
+
+
+@godot_required
 def test_a_collision_slab_is_not_skinned(tmp_path):
     """A body is not a surface. Dressing one would cost a material on
     something nobody sees, and would inflate the count this pass reports."""
@@ -207,7 +230,7 @@ def test_the_slab_pass_and_its_refutations_are_in_the_source():
     """A retracted finding is cheaper to keep than to rediscover: four wrong
     explanations were measured before this pass and all four are recorded."""
     src = WORLDSKIN.read_text(encoding="utf-8")
-    assert 'const SLAB_REVEAL_FAMILY: Array = ["floor_"]' in src
+    assert 'const SLAB_REVEAL_FAMILY: Array = ["floor_", "roof_"]' in src
     assert "func _skin_slabs" in src
     assert "NOT occlusion culling" in src
     assert "NOT z-fighting" in src

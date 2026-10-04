@@ -164,7 +164,15 @@ const SLAB_COLLISION_MARK: String = "col"
 ## it would match a seam that is not there. Same value as
 ## `STAIR_FLIGHT_FAMILY` and written out rather than aliased to it, so the two
 ## can diverge later without one silently moving the other.
-const SLAB_REVEAL_FAMILY: Array = ["floor_"]
+##
+## `roof_` IS THE FALLBACK, BY THE SAME RULE (0.138.0). An Empty (Deli Counter
+## 0.175.0) keeps one slab, its roof, and has no room to record a floor slot
+## from, so Zoo builds it a `roof_` module and no `floor_`. The surface that
+## slab meets is the roof. Families are tried in order, so a building -- which
+## always carries a `floor_` module -- takes exactly the material it took
+## before. Without this, cold run 9146 was refused at export with 588 Empty
+## slabs in `gb_floor`.
+const SLAB_REVEAL_FAMILY: Array = ["floor_", "roof_"]
 
 ## LADDERS -- rusted outside, clean inside (roadmap 169), and the walker's
 ## call with two reference photographs.
