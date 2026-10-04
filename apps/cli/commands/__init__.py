@@ -1137,7 +1137,9 @@ GROUND_SKIN_KINDS = {"ground": "asphalt", "path": "sidewalk", "courtyard": "conc
                      # the markings' decal: road paint, cutout where worn
                      "paint": "road_paint",
                      # the service pad under a dumpster (Lot 0.93.0)
-                     "yard": "concrete"}
+                     "yard": "concrete",
+                     # a parking field in a gap between buildings (Lot 0.94.0)
+                     "parking": "asphalt"}
 
 
 #: THE STREET'S DIMENSIONS NOW LIVE IN `packages.pipeline.road_grammar`,

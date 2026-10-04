@@ -1,3 +1,15 @@
+## [0.134.0] - the parking field wears the theme's asphalt
+
+Lot 0.94.0 draws a parking field in a gap between buildings -- step 4 of
+`docs/proposals/LAND_USE_DESIGN.md`, its second use -- and skins its slab
+from the site spec's `ground_skins["parking"]`. `GROUND_SKIN_KINDS` names
+that pack: `parking -> asphalt`, the road's and the plate's own kind, so
+the field reads as paving continuous with the road through its driveway,
+and is told apart by its bay lines and its cars, not by its surface.
+
+`tests/unit/test_ground_skins_in_site_spec.py`: the constructed directories
+include the field's.
+
 ## [0.133.0] - the service pad wears the theme's concrete
 
 Lot 0.93.0 draws a concrete pad (`yard`) under each dumpster -- step 4 of
