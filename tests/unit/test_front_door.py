@@ -1,5 +1,6 @@
 """A building faces the street with its front door (Level Factory 0.132.0)."""
 from __future__ import annotations
+import json
 
 from packages.pipeline import front_door as FD
 from packages.pipeline.site_variation import site_placements
@@ -65,5 +66,16 @@ def test_the_library_s_buildings_nearly_all_have_a_front():
     files = glob.glob(os.path.join(here, "..", "..", "..", "deli_counter", "build", "*.gameplay.json"))
     if not files:
         return
+    # AN EMPTY HAS NO FRONT DOOR TO FIND (0.137.0): Deli Counter 0.174.0's
+    # non-enterable shells record no openings by design, so they are not
+    # buildings this rule turns. Skipped by Deli Counter's own word for them.
+    def _empty(f):
+        v = f.replace(".gameplay.json", ".validation.json")
+        try:
+            with open(v, encoding="utf-8") as fh:
+                return json.load(fh).get("facade") is True
+        except (OSError, ValueError):
+            return False
+    files = [f for f in files if not _empty(f)]
     found = sum(1 for f in files if FD.front_wall_of(f)[0] is not None)
     assert found >= 0.95 * len(files), (found, len(files))

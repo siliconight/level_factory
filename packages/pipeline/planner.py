@@ -435,6 +435,46 @@ def plan_mission(
                 expected_outputs=[],  # zoo names by building_id at exec; adapter checks
             ))
             zoo_dress_jids.append(zoo_dress_jid)
+        # THE EMPTIES (0.137.0): every Empty the brief asks for is themed as
+        # itself -- its kit, its Patina pass and its dressing -- and composed
+        # beside the lot. No fixtures and no fixture gate: an Empty has no
+        # lights (its lit windows are paint), and `require_art_inputs` is not
+        # asked of it for the same reason.
+        for _e in building_library.empties_for_brief(brief):
+            aid = _e["id"]
+            zoo_kit_jid = job_id(brief.mission_id, _STAGE_ZOO_KIT, archetype=aid)
+            plan.graph.add(Job(
+                job_id=zoo_kit_jid, mission_id=brief.mission_id,
+                stage_id=_STAGE_ZOO_KIT, adapter_id="zoo",
+                candidate_id=selected_candidate, archetype_id=aid,
+                resource_class="blender",
+                depends_on=[lot_jid, pixelcoat_jid], expected_outputs=[]))
+            zoo_kit_jids.append(zoo_kit_jid)
+            patina_base_jid = job_id(brief.mission_id, _STAGE_PATINA_BASE, archetype=aid)
+            plan.graph.add(Job(
+                job_id=patina_base_jid, mission_id=brief.mission_id,
+                stage_id=_STAGE_PATINA_BASE, adapter_id="patina",
+                candidate_id=selected_candidate, archetype_id=aid,
+                resource_class="python_cpu", depends_on=[lot_jid],
+                expected_outputs=[f"{aid}.patina.glb", f"{aid}.patina.json",
+                                  f"{aid}.patina.gameplay.json"]))
+            patina_dress_jid = job_id(brief.mission_id, _STAGE_PATINA_DRESS, archetype=aid)
+            plan.graph.add(Job(
+                job_id=patina_dress_jid, mission_id=brief.mission_id,
+                stage_id=_STAGE_PATINA_DRESS, adapter_id="patina",
+                candidate_id=selected_candidate, archetype_id=aid,
+                resource_class="python_cpu", depends_on=[patina_base_jid],
+                expected_outputs=[f"{aid}.patina.glb", f"{aid}.patina.json",
+                                  f"{aid}.patina.gameplay.json",
+                                  f"{aid}.patina.dressing.json"]))
+            zoo_dress_jid = job_id(brief.mission_id, _STAGE_ZOO_DRESS, archetype=aid)
+            plan.graph.add(Job(
+                job_id=zoo_dress_jid, mission_id=brief.mission_id,
+                stage_id=_STAGE_ZOO_DRESS, adapter_id="zoo",
+                candidate_id=selected_candidate, archetype_id=aid,
+                resource_class="blender",
+                depends_on=[patina_dress_jid, zoo_kit_jid], expected_outputs=[]))
+            zoo_dress_jids.append(zoo_dress_jid)
         # Named before the fixtures jobs are added, because compose depends on
         # them and is added first -- as it was when there was one.
         zoo_fixtures_jids = [

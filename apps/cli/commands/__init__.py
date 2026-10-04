@@ -1060,6 +1060,13 @@ def _lot_for_compose(model, candidate_id) -> list:
         print(f"[compose] {len(incomplete)} archetype(s) not themeable "
               f"(incomplete manifest): "
               + ", ".join(e["id"] for e in incomplete[:5]))
+    # THE EMPTIES ARE COMPOSED BESIDE THE LOT (0.137.0): their rows join
+    # the lot's, so their art jobs resolve, compose themes them and the
+    # themed site finds their scenes -- one list, not three.
+    if lot:
+        ids = {e["id"] for e in lot}
+        lot = lot + [e for e in building_library.empties_for_brief(model)
+                     if e["id"] not in ids]
     return lot
 
 
@@ -1704,6 +1711,46 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         print("    add the spelling to _SHAPE_ALIASES, or change the brief; "
               "the fallback is recorded in the site spec as "
               "site_shape_resolved", file=err)
+    # THE EMPTIES ACROSS THE STREET (0.137.0, roadmap 106): a terrace of
+    # non-enterable shells along the far side of the through road, every
+    # front on one line, as Lot `blockers` -- themed when the compose stage
+    # published their scenes, greybox otherwise, like the lot's buildings.
+    # Lot reads no walk, dumpster, field or entry gate off a blocker.
+    import math
+    from packages.pipeline import building_library as _bl
+    _empty_rows = _bl.empties_for_brief(model) if library else []
+    if _empty_rows and roads:
+        from packages.pipeline import empties as _empties
+        from packages.pipeline import street_line as _sl
+        _ext = {r["id"]: _sl.shell_extents(r["glb"]) for r in _empty_rows}
+        _row = {r["id"]: r for r in _empty_rows}
+        placed_e, need_half = _empties.terrace(
+            _empty_rows, _ext, site_variation.stream(int(seed) ^ 0x5E3A11),
+            roads, spec["ground"]["size_x"])
+        blockers = []
+        for p in placed_e:
+            aid = p["archetype"]
+            scene = (themed_map or {}).get(aid)
+            if scene:
+                staged_packages[aid] = str(Path(scene).parent)
+                src = {"scene": f"lot/{aid}/site.tscn"}
+            else:
+                staged_glbs[aid] = str(_row[aid]["glb"])
+                src = {"glb": f"buildings/{aid}.glb"}
+            blockers.append({"id": p["id"], "archetype": aid, **src,
+                             "at": p["at"], "rot": p["rot"],
+                             "size_x": p["size_x"], "size_y": p["size_y"],
+                             "empty": True})
+        if blockers:
+            spec["blockers"] = blockers
+            # the plate reaches past the row's backs by the clearance the
+            # row's own ends keep
+            half_y = need_half + _empties.CLEARANCE
+            if spec["ground"]["size_y"] / 2.0 < half_y:
+                spec["ground"]["size_y"] = int(math.ceil(2.0 * half_y))
+            print(f"[site] {len(blockers)} Empt{'y' if len(blockers) == 1 else 'ies'} "
+                  f"across the street, {len({b['archetype'] for b in blockers})} "
+                  f"shell(s), {'themed' if themed_map else 'greybox'}")
     # Self-check before the spec leaves the building. This can only fire if the
     # placement and the plate in site_variation have drifted apart, which is
     # exactly what happened for the whole life of the module: a row marching out

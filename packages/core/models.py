@@ -92,6 +92,11 @@ class MissionBrief:
     #: has already been evaluated would be a different level carrying the old
     #: grade.
     lot_library: str = ""
+    #: EMPTIES (0.137.0, roadmap 106): `"across"` stands a terrace of
+    #: non-enterable shells along the far side of the through road,
+    #: drawn from the lot library's Empties. Empty (the default) leaves
+    #: the far side to the plate's edge, as every level before it.
+    empties: str = ""
     #: THE ENCOUNTER, which the brief could not previously express at all.
     #:
     #: Every mission Level Factory has ever evaluated was graded against Laser
@@ -156,6 +161,9 @@ class MissionBrief:
         # the signature it has always had; the key's PRESENCE is the change.
         if self.lot_library:
             sig["lot_library"] = self.lot_library
+        # the same care for the Empties (0.137.0): they stand on the site
+        if self.empties:
+            sig["empties"] = self.empties
         return sig
 
 
