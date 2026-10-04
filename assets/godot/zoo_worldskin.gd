@@ -166,6 +166,64 @@ const SLAB_COLLISION_MARK: String = "col"
 ## can diverge later without one silently moving the other.
 const SLAB_REVEAL_FAMILY: Array = ["floor_"]
 
+## LADDERS -- rusted outside, clean inside (roadmap 169), and the walker's
+## call with two reference photographs.
+##
+## WHAT SHIPS TODAY: nothing skins a ladder, so it arrives in Deli Counter's
+## flat `gb_ladder` -- 38 surfaces and 22.82 m2 on cold run 9070's package.
+## The `greybox_skin` gate counts them and does not refuse, because an absent
+## capability is not a regression.
+##
+## THE FALLBACK IS YELLOW AND IT IS YELLOW ON PURPOSE, which is the whole
+## difficulty here. `GREYBOX_PALETTE` gives `gb_ladder` (1.00, 0.90, 0.55) --
+## luminance 0.897, the BRIGHTEST value on the site -- because "it is the
+## smallest thing that has to be found". Skinning a ladder therefore SPENDS a
+## legibility signal that palette deliberately bought, and a rusted ladder on
+## a weathered wall is precisely the "amber and grey reading as one surface"
+## failure the palette's own comment warns about.
+##
+## SO THE SIGNAL IS MOVED RATHER THAN SPENT. Deli Counter emits a ladder's
+## rails and rungs as SEPARATE meshes (`ladder<n>_rail_*`, `ladder<n>_rung_*`,
+## `deli_counter.py:2032`), so reference 2's actual read -- a matte near-black
+## frame against bright galvanised treads -- is reproducible with no new
+## geometry: the rails take the darkest metal the building owns and the rungs
+## the lightest. The rungs stay the bright thing the eye is meant to find.
+##
+## OUTSIDE, BOTH HALVES TAKE THE RUST, per reference 1, where the rails and
+## rungs are equally streaked and the ladder reads against grey concrete
+## rather than against itself.
+##
+## THE SOURCE IS `prop_`, NOT A KIT FAMILY, AND THAT IS MEASURED. On 9070's
+## package only 1 of 3 buildings owns metal in a kit family (freight_terminal
+## 5 modules; deli_a03 and strip_club_a03 have NONE), while all three own it
+## in `prop_` (27, 21 and 41 modules). Asking a building for a kit finish it
+## may not own is exactly the `STAIR_KIND = "concrete"` mistake this file
+## already records as REFUTED, and it would have refused on two buildings in
+## three. `KIT_PREFIXES` excludes props because world-projecting a MOVABLE
+## object makes its texture swim; that reason does not apply to borrowing a
+## prop's material for a ladder bolted to a wall.
+const LADDER_PREFIX: String = "ladder"
+## `ladder<n>ext_*` is an exterior ladder: Deli Counter writes the mark from
+## `Ladder.placement_mode` (`exterior_wall` / `platform`), the same way
+## `stair<n>col_` and `stair<n>ramp_` carry their kind in the name. Measured
+## across the spec library: 109 ladders are interior (52 explicit, 54 unset
+## and taking the dataclass default, 3 `shaft`) against 3 exterior. The split
+## is real and lopsided, and the lopsidedness is why the interior look is the
+## one worth getting right.
+const LADDER_EXTERIOR_MARK: String = "ext"
+const LADDER_RAIL_MARK: String = "_rail_"
+const LADDER_RUNG_MARK: String = "_rung_"
+const LADDER_METAL_FAMILY: Array = ["prop_"]
+## The theme's weathered steel. Its `baseColorFactor` is (1, 1, 1) because the
+## rust is entirely in `metal_rusted_street_albedo` -- so it cannot be ranked
+## by tint and is chosen BY NAME, and must be excluded from the darkest and
+## lightest search below or its untinted 1.0 would always win "lightest".
+const LADDER_RUST_MATERIAL: String = "M_Skin_metal_delco_1997"
+## A material whose albedo factor is at or above this carries no tint to rank:
+## its colour lives in its texture. Measured on 9070's package, the tinted
+## metals run 0.015 to 0.789 and the only one at 1.0 is the rusted skin.
+const LADDER_TINTLESS: float = 0.95
+
 ## Families whose module is ONE TILE of a surface that repeats: the kit above,
 ## and the panels a floor, ceiling or roof is laid from, and Patina's building
 ## dressing (`<building>_dressing.glb`, runs of edge strips and base courses
@@ -783,6 +841,11 @@ func _post_import(scene: Node) -> Object:
 			print("[worldskin] %s  slabs: %d surface(s) skinned on %d mesh(es), %d mesh(es) left flat%s"
 				% [base, int(sl["slab_surfaces"]), int(sl["slab_meshes"]),
 					int(sl["unskinned_meshes"]), String(sl["note"])])
+			var ld: Dictionary = _skin_ladders(scene, get_source_file().get_base_dir())
+			print("[worldskin] %s  ladders: %d surface(s) skinned on %d mesh(es) (%d exterior), %d mesh(es) left flat%s"
+				% [base, int(ld["ladder_surfaces"]), int(ld["ladder_meshes"]),
+					int(ld["exterior_meshes"]), int(ld["unskinned_meshes"]),
+					String(ld["note"])])
 			return scene
 		print("[worldskin] %s  not a kit module, left alone" % base)
 		return scene
@@ -1616,4 +1679,206 @@ func _assign_slabs(n: Node, mat: Material) -> Array:
 		seen += int(sub[2])
 		flat += int(sub[3])
 	return [fs, fm, seen, flat]
+
+
+## Every metal material the building's prop modules wear, with its tint.
+##
+## Returns [[material, name, luminance, rankable]], one row per DISTINCT
+## material name. Scans the whole family rather than stopping at the first
+## hit, because this pass needs the extremes of the range and not a
+## representative -- which is the one way it differs from `_family_material`.
+##
+## Luminance is read off `albedo_color`, not parsed out of the name's hex
+## suffix: the factor IS the tint (measured, 31 distinct metals spanning
+## 0.015 to 0.789), and a name is a weaker source than the value it encodes.
+func _metal_palette(art: String, dir: DirAccess) -> Array:
+	var files: PackedStringArray = dir.get_files()
+	files.sort()
+	var seen: Dictionary = {}
+	var out: Array = []
+	for f in files:
+		if not f.ends_with(".glb"):
+			continue
+		var in_family: bool = false
+		for fam in LADDER_METAL_FAMILY:
+			if f.begins_with(String(fam)):
+				in_family = true
+		if not in_family:
+			continue
+		var ps: PackedScene = load(art.path_join(f)) as PackedScene
+		if ps == null:
+			continue
+		var inst: Node = ps.instantiate()
+		_collect_metals(inst, seen, out)
+		inst.free()
+	return out
+
+
+func _collect_metals(n: Node, seen: Dictionary, out: Array) -> void:
+	var mi: MeshInstance3D = n as MeshInstance3D
+	if mi != null and mi.mesh != null:
+		for i in range(mi.mesh.get_surface_count()):
+			var bm: BaseMaterial3D = mi.mesh.surface_get_material(i) as BaseMaterial3D
+			if bm == null or bm.albedo_texture == null:
+				continue
+			var nm: String = String(bm.resource_name)
+			if not nm.contains("metal") or seen.has(nm):
+				continue
+			seen[nm] = true
+			var c: Color = bm.albedo_color
+			var lum: float = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+			out.append([bm, nm, lum, lum < LADDER_TINTLESS])
+	for c2 in n.get_children():
+		_collect_metals(c2, seen, out)
+
+
+## A world-triplanar duplicate of `src`, named for the part it dresses.
+## Same treatment `_family_material` gives its pick, and for the same reason:
+## a greybox box carries no UVs, so the texture is projected from position.
+func _ladder_material(src: BaseMaterial3D, part: String) -> Material:
+	var dup: BaseMaterial3D = src.duplicate()
+	dup.resource_name = "M_Skin_ladder_%s" % part
+	if not dup.uv1_world_triplanar:
+		dup.uv1_triplanar = true
+		dup.uv1_world_triplanar = true
+	return dup
+
+
+## Skin the greybox base's ladders, for the reasons on `LADDER_PREFIX`.
+##
+## Refuses out loud like its two siblings: a base whose ladders this cannot
+## dress ships them in the greybox yellow, and a `print` nobody reads is how
+## the stair defect survived five days (roadmap 144).
+##
+## Returns {ladder_surfaces, ladder_meshes, exterior_meshes,
+## unskinned_meshes, note}. `exterior_meshes` is COUNTED rather than inferred
+## from the note, so a test can prove the exterior branch fired instead of
+## trusting a sentence that would print either way.
+func _skin_ladders(scene: Node, base_dir: String) -> Dictionary:
+	var out: Dictionary = {"ladder_surfaces": 0, "ladder_meshes": 0,
+		"exterior_meshes": 0, "unskinned_meshes": 0, "note": ""}
+	var present: Array = _assign_ladders(scene, null, null, null)
+	var rungs_and_rails: int = int(present[2])
+	if rungs_and_rails == 0:
+		out["note"] = "; no visual ladder in this base, nothing to skin"
+		return out
+	var art: String = base_dir.path_join("art").path_join("zoo")
+	var dir := DirAccess.open(art)
+	if dir == null:
+		out["unskinned_meshes"] = rungs_and_rails
+		out["note"] = "; NO art/zoo BESIDE THE BASE -- %d ladder mesh(es) left in the greybox material" % rungs_and_rails
+		push_error("[worldskin] %s%s" % [get_source_file(), String(out["note"])])
+		return out
+	var palette: Array = _metal_palette(art, dir)
+	if palette.is_empty():
+		out["unskinned_meshes"] = rungs_and_rails
+		out["note"] = ("; NO METAL MATERIAL UNDER art/zoo IN FAMILIES %s -- %d ladder mesh(es) left in the greybox material"
+			% [str(LADDER_METAL_FAMILY), rungs_and_rails])
+		push_error("[worldskin] %s%s" % [get_source_file(), String(out["note"])])
+		return out
+
+	var rust: BaseMaterial3D = null
+	var darkest: BaseMaterial3D = null
+	var lightest: BaseMaterial3D = null
+	var dark_lum: float = 999.0
+	var light_lum: float = -1.0
+	var dark_name: String = ""
+	var light_name: String = ""
+	var rust_name: String = ""
+	for row in palette:
+		var bm: BaseMaterial3D = row[0]
+		var nm: String = String(row[1])
+		var lum: float = float(row[2])
+		if nm == LADDER_RUST_MATERIAL:
+			rust = bm
+			rust_name = nm
+		if not bool(row[3]):
+			continue
+		if lum < dark_lum:
+			dark_lum = lum
+			darkest = bm
+			dark_name = nm
+		if lum > light_lum:
+			light_lum = lum
+			lightest = bm
+			light_name = nm
+	# One rankable metal is a ladder with no contrast in it, which is worse
+	# than the yellow it replaces -- the yellow at least reads. Say so.
+	if darkest == null or lightest == null or darkest == lightest:
+		out["unskinned_meshes"] = rungs_and_rails
+		out["note"] = ("; ONLY %d TINTED METAL(S) under art/zoo -- a ladder needs two for rail/rung contrast, %d mesh(es) left in the greybox material"
+			% [palette.size(), rungs_and_rails])
+		push_error("[worldskin] %s%s" % [get_source_file(), String(out["note"])])
+		return out
+	# Outside takes the rust on both halves (reference 1). With no rusted skin
+	# in this building's packs the exterior falls back to the interior pair,
+	# and the note says so rather than pretending.
+	var ext: Material = null
+	if rust != null:
+		ext = _ladder_material(rust, "rust")
+	var rail: Material = _ladder_material(darkest, "rail")
+	var rung: Material = _ladder_material(lightest, "rung")
+	var counts: Array = _assign_ladders(scene, rail, rung, ext)
+	out["ladder_surfaces"] = int(counts[0])
+	out["ladder_meshes"] = int(counts[1])
+	out["unskinned_meshes"] = int(counts[3])
+	out["exterior_meshes"] = int(counts[4])
+	out["note"] = ("; rail %s (%.3f), rung %s (%.3f)"
+		% [dark_name, dark_lum, light_name, light_lum])
+	if ext != null:
+		out["note"] += "; exterior %s" % rust_name
+	else:
+		out["note"] += "; NO %s in this building's packs, exterior ladders take the interior pair" % LADDER_RUST_MATERIAL
+	return out
+
+
+## A mesh named for a ladder that is DRAWN rather than collided with.
+## `ladder<n>_plane-convcolonly` is Deli Counter's climb-face collider and
+## Godot has already removed its visual by the time this runs; the `col` test
+## is the same second line of defence the slab pass keeps.
+func _is_visual_ladder(nm: String) -> bool:
+	return nm.begins_with(LADDER_PREFIX) and not nm.contains("col")
+
+
+## Assign rail/rung/exterior materials. A null trio counts instead of
+## assigning, so the census and the work share one definition of a ladder
+## mesh rather than two that can drift (see `_assign_stairs`).
+##
+## Returns [ladder_surfaces, ladder_meshes, ladder_seen, unskinned_meshes,
+## exterior_meshes].
+func _assign_ladders(n: Node, rail: Material, rung: Material,
+		ext: Material) -> Array:
+	var fs: int = 0
+	var fm: int = 0
+	var seen: int = 0
+	var flat: int = 0
+	var ext_n: int = 0
+	var mi: MeshInstance3D = n as MeshInstance3D
+	if mi != null and mi.mesh != null and _is_visual_ladder(String(mi.name)):
+		var nm: String = String(mi.name)
+		var is_rail: bool = nm.contains(LADDER_RAIL_MARK)
+		var is_rung: bool = nm.contains(LADDER_RUNG_MARK)
+		if is_rail or is_rung:
+			seen += 1
+			var pick: Material = rail if is_rail else rung
+			# `ladder<n>ext_` -- the mark sits on the index token, before the
+			# part, so it is tested on the whole name rather than a split.
+			if ext != null and nm.contains(LADDER_EXTERIOR_MARK + "_"):
+				pick = ext
+				ext_n += 1
+			if pick == null:
+				flat += 1
+			else:
+				for i in range(mi.mesh.get_surface_count()):
+					mi.mesh.surface_set_material(i, pick)
+					fs += 1
+				fm += 1
+	for c in n.get_children():
+		var sub: Array = _assign_ladders(c, rail, rung, ext)
+		fs += int(sub[0])
+		fm += int(sub[1])
+		seen += int(sub[2])
+		flat += int(sub[3])
+		ext_n += int(sub[4])
+	return [fs, fm, seen, flat, ext_n]
 

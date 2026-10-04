@@ -53,7 +53,8 @@ def _pad(buf: bytearray, to: int = 4) -> None:
 def build_glb(meshes, materials=()) -> bytes:
     """``meshes`` is ``[(node_name, material_index_or_None)]``.
 
-    ``materials`` is ``[(material_name, textured)]``; a textured material gets
+    ``materials`` is ``[(material_name, textured)]`` or
+    ``[(material_name, textured, [r, g, b])]``; a textured material gets
     a real embedded PNG, which is what `_kit_material` requires before it will
     take a material as a pack (an untextured one is a greybox fallback, and
     treating it as a skin is the defect this whole pass exists to remove).
@@ -61,7 +62,7 @@ def build_glb(meshes, materials=()) -> bytes:
     bin_buf = bytearray()
     views: list = []
     accessors: list = []
-    textured = any(t for _, t in materials)
+    textured = any(m[1] for m in materials)
 
     def view(data: bytes, target: int | None = None) -> int:
         _pad(bin_buf)
@@ -99,8 +100,15 @@ def build_glb(meshes, materials=()) -> bytes:
         doc["textures"] = [{"sampler": 0, "source": 0}]
 
     mats: list = []
-    for name, has_tex in materials:
-        pbr: dict = {"baseColorFactor": [0.8, 0.8, 0.8, 1.0]}
+    for entry in materials:
+        # A material is `(name, textured)` or `(name, textured, [r, g, b])`.
+        # The third element is its `baseColorFactor` -- where Pixelcoat puts a
+        # skin's tint, and what `zoo_worldskin._metal_palette` ranks a
+        # ladder's rail and rung by. Two-element entries keep the flat 0.8
+        # grey so every fixture written before this is unchanged.
+        name, has_tex = entry[0], entry[1]
+        rgb = list(entry[2]) if len(entry) > 2 else [0.8, 0.8, 0.8]
+        pbr: dict = {"baseColorFactor": rgb + [1.0]}
         if has_tex:
             pbr["baseColorTexture"] = {"index": 0}
         mats.append({"name": name, "pbrMetallicRoughness": pbr})

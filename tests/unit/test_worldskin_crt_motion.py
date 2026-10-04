@@ -208,7 +208,11 @@ def test_the_snow_grain_is_read_off_the_picture_not_assumed():
 #: and only on a name that names a rate (`test_worldskin_moving_parts.py`).
 #: 0.130.0: a CROWN's skin is replaced by the sway shader, which carries the
 #: skin's own numbers and refuses a skin outside its set (`test_worldskin_sway.py`).
-MATERIAL_REPLACERS = {"_assign_stairs", "_assign_slabs", "_shutters", "_turning_parts", "_sway_crowns"}
+#: 0.136.0: `_assign_ladders`, the ladder skin (roadmap 169), which puts a
+#: building's own metal on a ladder's rails and rungs as the stairs and slabs
+#: passes put its floor on theirs.
+MATERIAL_REPLACERS = {"_assign_stairs", "_assign_slabs", "_shutters", "_turning_parts", "_sway_crowns",
+                      "_assign_ladders"}
 
 
 def test_nothing_elses_material_class_changes():

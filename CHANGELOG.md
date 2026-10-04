@@ -1,3 +1,36 @@
+## [0.136.0] - a ladder is metal: rusted outside, clean inside
+
+Roadmap 169, the walker's call of 2026-09-23 with two reference photographs.
+Nothing skinned a ladder: it shipped in Deli Counter's flat `gb_ladder`
+yellow (38 surfaces on cold run 9070's package). `zoo_worldskin.gd` gains a
+ladder pass, `_assign_ladders`: a building's own metals, read off its `prop_`
+modules (3 of 3 buildings own metal there; 1 of 3 in a kit family), ranked by
+the luminance of their albedo -- the rails take the darkest, the rungs the
+lightest, which is the reference's read (matte near-black frame, bright
+treads) and keeps the contrast the yellow existed to give; an exterior ladder
+(Deli Counter 0.173.0 names it `ladder<n>ext_`) takes the theme's rusted
+steel. A building with one tinted metal has no contrast to give and is said
+(`push_error`) rather than shipped worse than yellow.
+
+STAGED 2026-09-23 (`patches/patch_worldskin_ladders.py`, its test and the
+fixture's tint), held behind cold run 9072 and never applied until
+2026-10-04, when the walker asked where it went. Every anchor still matched.
+One test failed on first run, and on its expected numbers, not its picks: the
+pass prints the luminance of `albedo_color` as Godot 4.7's importer reports
+it, which is the sRGB encoding of the glTF's linear factor -- the dark rail
+reads 0.129, not the 0.015 the staged test wrote. The encoding preserves
+order, so the rail and the rung it picked were right; `LADDER_TINTLESS`
+(0.95) still separates as written (the brightest tinted metal, 0.789 linear,
+reads about 0.90), and it is also what keeps Zoo's vertex-coloured props --
+white albedo, their colour in COLOR_0 -- out of the ranking.
+
+`tests/unit/test_worldskin_ladders.py` (10, through a real Godot import):
+the rail takes the darkest metal and the rung the lightest; an exterior
+ladder takes the rust; interior and exterior in one base told apart; the
+climb-face collider is not skinned; no ladder is a no-op that says which; one
+tinted metal refuses; no rusted skin says so. `test_worldskin_crt_motion`'s
+list of passes allowed to replace a material gains `_assign_ladders`.
+
 ## [0.135.0] - one building line a street
 
 Step 3 of `docs/proposals/LAND_USE_DESIGN.md` (the land-pressure guide's
