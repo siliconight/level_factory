@@ -1,3 +1,16 @@
+## [0.133.0] - the service pad wears the theme's concrete
+
+Lot 0.93.0 draws a concrete pad (`yard`) under each dumpster -- step 4 of
+`docs/proposals/LAND_USE_DESIGN.md`, open land given a role -- and skins it
+from the site spec's `ground_skins["yard"]`. `GROUND_SKIN_KINDS` names that
+pack: `yard -> concrete`, the kind a courtyard already wears, which every
+theme that skins a courtyard already builds (`concrete_delco_1997` is in
+cold run 9140's Pixelcoat output). A theme without it is said by Lot
+(`LOT_GROUND_SKIN_MISSING`) and the pad ships in its greybox colour.
+
+`tests/unit/test_ground_skins_in_site_spec.py`: the constructed directories
+include the yard's.
+
 ## [0.132.0] - a building faces the street with its front door
 
 Step 2 of `docs/proposals/LAND_USE_DESIGN.md` (the walker's land-use

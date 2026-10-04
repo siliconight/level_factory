@@ -1135,7 +1135,9 @@ def _write_dispatch_spec(ws: Workspace, model: MissionBrief,
 GROUND_SKIN_KINDS = {"ground": "asphalt", "path": "sidewalk", "courtyard": "concrete",
                      "road": "asphalt", "sidewalk": "sidewalk",
                      # the markings' decal: road paint, cutout where worn
-                     "paint": "road_paint"}
+                     "paint": "road_paint",
+                     # the service pad under a dumpster (Lot 0.93.0)
+                     "yard": "concrete"}
 
 
 #: THE STREET'S DIMENSIONS NOW LIVE IN `packages.pipeline.road_grammar`,
