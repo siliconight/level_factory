@@ -114,6 +114,11 @@ def _south_face(buildings, footprints):
         ext_x, ext_y = (d, w) if turned else (w, d)
         x = float(b["at"][0])
         face = float(b["at"][1]) - float(ext_y) / 2.0
+        # its real street edge when it was stood on the line (0.135.0):
+        # a canopy reaches further than half a symmetric footprint says,
+        # and an off-centre shell less
+        if b.get("street_reach") is not None:
+            face = float(b["at"][1]) - float(b["street_reach"])
         faces.append((b.get("id"), x, face))
         edges.append((x - float(ext_x) / 2.0, x + float(ext_x) / 2.0))
         south = face if south is None else min(south, face)

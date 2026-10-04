@@ -1481,9 +1481,12 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         # each building's front door, read off its own gameplay (0.132.0)
         from packages.pipeline import front_door as _fd
         front_of = [_fd.front_wall_of(e["gameplay"]) for e in lot]
+        # each building's street edge, per side (0.135.0)
+        from packages.pipeline import street_line as _sl
         placed = site_placements(seed, len(lot), footprints=footprints,
                                  shape=model.site_shape,
-                                 fronts=[_fd.facing_yaw(w) for w, _r in front_of])
+                                 fronts=[_fd.facing_yaw(w) for w, _r in front_of],
+                                 extents=[_sl.shell_extents(e["glb"]) for e in lot])
         # `scene` when this archetype has been composed, `glb` otherwise --
         # never both, same rule as the single-shell path. A lot part-way
         # through the art pass therefore stands its themed buildings themed and
@@ -1506,11 +1509,14 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
             {"id": f"b{i}", **_source(e), "gameplay": e["gameplay"],
              "archetype": e["id"],
              "at": p["at"], "rot": p["rot"],
-             "front": {"wall": fw[0], "reason": fw[1]}}
+             "front": {"wall": fw[0], "reason": fw[1]},
+             **({"street_reach": p["street_reach"]} if "street_reach" in p else {})}
             for i, (e, p, fw) in enumerate(zip(lot, placed["buildings"], front_of))
         ]
-        span_x, span_y = ground_size(len(lot), footprints=footprints,
-                                     shape=model.site_shape)
+        span_x, span_y = ground_size(
+            len(lot), footprints=footprints, shape=model.site_shape,
+            ys=([p["at"][1] for p in placed["buildings"]]
+                if any("street_reach" in p for p in placed["buildings"]) else None))
         fp_list = list(footprints)
         footprint = None            # the row is measured per building now
     else:
@@ -1524,8 +1530,10 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         spacing = row_spacing(footprint)
         from packages.pipeline import front_door as _fd
         shell_front = _fd.front_wall_of(gameplay)
+        from packages.pipeline import street_line as _sl
         placed = site_placements(seed, count, spacing=spacing,
-                                 fronts=[_fd.facing_yaw(shell_front[0])] * count)
+                                 fronts=[_fd.facing_yaw(shell_front[0])] * count,
+                                 extents=[_sl.shell_extents(glb)] * count)
         # `scene` when the themed building exists, `glb` otherwise -- never
         # both. Lot prefers `scene` and warns when a building carries both, and
         # the warn would fire once per building for no information: the choice
@@ -1543,11 +1551,15 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
             source = {"glb": "buildings/shell.glb"}
         buildings = [
             {"id": f"b{i}", **source, "gameplay": gameplay,
-             "at": p["at"], "rot": p["rot"]}
+             "at": p["at"], "rot": p["rot"],
+             **({"street_reach": p["street_reach"]} if "street_reach" in p else {})}
             for i, p in enumerate(placed["buildings"])
         ]
         # Size the plate from the shell that is going to stand on it.
-        span_x, span_y = ground_size(count, spacing=spacing, footprint=footprint)
+        span_x, span_y = ground_size(
+            count, spacing=spacing, footprint=footprint,
+            ys=([p["at"][1] for p in placed["buildings"]]
+                if any("street_reach" in p for p in placed["buildings"]) else None))
         fp_list = [footprint] * len(buildings)
     count = len(buildings)
     # THE STREET (roadmap 153). Every cold package to date carried `paths`

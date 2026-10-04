@@ -100,7 +100,8 @@ stream = _stream
 
 
 def site_placements(seed: int, count: int, *, spacing: int = 45,
-                    footprints=None, shape=None, fronts=None) -> dict:
+                    footprints=None, shape=None, fronts=None,
+                    extents=None) -> dict:
     """Deterministic placement + role assignment for one candidate's buildings.
 
     Returns ``{"buildings": [{"at": [x, y], "rot": deg}, ...], "spawn": id,
@@ -144,6 +145,21 @@ def site_placements(seed: int, count: int, *, spacing: int = 45,
         base = offsets[i] if offsets else (i * spacing - origin, 0)
         buildings.append({"at": [base[0] + along, base[1] + across],
                           "rot": rot})
+
+    # ONE BUILDING LINE A STREET (0.135.0): on a row, every building's
+    # street edge -- the furthest its solids reach toward the through
+    # road once turned (`street_line.south_reach`) -- stands on one line,
+    # in place of the across draw above, which is still made so no other
+    # number a seed gives moves. A shape that turns keeps its stagger: its
+    # arms front different streets, and one line is not one street there.
+    if extents is not None and shape_of(shape) == "row":
+        from . import street_line
+        reaches = [street_line.south_reach(extents[i] if i < len(extents) else None, b["rot"])
+                   for i, b in enumerate(buildings)]
+        for b, y, r in zip(buildings, street_line.line_ys(reaches), reaches):
+            if y is not None:
+                b["at"][1] = y
+                b["street_reach"] = r
 
     # Roles: which building you start at, which one holds the objective, which
     # one you leave from. On a one-building site all three collapse onto it,
@@ -482,7 +498,7 @@ def row_spacing(footprint: tuple[float, float] | None = None,
 
 def ground_size(count: int, *, spacing: int = 45,
                 footprint: tuple[float, float] | None = None,
-                footprints=None, shape=None) -> tuple[int, int]:
+                footprints=None, shape=None, ys=None) -> tuple[int, int]:
     """Ground plate big enough for the whole placed row, whatever seed placed it.
 
     Sized from the shells rather than from the count, and bounded over every
@@ -515,10 +531,16 @@ def ground_size(count: int, *, spacing: int = 45,
         reaches = [_reach(f) for f in footprints]
         half_x = max(abs(o[0]) + _slack(0) + r for o, r in zip(offs, reaches))
         half_y = max(abs(o[1]) + _slack(1) + r for o, r in zip(offs, reaches))
+        if ys is not None:
+            # a row stood on one street line (0.135.0): its origins are
+            # where they are, not anywhere the stagger could have put them
+            half_y = max(abs(float(y)) + r for y, r in zip(ys, reaches))
     else:
         reach = _reach(footprint)
         half_x = (count - 1) * spacing / 2.0 + slack + reach
         half_y = max(abs(v) for v in _ACROSS) + reach
+        if ys is not None:
+            half_y = max(abs(float(y)) for y in ys) + reach
     return (int(math.ceil(2.0 * (half_x + CLEARANCE))),
             int(math.ceil(2.0 * (half_y + CLEARANCE))))
 
