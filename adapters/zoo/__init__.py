@@ -695,4 +695,26 @@ class ZooAdapter(BaseAdapter):
                                 f"review skins/theme coverage."),
                     "blocking": False, "raw_source_path": str(p),
                 })
+            # TWO GEOMETRIES UNDER ONE NAME (0.139.0, Zoo >= 1.62.0 writes
+            # them). Not a partial build: nothing falls back -- whichever
+            # module built last stands in every slot of both. Cold run 9148
+            # stood its Empties' 2.8 m walls in 3.1 m slots with Zoo's warning
+            # in six kit logs and exit 2 read here as "usable". So it blocks.
+            # An index from before 1.62.0 has no key, and absence is silent.
+            coll = man.get("stem_collisions")
+            if isinstance(coll, list) and coll:
+                issues.append({
+                    "code": "ZOO_STEM_COLLISION",
+                    "severity": "blocker", "category": "art_coverage",
+                    "message": (f"{len(coll)} module name(s) planned for two "
+                                f"geometries each: "
+                                f"{', '.join(str(c.get('stem')) for c in coll)}; "
+                                f"the last built stands in every slot of both"),
+                    "suggested_fix": ("Deli Counter marks a name that covers two "
+                                      "heights (`fit.key_height`, 0.176.0); a "
+                                      "collision on another axis needs that axis "
+                                      "in the name, on both sides "
+                                      "(`kit.module_stem` / `themed_tscn.module_stem`)"),
+                    "blocking": True, "raw_source_path": str(p),
+                })
         return issues
