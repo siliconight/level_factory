@@ -146,9 +146,10 @@ def main(argv=None) -> int:
                          "fragment against Pixelcoat's drop atlas, which this "
                          "generates and stages -- a drip measured without its "
                          "texture fetch is not a drip.")
-    ap.add_argument("--pixelcoat", type=Path,
-                    default=Path(__file__).resolve().parents[2] / "pixelcoat",
-                    help="pixelcoat repo, for the drop atlas")
+    ap.add_argument("--pixelcoat", type=Path, default=None,
+                    help="pixelcoat repo, for the drop atlas; unset, "
+                         "`drip_assets` searches for it (LF_PIXELCOAT_ROOT "
+                         "overrides)")
     ap.add_argument("--json", type=Path)
     args = ap.parse_args(argv)
 

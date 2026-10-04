@@ -15,6 +15,7 @@ about a different texture.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -34,8 +35,39 @@ SHADER = (Path(__file__).resolve().parents[1] / "assets" / "godot"
 NODE = (Path(__file__).resolve().parents[1] / "assets" / "godot"
         / "rain_drip.gd")
 
-#: Pixelcoat, guessed from the factory layout. Both callers can override.
-DEFAULT_PIXELCOAT = Path(__file__).resolve().parents[2] / "pixelcoat"
+#: The file `stage` imports out of Pixelcoat, relative to its repo: the marker
+#: that makes a directory called `pixelcoat` the repo rather than a name.
+PIXELCOAT_MARKER = "pixelcoat/core/droplets.py"
+#: Overrides the search (the name `tests/siblings.env_var` derives).
+PIXELCOAT_ENV = "LF_PIXELCOAT_ROOT"
+
+
+def pixelcoat_root() -> Path | None:
+    """The nearest `pixelcoat/` at or above this file carrying the marker.
+
+    SEARCHED, NOT COUNTED (0.138.1). This was `parents[2] / "pixelcoat"`: the
+    factory from a checkout beside its siblings, and `scratchpad` from a git
+    worktree, where there is no Pixelcoat -- the arithmetic `tests/siblings.py`
+    removed from the suite and `test_sibling_locator` refuses. Same rules as
+    `sibling_repo`, restated because a tool run as `python tools/x.py` cannot
+    import `tests`: the override takes the repo or the directory holding it,
+    and an override naming the wrong place answers None rather than falling
+    back to the walk.
+    """
+    env = os.environ.get(PIXELCOAT_ENV)
+    if env:
+        for root in (Path(env), Path(env) / "pixelcoat"):
+            if (root / PIXELCOAT_MARKER).is_file():
+                return root
+        return None
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "pixelcoat" / PIXELCOAT_MARKER).is_file():
+            return parent / "pixelcoat"
+    return None
+
+
+#: Pixelcoat as found, or None. Both callers can pass their own.
+DEFAULT_PIXELCOAT = pixelcoat_root()
 
 
 def stage(dest: Path, pixelcoat: Path | None = None,
@@ -49,6 +81,12 @@ def stage(dest: Path, pixelcoat: Path | None = None,
     """
     dest = Path(dest)
     pixelcoat = Path(pixelcoat) if pixelcoat else DEFAULT_PIXELCOAT
+    if pixelcoat is None:
+        raise SystemExit(
+            "the drip needs Pixelcoat and none was found: no pixelcoat/%s at "
+            "or above %s -- pass --pixelcoat or set %s. The atlas is "
+            "generated, never carried."
+            % (PIXELCOAT_MARKER, Path(__file__).resolve().parent, PIXELCOAT_ENV))
     if not SHADER.is_file():
         raise FileNotFoundError(
             "the drip shader is not at %s -- Level Factory's copy is the "
