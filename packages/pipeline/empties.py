@@ -75,6 +75,29 @@ def _blocked(roads, edge):
     return sorted(out)
 
 
+def _deal(usable, stream, avoid=None):
+    """Every design once, in an order shuffled off ``stream`` (Fisher-Yates),
+    dealt from the END of the list. If the first one dealt would be ``avoid``
+    -- the house just placed -- it trades places with the next, so no two
+    neighbours are the same house across two deals either.
+
+    WHY A DEAL (0.142.0). The terrace drew each house uniformly and turned
+    away only an immediate repeat. Cold run 9160 doubled the rowhomes to
+    twelve expecting a row to show each about twice, and its three
+    candidates' rows -- 25, 31 and 29 houses -- used 10, 12 and 10 of the
+    designs with the most-repeated shown 5, 6 and 5 times. The library's size
+    moved the mean; the spread is the draw's. Dealt, a row of n houses from k
+    designs shows each floor(n/k) or one more times, and every design by the
+    k-th house."""
+    bag = list(usable)
+    for i in range(len(bag) - 1, 0, -1):
+        j = next(stream) % (i + 1)
+        bag[i], bag[j] = bag[j], bag[i]
+    if avoid is not None and len(bag) > 1 and bag[-1]["id"] == avoid:
+        bag[-1], bag[-2] = bag[-2], bag[-1]
+    return bag
+
+
 def terrace(rows, extents, stream, roads, span_x):
     """The Empties of one site: a list of ``{"id", "archetype", "at", "rot",
     "size_x", "size_y", "front"}`` (plan metres; ``front`` the y of the
@@ -93,10 +116,15 @@ def terrace(rows, extents, stream, roads, span_x):
     out, prev, in_run = [], None, 0
     run_len = RUN[0] + next(stream) % (RUN[1] - RUN[0] + 1)
     need = 0.0
+    bag: list = []
     while True:
-        pick = usable[next(stream) % len(usable)]
-        if prev is not None and pick["id"] == prev and len(usable) > 1:
-            pick = usable[(usable.index(pick) + 1) % len(usable)]
+        # A DEAL, NOT A DRAW (0.142.0): the next house off a shuffled bag of
+        # every design, refilled when empty (`_deal`). A pick a road turns
+        # away stays on the bag for the far side of it; only a house that is
+        # placed is dealt.
+        if not bag:
+            bag = _deal(usable, stream, prev)
+        pick = bag[-1]
         tx0, tx1, ty0, ty1 = _turned(extents[pick["id"]], 180)
         width = tx1 - tx0
         if x + width > x_end:
@@ -112,6 +140,7 @@ def terrace(rows, extents, stream, roads, span_x):
                     "size_x": round(width, 3), "size_y": round(ty1 - ty0, 3),
                     "front": round(at_y + ty1, 3)})
         need = max(need, -(at_y + ty0))
+        bag.pop()
         prev = pick["id"]
         x += width
         in_run += 1
