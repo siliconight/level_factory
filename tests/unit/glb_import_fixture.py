@@ -50,7 +50,7 @@ def _pad(buf: bytearray, to: int = 4) -> None:
         buf.append(0)
 
 
-def build_glb(meshes, materials=()) -> bytes:
+def build_glb(meshes, materials=(), spread_uv=False) -> bytes:
     """``meshes`` is ``[(node_name, material_index_or_None)]``.
 
     ``materials`` is ``[(material_name, textured)]`` or
@@ -76,7 +76,11 @@ def build_glb(meshes, materials=()) -> bytes:
 
     pos = b"".join(struct.pack("<3f", *c) for c in _CORNERS)
     nrm = b"".join(struct.pack("<3f", *_NORMAL) for _ in _CORNERS)
-    uvs = b"".join(struct.pack("<2f", *_UV) for _ in _CORNERS)
+    # `spread_uv` (0.140.0): UVs that follow x and y, so `_uv_density` reads
+    # 1 texel-unit a metre and `_apply`'s world projection is exercised. Off,
+    # every corner shares one UV and every fixture written before is unchanged.
+    uvs = b"".join(struct.pack("<2f", *((c[0] + 0.5, c[1] + 0.5) if spread_uv else _UV))
+                   for c in _CORNERS)
     idx = b"".join(struct.pack("<H", i) for i in _TRIS)
     v_pos, v_nrm, v_uv, v_idx = view(pos), view(nrm), view(uvs), view(idx)
     accessors.append({"bufferView": v_pos, "componentType": 5126, "count": 8,
@@ -137,7 +141,7 @@ def build_glb(meshes, materials=()) -> bytes:
     return struct.pack("<III", _GLB_MAGIC, 2, 12 + len(chunks)) + chunks
 
 
-def write_glb(path, meshes, materials=()):
+def write_glb(path, meshes, materials=(), spread_uv=False):
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(build_glb(meshes, materials))
+    path.write_bytes(build_glb(meshes, materials, spread_uv=spread_uv))
     return path

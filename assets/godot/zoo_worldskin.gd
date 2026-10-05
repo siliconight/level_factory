@@ -35,6 +35,16 @@ extends EditorScenePostImport
 const KIT_PREFIXES: Array = ["wall_", "wallEnd_", "window_", "doorway_",
 	"breach_"]
 
+## A LIT FACE IS ARTWORK MAPPED BY ITS UVs (0.140.0). A material named with
+## one of these suffixes -- Lux's emissive-binder contract, the same list as
+## `lux_emissive_binder.gd` SUFFIXES -- is never world-projected by `_apply`.
+## Every kit material was a tiling skin until Zoo 1.64.0 painted the Empties'
+## window panes into one atlas whose cell is picked by the pane's UVs; world
+## projection threw those UVs away, and cold run 9152 showed every pane as
+## flat frame-paint beige with no glow, its material imported with
+## `uv1_world_triplanar true` (`patches/lf_empties/pane_census.gd`).
+const LIT_FACE_SUFFIXES: Array = ["_Lens", "_Diffuser", "_Face"]
+
 ## The greybox base the composer keeps whole (floors, collision, STAIRS).
 ## Its stairs are Deli Counter's `stair<n>_*` boxes in the flat `gb_stair`
 ## material -- "the stairs ship in the greybox's fallback yellow", walked on
@@ -863,8 +873,8 @@ func _post_import(scene: Node) -> Object:
 	var counts: Array = _apply(scene, seen)
 	changed = counts[0]
 	no_density = counts[1]
-	print("[worldskin] %s  %d material(s) world-projected, %d without a UV density"
-		% [base, changed, no_density])
+	print("[worldskin] %s  %d material(s) world-projected, %d without a UV density, %d lit face(s) left on their own UVs"
+		% [base, changed, no_density, int(counts[2])])
 	return scene
 
 
@@ -1353,9 +1363,20 @@ func _is_tiled(base: String) -> bool:
 	return false
 
 
+func _is_lit_face(bm: BaseMaterial3D) -> bool:
+	var nm: String = String(bm.resource_name)
+	if not nm.begins_with("M_"):
+		return false
+	for s in LIT_FACE_SUFFIXES:
+		if nm.ends_with(String(s)):
+			return true
+	return false
+
+
 func _apply(n: Node, seen: Dictionary) -> Array:
 	var changed: int = 0
 	var no_density: int = 0
+	var lit_faces: int = 0
 	var mi: MeshInstance3D = n as MeshInstance3D
 	if mi != null and mi.mesh != null:
 		var mesh: Mesh = mi.mesh
@@ -1370,6 +1391,10 @@ func _apply(n: Node, seen: Dictionary) -> Array:
 			if seen.has(key):
 				continue
 			seen[key] = true
+			# a lit face's picture IS its UVs: left alone, and counted
+			if _is_lit_face(bm):
+				lit_faces += 1
+				continue
 			var density: float = _uv_density(mesh, i)
 			if density <= 0.0:
 				no_density += 1
@@ -1391,7 +1416,8 @@ func _apply(n: Node, seen: Dictionary) -> Array:
 		var sub: Array = _apply(c, seen)
 		changed += int(sub[0])
 		no_density += int(sub[1])
-	return [changed, no_density]
+		lit_faces += int(sub[2])
+	return [changed, no_density, lit_faces]
 
 
 ## Texels per metre, read off the surface's own vertices and UVs.
