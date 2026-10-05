@@ -48,6 +48,9 @@ EXIT_FINDINGS = 1
 #: the probe listed).
 OVER_PRINT = 5
 EXIT_CANNOT = 2
+#: A heading whose passes' p95 differ by more than this, ms, hitched in one
+#: of them (0.141.0). Printed, never judged: the lower pass is already kept.
+UNSTABLE_MS = 1.0
 
 #: `docs/DRAW_CALL_BUDGET.md`. Provisional, derived, and meant to be replaced
 #: by an exported-build measurement on a low-end GL Compatibility machine.
@@ -259,6 +262,29 @@ def main(argv=None) -> int:
         return EXIT_CANNOT
 
     over = _table(rows, args.draws, args.ms)
+
+    # HOW MANY HEADINGS' PASSES DISAGREE (0.141.0). The probe measures every
+    # heading more than once and keeps the pass with the lower p95; a heading
+    # whose passes differ by more than UNSTABLE_MS hitched in one of them,
+    # which the kept pass has already discounted. Said, so a reader can see
+    # the minimum did work -- and whether a heading DREW differently between
+    # passes, which would mean the passes did not see the same frame. A
+    # report from before passes existed carries neither, and says so.
+    heads = [h for r in rows for h in (r.get("headings") or [])
+             if "pass_spread_ms" in h]
+    print()
+    if heads:
+        spreads = [float(h["pass_spread_ms"]) for h in heads]
+        redrawn = sum(1 for h in heads
+                      if len({int(p["draws"]) for p in h.get("passes") or []}) > 1)
+        print("  passes: %s per heading, the lower p95 kept; %d of %d heading(s) "
+              "differed by more than %.1f ms p95 (largest %.2f ms); %d drew a "
+              "different count"
+              % ((doc.get("geometry") or {}).get("passes", "?"),
+                 sum(1 for d in spreads if d > UNSTABLE_MS), len(heads),
+                 UNSTABLE_MS, max(spreads), redrawn))
+    else:
+        print("  passes: one per heading (a report from before 0.141.0)")
 
     census = rows[0].get("light_census") or {}
     if census:

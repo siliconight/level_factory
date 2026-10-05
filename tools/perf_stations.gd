@@ -72,6 +72,16 @@ const W := 1280
 const H := 720
 const WARMUP := 30        ## frames discarded at each sample before measuring
 const WINDOW := 60        ## frames measured per sample
+## EVERY HEADING, MORE THAN ONCE (0.141.0). The whole station set is measured
+## this many times, back to back, and each heading keeps the pass with the
+## LOWER p95 -- the figure a station is ranked and budgeted by. A hitch -- a
+## stall in the OS, the driver, a late shader -- only ever adds time, so the
+## minimum of repeated measurements is the estimate, and a pass apart in time
+## is unlikely to hitch at the same heading. Four price runs on 2026-10-05
+## each had a heading jump 1-4 ms in one of three runs with no draw changed,
+## and every one had to be argued away by hand. One pass took 52 s start to
+## report on cold run 9159's package, so two sit well inside WATCHDOG_SEC.
+const PASSES := 2
 ## HOW MANY STATIONS. The first run took 29 x 4 x 210 = 24,360 frames
 ## and hit the watchdog. Capped, and spread ACROSS anchor types rather
 ## than truncated, so the sample stays representative instead of
@@ -559,18 +569,55 @@ func _run() -> void:
 	print("[perf] warmed %d station(s); worst frame while warming %.1f ms"
 		% [stations.size(), cold_worst])
 	_geometry["cold_worst_ms"] = cold_worst
-	print("[perf] %d station(s) x %d heading(s), %d frames each after %d warmup"
-		% [stations.size(), HEADINGS, WINDOW, WARMUP])
-	for s in stations:
+	print("[perf] %d station(s) x %d heading(s) x %d pass(es), %d frames each after %d warmup"
+		% [stations.size(), HEADINGS, PASSES, WINDOW, WARMUP])
+	_geometry["passes"] = PASSES
+	# every station's headings, fixed once: a derived station may carry the
+	# ONE heading that defines it
+	var station_yaws: Array = []
+	for s0 in stations:
+		var yaws0: Array = [float(s0["yaw"])] if s0.has("yaw") else []
+		if yaws0.is_empty():
+			for h in range(HEADINGS):
+				yaws0.append(360.0 * float(h) / float(HEADINGS))
+		station_yaws.append(yaws0)
+	# THE WHOLE SET, PASSES TIMES (0.141.0): samples[station][heading] is the
+	# list of that heading's passes, a full pass apart in time
+	var samples: Array = []
+	for si in range(stations.size()):
+		var lists: Array = []
+		for _y in station_yaws[si]:
+			lists.append([])
+		samples.append(lists)
+	for _pass in range(PASSES):
+		for si in range(stations.size()):
+			var sp: Dictionary = stations[si]
+			var eye_p: Vector3 = (sp["pos"] as Vector3) + Vector3.UP * EYE_H
+			var yaws_p: Array = station_yaws[si]
+			for hi in range(yaws_p.size()):
+				var smp: Dictionary = await _sample(cam, eye_p, float(yaws_p[hi]))
+				(samples[si][hi] as Array).append(smp)
+	for si in range(stations.size()):
+		var s: Dictionary = stations[si]
 		var eye: Vector3 = (s["pos"] as Vector3) + Vector3.UP * EYE_H
 		var per: Array = []
-		# a derived station may carry the ONE heading that defines it
-		var yaws: Array = [float(s["yaw"])] if s.has("yaw") else []
-		if yaws.is_empty():
-			for h in range(HEADINGS):
-				yaws.append(360.0 * float(h) / float(HEADINGS))
-		for yaw in yaws:
-			per.append(await _sample(cam, eye, yaw))
+		var yaws: Array = station_yaws[si]
+		for hi in range(yaws.size()):
+			# THE LOWER-p95 PASS IS THE HEADING, every field from that one
+			# pass so its draws and frame times describe one measurement; the
+			# others are kept beside it, with the spread, so a hitch shows
+			var passes: Array = samples[si][hi]
+			passes.sort_custom(func(a, b): return float(a["ms_p95"]) < float(b["ms_p95"]))
+			var best: Dictionary = (passes[0] as Dictionary).duplicate()
+			var kept: Array = []
+			for p in passes:
+				var pd: Dictionary = p
+				kept.append({"ms_median": pd["ms_median"], "ms_p95": pd["ms_p95"],
+					"draws": pd["draws"]})
+			best["passes"] = kept
+			var slowest: Dictionary = passes[passes.size() - 1]
+			best["pass_spread_ms"] = float(slowest["ms_p95"]) - float(best["ms_p95"])
+			per.append(best)
 		# THE WORST HEADING IS THE STATION. A player looks where they like,
 		# and the median across headings hides the view that drops the frame.
 		per.sort_custom(func(a, b): return float(a["ms_p95"]) > float(b["ms_p95"]))
