@@ -157,6 +157,11 @@ class ExportOccluderError(RuntimeError):
     the occluders that shipped do not agree."""
 
 
+class ExportMergeError(RuntimeError):
+    """The Empties' merge ran and its report could not be believed (0.143.0,
+    roadmap 182): `packages/exporting/merge_empties.check` says which."""
+
+
 class ExportManifestError(RuntimeError):
     """`portable_resource_manifest.json` does not account for the package it
     ships in -- a file present and neither listed nor declared unlisted, a
@@ -1641,6 +1646,32 @@ def export_mission(
         print("[export] WARNING no occluders in this package: %s" % exc)
         print("[export]   occlusion culling stays OFF in project.godot; "
               "the package is consistent and buys nothing from the culler")
+
+    # THE EMPTIES, MERGED ONE MESH A SIDE PER MATERIAL (0.143.0, roadmap 182).
+    # After the occluder bake, whose boxes were measured on the modules and are
+    # world-space, so they stay true of the merged geometry; before the light
+    # bake, whose users are node paths -- the merged meshes are the users, and
+    # arrive unwrapped. Needs the import cache, as both do. Without a Godot the
+    # package keeps its per-module Empties: consistent, and merely slower.
+    # With one, a merge whose report cannot be believed fails the build, as
+    # the occluder bake does.
+    from packages.exporting.merge_empties import MergeError
+    from packages.exporting.merge_empties import merge as _merge_empties
+    if godot_executable:
+        try:
+            mreport = _merge_empties(export_dir, godot_executable)
+        except MergeError as exc:
+            drop_cache(export_dir)
+            raise ExportMergeError(
+                "the Empties' merge failed and this build had a Godot to run "
+                "it with: %s\n  report: %s" % (exc, export_dir / "merge_empties.json"))
+        rows = mreport.get("scenes") or []
+        if rows:
+            print("[export] Empties merged: %d scene(s), %d mesh(es) of %d surface(s) "
+                  "-> %d merged mesh(es), %d collider(s) kept"
+                  % (len(rows), sum(r["meshes_in"] for r in rows),
+                     sum(r["surfaces_in"] for r in rows),
+                     sum(r["merged"] for r in rows), sum(r["colliders"] for r in rows)))
 
     # THE LIGHT BAKE (0.131.0), opt-in. After the occluder bake, which leaves
     # the import cache this needs, and before the cache is dropped; it points
