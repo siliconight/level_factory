@@ -682,6 +682,19 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                     # load-bearing for the lighting contract, unlike kit
                     # module misses.
                 }
+                # THE DOOR WEARS THE BAND (0.148.0): the business this shell
+                # was dealt, as the pack its street band wears. Found by
+                # candidate, as the dressing branch finds its pixelcoat job.
+                pix_job = next(
+                    (j.job_id for j in plan.graph.topological_order()
+                     if j.adapter_id == "pixelcoat"
+                     and j.candidate_id == job.candidate_id), None)
+                if pix_job:
+                    door = _door_sign_pack(
+                        ws, model, job.candidate_id, entry["id"] if entry else None,
+                        _latest_output(jobs_dir / pix_job, "."))
+                    if door:
+                        specs[job.job_id]["sign_pack"] = door
             elif job.stage_id == "zoo_dressing_build":
                 dress_job = _dep(job, "patina_dressing",
                                  getattr(job, "archetype_id", None))
@@ -1266,10 +1279,14 @@ SIGN_FAMILIES = (
     # would wrongly claim: a strip club is not `strip` retail (its neon and
     # door name it), a parking garage is not an `auto` repair shop.
     ("strip_club", "none"), ("parking", "none"),
+    # Zoo's door kinds (0.148.0), each its own family so a band can be dealt
+    # the names its door is painted with: a card shop and a video store
+    # before `shop` and `store` read them as retail
+    ("card", "card"), ("video", "video"),
     ("bank", "bank"), ("credit_union", "bank"), ("pawn", "pawn"),
     ("deli", "deli"), ("diner", "restaurant"), ("restaurant", "restaurant"),
-    ("cheesesteak", "deli"), ("pizza", "restaurant"),
-    ("brewery", "liquor"), ("distillery", "liquor"), ("bar", "bar"),
+    ("cheesesteak", "deli"), ("pizza", "pizza"),
+    ("brewery", "brewery"), ("distillery", "liquor"), ("bar", "bar"),
     ("supermarket", "supermarket"), ("market", "supermarket"),
     ("grocery", "supermarket"),
     ("gas_station", "gas_station"), ("gas", "gas_station"),
@@ -1286,7 +1303,7 @@ SIGN_FAMILIES = (
     ("factory", "industrial"), ("industrial", "industrial"),
     ("mill", "industrial"),
     ("retail", "retail"), ("strip", "retail"), ("shop", "retail"),
-    ("store", "retail"), ("pharmacy", "retail"), ("laundr", "retail"),
+    ("store", "retail"), ("pharmacy", "pharmacy"), ("laundr", "retail"),
 )
 #: The families that deal no band (0.147.0): a building of no shop family,
 #: and one stopped on purpose. Until 0.147.0 `default` dealt GOOSE MART,
@@ -1351,15 +1368,28 @@ def _sign_rows(buildings, archetype) -> list:
             for b in buildings]
 
 
-def _signs_for(ws, buildings, pixelcoat_out: Path, theme: str) -> dict[str, str]:
-    """Which sign each building wears: `{building id: pack directory}`.
+def _shell_key(row) -> str:
+    """The shell a site row stands: its archetype, or its id."""
+    return str(row.get("archetype") or row.get("id") or "")
 
-    A building takes a business of its own family, chosen by a stable hash
-    of its archetype and its place in the row, and no two buildings on one
-    street take the same one while the family has another to give -- a
-    strip with two GOOSE MARTs reads as a mistake, which it is. A building
-    whose family the theme has nothing for takes a `default`; a theme with
-    no signs profile gives nobody one, and Lot draws no band.
+
+def sign_pack_dir(pixelcoat_out, slug: str) -> str:
+    """Where Pixelcoat's theme build writes the pack for business ``slug``."""
+    return str(Path(pixelcoat_out) / "signs" / f"sign_{slug}")
+
+
+def deal_signs(ws, buildings, theme: str) -> dict[str, str]:
+    """Which business each SHELL is: `{shell: sign slug}` (0.148.0).
+
+    One business a shell, not a row. Zoo builds a shell's door box once and
+    every instance of it wears that box, so the band (Lot) and the door (Zoo)
+    can only name one business if the shell is what is dealt -- the walker's
+    option A, 2026-10-06: one name list on both signs. A shell takes a
+    business of its own family, by a stable hash of the shell, and no two
+    shells on one street take the same one while the family has another to
+    give -- a strip with two JAWN'S HOAGIES reads as a mistake. A shell of no
+    shop family takes none (0.147.0); a theme with no signs profile deals
+    nobody, and Lot draws no band.
     """
     profile = _sign_profile(ws, theme)
     if not profile:
@@ -1372,8 +1402,11 @@ def _signs_for(ws, buildings, pixelcoat_out: Path, theme: str) -> dict[str, str]
     # 0.58.0), a generated gas station standing alone was dealt the board in
     # place of its brand. An entry with no text is never dealt.
     named = [s for s in profile if s.get("text")]
-    for i, b in enumerate(buildings):
-        family = sign_family(b.get("archetype") or b.get("id"))
+    for b in buildings:
+        key = _shell_key(b)
+        if key in out:
+            continue                          # one business a shell
+        family = sign_family(key)
         if family in NO_BAND:
             continue
         # A family the theme names no shop for stands with no band, rather
@@ -1382,7 +1415,7 @@ def _signs_for(ws, buildings, pixelcoat_out: Path, theme: str) -> dict[str, str]
         if not pool:
             continue
         h = 2166136261
-        for ch in f"{b.get('archetype', '')}:{i}":
+        for ch in key:
             h = ((h ^ ord(ch)) * 16777619) & 0xFFFFFFFF
         start = h % len(pool)
         pick = None
@@ -1393,8 +1426,38 @@ def _signs_for(ws, buildings, pixelcoat_out: Path, theme: str) -> dict[str, str]
                 break
         pick = pick or pool[start]
         taken.add(pick["slug"])
-        out[b["id"]] = str(Path(pixelcoat_out) / "signs" / f"sign_{pick['slug']}")
+        out[key] = pick["slug"]
     return out
+
+
+def _signs_for(ws, buildings, pixelcoat_out: Path, theme: str) -> dict[str, str]:
+    """Which sign each building wears: `{building id: pack directory}` -- its
+    shell's business (`deal_signs`, 0.148.0)."""
+    deal = deal_signs(ws, buildings, theme)
+    return {b["id"]: sign_pack_dir(pixelcoat_out, deal[_shell_key(b)])
+            for b in buildings if _shell_key(b) in deal}
+
+
+def _door_sign_pack(ws, model, candidate_id, shell_id, pixelcoat_out) -> str:
+    """The pack a fixtures job's door box wears (0.148.0, option A): the
+    business `deal_signs` dealt its shell on the candidate's street, or ""
+    when it was dealt none. Read off the candidate's judged site spec, whose
+    buildings the themed site stands unchanged, through the same `_sign_rows`
+    the site spec's own deal reads -- so the band and the door are one deal.
+    ``shell_id`` is the library shell, or None for the brief's generated one,
+    which reads as the preset it was built from."""
+    seed = int(str(candidate_id).rsplit("_", 1)[-1])
+    site = (ws.internal_dir / "temp" / model.mission_id
+            / f"candidate_seed_{seed}" / "site.json")
+    if not site.is_file():
+        print(f"[fixtures] no site spec at {site}: the door box of "
+              f"{shell_id or 'the generated shell'} is named by Zoo, not dealt")
+        return ""
+    rows = _sign_rows(json.loads(site.read_text(encoding="utf-8")).get("buildings") or [],
+                      model.archetype)
+    key = shell_id or _sign_rows([{"id": "_"}], model.archetype)[0]["archetype"]
+    slug = deal_signs(ws, rows, model.theme).get(key)
+    return sign_pack_dir(pixelcoat_out, slug) if slug else ""
 
 
 def _ground_skins_for(pixelcoat_out: Path, theme: str) -> dict[str, str]:

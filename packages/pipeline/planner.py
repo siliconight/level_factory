@@ -622,7 +622,9 @@ def plan_mission(
                 stage_id=_STAGE_ZOO_FIXTURES, adapter_id="zoo",
                 candidate_id=selected_candidate, archetype_id=aid,
                 resource_class="blender",
-                depends_on=[deli_sel_jid],
+                # 0.148.0: and the Pixelcoat build, whose sign pack the door
+                # box now wears (the band's business, one name on both)
+                depends_on=[deli_sel_jid, pixelcoat_jid],
                 expected_outputs=[],  # zoo names by scope_id at exec; adapter checks
             ))
             # The gate follows the bake. One gate over five bakes would either

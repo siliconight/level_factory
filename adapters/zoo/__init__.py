@@ -315,6 +315,10 @@ class ZooAdapter(BaseAdapter):
             if job_spec.get("fixture_types"):
                 zoo_args += ["--fixture-types",
                              *[str(t) for t in job_spec["fixture_types"]]]
+            # the business the shell's band was dealt (0.148.0): its door box
+            # wears the same pack (Zoo 1.79.0)
+            if job_spec.get("sign_pack"):
+                zoo_args += ["--sign-pack", str(job_spec["sign_pack"])]
             scope = _scope(job_spec.get("lights_path")) or "scene"
             expected = (f"{scope}_fixtures.built.json",)
             args = ["--background", "--python", cli, "--", *zoo_args]

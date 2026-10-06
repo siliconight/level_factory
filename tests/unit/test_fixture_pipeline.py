@@ -60,6 +60,33 @@ def test_zoo_fixtures_mode_plans_blender_invocation(tmp_path):
     assert cmds[0].resource_class == "blender"
 
 
+def test_the_fixtures_build_waits_for_the_sign_pack_it_wears():
+    """0.148.0: a door box wears its band's Pixelcoat pack, so the bake
+    depends on the Pixelcoat build that makes it."""
+    brief = _Brief()
+    p1 = plan_mission(brief, seed_base=7, layers={planner_mod.LAYER_ART})
+    plan = plan_mission(brief, seed_base=7, layers={planner_mod.LAYER_ART},
+                        selected_candidate=_selected(p1))
+    stages = {j.stage_id: j for j in plan.graph.jobs()}
+    assert stages["pixelcoat_build"].job_id in stages["zoo_fixtures_build"].depends_on
+
+
+def test_zoo_fixtures_mode_passes_the_door_its_pack(tmp_path):
+    """0.148.0: `sign_pack` reaches Zoo as `--sign-pack` (Zoo 1.79.0)."""
+    lights = tmp_path / "shell.lights.json"
+    lights.write_text(json.dumps({
+        "light_manifest_version": "1.1", "building_id": "lf_m1",
+        "anchors": [{"id": "a", "type": "sign", "pos": [0, 0, 3]}]}))
+    pack = str(tmp_path / "signs" / "sign_jawns_hoagies")
+    spec = {"mode": "fixtures", "lights_path": str(lights), "theme": "delco",
+            "sign_pack": pack}
+    cmds = ZooAdapter().plan_commands(spec, {
+        "repository": str(tmp_path), "work_dir": str(tmp_path / "work"),
+        "blender_executable": "blender"})
+    args = list(cmds[0].arguments)
+    assert args[args.index("--sign-pack") + 1] == pack
+
+
 def test_zoo_fixtures_marker_contract_blocks(tmp_path):
     ad = ZooAdapter()
     pre = tmp_path / "x_fixtures.built.json"

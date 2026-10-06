@@ -95,6 +95,51 @@ _NOT_SHOPS = (
 )
 
 
+def test_a_shell_is_dealt_one_business_wherever_it_stands():
+    """0.148.0: Zoo builds a shell's door box once, so every instance of the
+    shell must wear one band; two shells still never repeat."""
+    ws = _Workspace()
+    rows = [{"id": "b0", "archetype": "deli_a01"}, {"id": "b1", "archetype": "bank_tower_a03"},
+            {"id": "b2", "archetype": "deli_a01"}, {"id": "b3", "archetype": "deli_a02"}]
+    signs = cmds._signs_for(ws, rows, Path("/px/out"), "delco_1997")
+    assert signs["b0"] == signs["b2"]
+    assert signs["b0"] != signs["b3"]               # another deli shell, another name
+    deal = cmds.deal_signs(ws, rows, "delco_1997")
+    assert set(deal) == {"deli_a01", "bank_tower_a03", "deli_a02"}
+
+
+def test_zoos_door_kinds_are_families_of_their_own():
+    """0.148.0: so a band can be dealt the names its door is painted with
+    (Pixelcoat 0.61.0 holds each family to Zoo's list)."""
+    for shell, family in (("card_shop_a01", "card"), ("video_store_a01", "video"),
+                          ("pharmacy_a01", "pharmacy"), ("primos_pizza", "pizza"),
+                          ("brewery_a01", "brewery"), ("deli_a01", "deli"),
+                          ("bank_branch_a02", "bank"), ("pawn_shop_a01", "pawn"),
+                          ("supermarket_a01", "supermarket")):
+        assert cmds.sign_family(shell) == family, shell
+
+
+def test_a_door_wears_its_shells_band(tmp_path):
+    """0.148.0: the fixtures job's pack is the deal the site spec's band
+    reads -- library shells by id, the generated one by its preset."""
+    ws = _Workspace(internal_dir=tmp_path / "internal")
+    model = SimpleNamespace(mission_id="m", archetype="corner_deli", theme="delco_1997")
+    site = tmp_path / "internal" / "temp" / "m" / "candidate_seed_9181" / "site.json"
+    site.parent.mkdir(parents=True)
+    rows = [{"id": "b0", "archetype": "deli_a01"}, {"id": "b1", "archetype": "casino_a02"}]
+    site.write_text(json.dumps({"buildings": rows}), encoding="utf-8")
+    band = cmds._signs_for(ws, rows, Path("/px/out"), "delco_1997")
+    door = cmds._door_sign_pack(ws, model, "m.candidate.seed_9181", "deli_a01", Path("/px/out"))
+    assert door == band["b0"] and door.endswith("sign_" + cmds.deal_signs(ws, rows, "delco_1997")["deli_a01"])
+    assert cmds._door_sign_pack(ws, model, "m.candidate.seed_9181", "casino_a02", Path("/px/out")) == ""
+    # the brief's own generated shell: rows with no archetype, read as the preset
+    site.write_text(json.dumps({"buildings": [{"id": "b0"}]}), encoding="utf-8")
+    gen = cmds._door_sign_pack(ws, model, "m.candidate.seed_9181", None, Path("/px/out"))
+    assert gen and "sign_" in gen
+    # no site spec: said, and Zoo names the door
+    assert cmds._door_sign_pack(ws, model, "m.candidate.seed_1", "deli_a01", Path("/px/out")) == ""
+
+
 def test_a_band_names_a_shop():
     """0.147.0. Until it, a police station was dealt STATE WINE + SPIRITS
     (`civic` meant state-run commerce in Pixelcoat), the county hospital

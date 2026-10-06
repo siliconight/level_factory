@@ -1,3 +1,55 @@
+## [0.148.0] - One business a shell, on its band and over its door
+
+**The walker, 2026-10-06, option A** on the factory root's
+`docs/findings/two_names_one_building/`: "Agreed". One name list on both of a
+building's signs, the door box's.
+
+**Dealt per shell, not per row.**
+- Zoo builds a shell's fixtures once, and every instance of the shell wears
+  that one door box. A band dealt per row could therefore give two
+  instances of one shell two names over the one name on their door.
+- `deal_signs` deals each distinct shell one business, by a stable hash of
+  the shell. A shell is a row's archetype, or for a generated building the
+  preset it was built from.
+- No two shells on a street take the same business while the family has
+  another to give.
+- `_signs_for` maps rows through the deal.
+
+**The door wears the band.**
+- A fixtures job's spec carries `sign_pack`: the pack its shell was dealt on
+  the selected candidate's street.
+- `_door_sign_pack` reads it off that candidate's judged site spec, through
+  the same `_sign_rows` the band's deal reads. The themed site stands the
+  same buildings.
+- The Zoo adapter passes it as `--sign-pack` (Zoo 1.79.0).
+- The fixtures job now depends on the candidate's Pixelcoat build, which
+  makes the pack.
+- A shell dealt no band (0.147.0) gets no pack, and Zoo names its door as
+  before. A missing site spec is said, not hidden.
+
+**Finer families, Zoo's door kinds:**
+- `card` and `video` come before `shop` and `store` read them as retail;
+- `pizza` is no longer `restaurant`;
+- `brewery` is no longer `liquor`;
+- `pharmacy` is no longer `retail`.
+
+Pixelcoat 0.61.0 fills each of these with exactly Zoo's names.
+
+**Tests:**
+- `test_signs_in_site_spec.py`, 3:
+  - a shell is dealt one business wherever it stands, and two shells never
+    repeat;
+  - Zoo's door kinds are families of their own;
+  - a door wears its shell's band, for library shells by id, for the
+    generated shell by its preset, and with no pack when the site spec is
+    missing.
+- `test_fixture_pipeline.py`, 2: the fixtures build waits for the Pixelcoat
+  build, and the adapter passes `--sign-pack`.
+- All five fail on 0.147.0's code.
+
+**Suite:** 1,968 collected: 1,953 passed, 14 skipped, 1 xfail. That is
+0.147.0's 1,963 and the 5 above.
+
 ## [0.147.0] - A band names a shop
 
 **What was measured** (`docs/findings/two_names_one_building/` at the factory
