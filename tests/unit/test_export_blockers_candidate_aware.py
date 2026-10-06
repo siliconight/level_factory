@@ -107,3 +107,30 @@ def test_a_blocker_naming_no_candidate_still_counts(tmp_path):
              [_blocker(loc="club_block_013.lux_apply", stage="lux_apply")],
              selected="club_block_013.candidate.seed_9276")
     assert len(_open_blockers(ws, MISSION)) == 1
+
+
+# ---------------------------------------------------------------------------
+# the candidate a finding names in its own field (0.144.1)
+# ---------------------------------------------------------------------------
+def _unevaluated(candidate):
+    """The shape of cold run 9170's blocker: Laser Tag's LT_NOT_EVALUATED
+    names its candidate in `candidate_id` and leaves the location empty."""
+    return {"code": "LT_NOT_EVALUATED", "blocking": True, "location": "",
+            "stage_id": "laser_tag_evaluate", "candidate_id": candidate,
+            "message": "Laser Tag never evaluated this map (0 runs completed)"}
+
+
+def test_a_blocker_naming_its_candidate_only_in_candidate_id_is_discounted_too(tmp_path):
+    """FAILS BEFORE 0.144.1: cold run 9170 exactly. seed_9061 carried the
+    only blocker, in `candidate_id` with an empty location; seed_9263 was
+    picked; `cmd_run` printed "blockers open: 0" and the export refused."""
+    ws = _ws(tmp_path, [_unevaluated(f"{MISSION}.candidate.seed_9061")],
+             selected=f"{MISSION}.candidate.seed_9263")
+    assert _open_blockers(ws, MISSION) == []
+
+
+def test_the_same_blocker_on_the_selected_candidate_still_refuses(tmp_path):
+    ws = _ws(tmp_path, [_unevaluated(f"{MISSION}.candidate.seed_9263")],
+             selected=f"{MISSION}.candidate.seed_9263")
+    out = _open_blockers(ws, MISSION)
+    assert len(out) == 1 and "LT_NOT_EVALUATED" in out[0], out

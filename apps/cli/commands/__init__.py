@@ -2399,7 +2399,14 @@ def _open_blockers(ws: Workspace, mission_id: str) -> list[str]:
         # The export ships the SELECTED candidate. A blocker on one that was
         # not chosen is not this package's problem -- see the docstring. Both
         # tokens must be known, and they must differ, or this blocks.
-        here_token = _candidate_of(where)
+        #
+        # The finding's own `candidate_id` first, then its location (0.144.1).
+        # Laser Tag's LT_NOT_EVALUATED names its candidate in `candidate_id`
+        # and leaves `location` empty, so reading the location alone found no
+        # candidate, failed safe, and refused cold run 9170's export over a
+        # candidate nobody chose -- while `cmd_run`, whose `aggregate` reads
+        # `candidate_id`, printed "blockers open: 0".
+        here_token = _candidate_of(i.get("candidate_id") or "") or _candidate_of(where)
         if selected_token and here_token and here_token != selected_token:
             continue
         msg = str(i.get("message") or "")[:120]
