@@ -454,6 +454,29 @@ class Scheduler:
             "godot_project": str(self.godot_project or work_dir),
         }
 
+        # BEFORE ANYTHING READS THE SPEC: a spec finished at dispatch
+        # (0.144.2). A job spec may carry `prepare`, a callable given the spec
+        # and returning the spec this job runs with. It runs here, on the
+        # first attempt, when every dependency has succeeded -- because some
+        # specs describe what their dependencies build. Lot's site spec
+        # measures the building it places, and with no lot library the Deli
+        # Counter job this one depends on generates that building: written at
+        # plan time it was sized from a default, and the next plan, made after
+        # the shell existed, wrote a different site (cold run 9171). The
+        # returned spec carries no `prepare`, so a retry does not run it again.
+        # One that raises fails this job, not the run.
+        prepare = job_spec.get("prepare") if isinstance(job_spec, Mapping) else None
+        if callable(prepare):
+            try:
+                job_spec = prepare(dict(job_spec))
+            except Exception as exc:  # this job's failure, reported as one
+                return self._fail(job, INPUT_VALIDATION_ERROR,
+                                  f"the job spec could not be finished at dispatch: {exc}")
+            if not isinstance(job_spec, Mapping) or "prepare" in job_spec:
+                return self._fail(job, INPUT_VALIDATION_ERROR,
+                                  "a spec's prepare step must return the finished "
+                                  "spec, without prepare")
+
         # 0. Tactical advisories -- what the tool will build and grade badly,
         # as opposed to what it will refuse. Collected before the pre-flight so
         # a refused job still carries them, and replaced rather than appended
