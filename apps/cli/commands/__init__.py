@@ -1262,16 +1262,24 @@ def _segment_crosses_road(p, q, roads):
 #: called (`pixelcoat/profiles/signs/<theme>.json`). Order matters: the
 #: first match wins, so the specific keyword comes before the general.
 SIGN_FAMILIES = (
+    # A band names a shop (0.147.0). `none` stops a building a later key
+    # would wrongly claim: a strip club is not `strip` retail (its neon and
+    # door name it), a parking garage is not an `auto` repair shop.
+    ("strip_club", "none"), ("parking", "none"),
     ("bank", "bank"), ("credit_union", "bank"), ("pawn", "pawn"),
     ("deli", "deli"), ("diner", "restaurant"), ("restaurant", "restaurant"),
     ("cheesesteak", "deli"), ("pizza", "restaurant"),
     ("brewery", "liquor"), ("distillery", "liquor"), ("bar", "bar"),
-    ("club", "club"), ("casino", "club"),
     ("supermarket", "supermarket"), ("market", "supermarket"),
     ("grocery", "supermarket"),
     ("gas_station", "gas_station"), ("gas", "gas_station"),
-    # the Flappahs store (0.146.0), before `store` reads it as retail
-    ("convenience", "convenience"),
+    # the stations by other names (0.147.0): `fuel_stop_heist` and
+    # `gs_corner_station` stand pumps and a canopy, and their doors already
+    # say FLAPPAHS
+    ("fuel", "gas_station"), ("corner_station", "gas_station"),
+    # the Flappahs store (0.146.0), before `store` reads it as retail;
+    # `stop_n_go` is one too (0.147.0: no pumps, the store's rooms)
+    ("convenience", "convenience"), ("stop_n_go", "convenience"),
     ("auto", "auto"), ("garage", "auto"), ("repair", "auto"),
     ("warehouse", "warehouse"), ("storage", "warehouse"),
     ("depot", "warehouse"), ("freight", "warehouse"),
@@ -1279,9 +1287,12 @@ SIGN_FAMILIES = (
     ("mill", "industrial"),
     ("retail", "retail"), ("strip", "retail"), ("shop", "retail"),
     ("store", "retail"), ("pharmacy", "retail"), ("laundr", "retail"),
-    ("courthouse", "civic"), ("police", "civic"), ("station", "civic"),
-    ("library", "civic"), ("clinic", "civic"), ("hospital", "civic"),
 )
+#: The families that deal no band (0.147.0): a building of no shop family,
+#: and one stopped on purpose. Until 0.147.0 `default` dealt GOOSE MART,
+#: HOAGIE HUT, CORNER TAP ... to whatever matched nothing -- a museum, a
+#: stadium, the county hospital (cold runs 9171, 9173).
+NO_BAND = frozenset(("default", "none"))
 
 
 def sign_family(archetype_id: str) -> str:
@@ -1324,9 +1335,9 @@ def _sign_rows(buildings, archetype) -> list:
     default name. Only the sign lookup sees this: the site spec's rows are
     not touched.
 
-    THE PRESET, NOT THE WORD. `sign_family` reads substrings, and `station`
-    is civic: read raw, a `service_station` wore a civic name and a
-    `mini_mart` a default one. The building is built from the adapter's
+    THE PRESET, NOT THE WORD. `sign_family` reads substrings, and until
+    0.147.0 `station` was civic: read raw, a `service_station` wore a civic
+    name and a `mini_mart` a default one. The building is built from the adapter's
     `_preset_for`, and Zoo's door sign reads that preset too (Deli Counter
     0.188.0 writes it into the spec), so one rule says what it is. A word no
     preset answers to is kept as it is: no generated building stands for it,
@@ -1363,9 +1374,11 @@ def _signs_for(ws, buildings, pixelcoat_out: Path, theme: str) -> dict[str, str]
     named = [s for s in profile if s.get("text")]
     for i, b in enumerate(buildings):
         family = sign_family(b.get("archetype") or b.get("id"))
+        if family in NO_BAND:
+            continue
+        # A family the theme names no shop for stands with no band, rather
+        # than borrowing a `default` shop's name (0.147.0).
         pool = [s for s in named if family in (s.get("families") or [])]
-        if not pool:
-            pool = [s for s in named if "default" in (s.get("families") or [])]
         if not pool:
             continue
         h = 2166136261
