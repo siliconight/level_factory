@@ -110,6 +110,13 @@ class MissionBrief:
     #: from the library instead. Opt-in on purpose: re-placing a mission that
     #: has already been evaluated would be a different level carrying the old
     #: grade.
+    #:
+    #: THE DEFAULT SINCE 0.145.0, where it can honour the brief: `batch create`
+    #: writes the workspace's Deli Counter `build/` here when the brief names
+    #: none, asks for two or more buildings, and its archetype anchors on a
+    #: family there (`apps/cli/commands._default_lot_library`). The workspace's
+    #: copy of the brief records it, so a mission already graded keeps the
+    #: brief it was graded on. `"none"` keeps the generated shell.
     lot_library: str = ""
     #: EMPTIES (0.137.0, roadmap 106): `"across"` stands a terrace of
     #: non-enterable shells along the far side of the through road,

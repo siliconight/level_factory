@@ -69,9 +69,68 @@ def _load_batch(ws: Workspace, batch_id: str) -> dict:
 def _brief_model(brief: dict) -> MissionBrief:
     fields = {k: v for k, v in brief.items() if k in MissionBrief.__dataclass_fields__}
     fields.pop("schema", None)
+    # `"none"` is the brief's word for "no library" (0.145.0), never a path.
+    if str(fields.get("lot_library") or "").strip().lower() == LOT_LIBRARY_NONE:
+        fields["lot_library"] = ""
     if "target_minutes" in fields and isinstance(fields["target_minutes"], list):
         fields["target_minutes"] = tuple(fields["target_minutes"])
     return MissionBrief(**fields)
+
+
+#: A brief's word for "place my own generated building" (0.145.0).
+LOT_LIBRARY_NONE = "none"
+
+
+def _default_lot_library(ws: Workspace, brief: dict) -> str:
+    """Give a brief the workspace's lot library when it named none and the
+    library can honour it (0.145.0). Changes `brief` in place; returns the
+    line to print, or "" when there is nothing to say.
+
+    WHY A DEFAULT. A brief without `lot_library` places one generated shell
+    N times -- roadmap item 37's four-building site that is one building four
+    times -- and stands no Empties, which draw from the library. The breadth
+    sweep built three such missions (restaurant_row_001 three copies,
+    warehouse_yard_001 two, county_hospital_001 one). The walker, 2026-10-06:
+    the library by default.
+
+    WHY ONLY SOMETIMES. The library places a lot anchored on the brief's
+    archetype (`building_library.anchor_families`, the rule `pick_lot`
+    draws with), and today it holds no family for `county_hospital`. A
+    blanket default would swap that mission's hospital for whatever the seed
+    drew: the "bank block with no bank" the anchor rule was written for. And
+    `lot_for` places no lot at all for fewer than two buildings, so a
+    library there would change the brief's signature and nothing else.
+
+    WHY HERE. Decided once, when the brief enters the workspace, and recorded
+    in the workspace's copy, which `plan`, `run` and the functional lock all
+    read. A mission already in a workspace keeps the brief it was graded on;
+    the library stayed opt-in until now for exactly that reason.
+    """
+    mid = brief.get("mission_id", "?")
+    word = str(brief.get("lot_library") or "").strip()
+    if word.lower() == LOT_LIBRARY_NONE:
+        brief["lot_library"] = ""
+        return f"[batch] {mid}: no lot library, as the brief asks"
+    if word:
+        return ""
+    count = int(brief.get("building_count", 1) or 1)
+    if count < 2:
+        return ""
+    deli = (ws.load_tools_local().get("repositories") or {}).get("deli_counter")
+    build = Path(str(deli)) / "build" if deli else None
+    if build is None or not build.is_dir():
+        return (f"[batch] {mid}: no lot library in the brief and no Deli Counter "
+                f"build to default to; it places its generated building")
+    from packages.pipeline import building_library
+    archetype = str(brief.get("archetype") or "")
+    complete = building_library.index(build)[0]
+    anchors = building_library.anchor_families(complete, archetype)
+    if not anchors:
+        return (f"[batch] {mid}: keeps its generated building -- the library at "
+                f"{build} has no family for archetype {archetype!r}")
+    brief["lot_library"] = str(build)
+    return (f"[batch] {mid}: no lot library in the brief; drawing from {build} "
+            f"(archetype {archetype!r} anchors on {', '.join(anchors)})")
 
 
 # --------------------------------------------------------------------------
@@ -122,6 +181,11 @@ def cmd_batch_create(args) -> int:
                   file=sys.stderr)
             continue
         brief = json.loads(brief_src.read_text(encoding="utf-8"))
+        # THE LOT LIBRARY BY DEFAULT (0.145.0): decided once, here, and kept
+        # in the workspace's copy of the brief -- see `_default_lot_library`.
+        note = _default_lot_library(ws, brief)
+        if note:
+            print(note)
         mdir = ws.mission_dir(batch_id, mission_id)
         for sub in ("brief", "source", "candidates", "selected", "presentation",
                     "validation", "handoff", "history"):
