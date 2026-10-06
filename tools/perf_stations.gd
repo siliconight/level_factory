@@ -523,6 +523,16 @@ func _run() -> void:
 	# primitives at all 29 stations, reported as a pass. No threshold is
 	# needed to catch it -- a level with no MeshInstance3D at all is
 	# broken, not fast.
+	# THE TREE AS IT IS NOW, not as it was at load (0.144.3). A level's
+	# warm-up frees its own nodes when it is done -- county_hospital_001's
+	# within the first seventy frames -- and the list walked at load then
+	# holds freed instances. `is` on one is a script error, the coroutine
+	# dies, and the probe idles until its watchdog with nothing measured:
+	# cold run 9173's package, twice, read as a 600 s stall while the level
+	# itself ran 300 frames in 2.8 s. The light census below reads this list
+	# too, with no frame between.
+	nodes = []
+	_walk(scene, nodes)
 	var n_mesh: int = 0
 	var n_multi: int = 0
 	for n in nodes:
