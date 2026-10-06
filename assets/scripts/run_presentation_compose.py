@@ -93,6 +93,35 @@ def _install_worldskin(out: Path) -> None:
         print(f"[compose] worldskin NOT installed: {exc}", file=sys.stderr)
 
 
+def circulation_gate(circ: dict) -> tuple[str, list]:
+    """The circulation gate's log line, and a line naming each conflict.
+
+    Deli Counter writes two arms and a verdict when a package has a greybox
+    and a dressing layer, ``{"ok", "shell", "dressing"}``, and one check
+    carrying its ``source`` otherwise. This printed the counts from the top
+    of either, so every cold run from 9164 to 9187 logged "[FAIL]: 0 prop
+    conflict(s) across ? circulation volume(s)" on every building: a red
+    with nothing in it (0.149.0). The adapter splits the arms the same way
+    (`adapters.presentation._circulation_arms`).
+    """
+    arms = [(k, circ[k]) for k in ("shell", "dressing")
+            if isinstance(circ.get(k), dict)]
+    arms = arms or [(str(circ.get("source") or "shell"), circ)]
+    tag = "OK" if circ.get("ok") else "FAIL"
+    parts, details = [], []
+    for arm, a in arms:
+        conflicts = a.get("conflicts") or []
+        excused = a.get("excused") or []
+        parts.append(f"{arm} {len(conflicts)} conflict(s) across "
+                     f"{a.get('volumes', '?')} volume(s)"
+                     + (f", {len(excused)} excused" if excused else "")
+                     + (f" ({a.get('error')})" if a.get("error") else ""))
+        for c in conflicts[:10]:
+            details.append(f"[compose]   {arm}: {c.get('prop')} intrudes "
+                           f"{c.get('penetration')}m into {c.get('volume')}")
+    return f"[compose] circulation gate [{tag}]: " + "; ".join(parts), details
+
+
 def placement_gate(pc: dict) -> tuple[str, str | None]:
     """The placement gate's log line, and the error that fails the job when
     the gate did not pass -- `None` when it did.
@@ -305,17 +334,12 @@ def main() -> int:
     # package whose props block circulation is unplayable, not "dressed".
     circ = man.get("circulation_check")
     if circ is not None:
-        ctag = "OK" if circ.get("ok") else "FAIL"
-        print(f"[compose] circulation gate [{ctag}]: "
-              f"{len(circ.get('conflicts') or [])} prop conflict(s) across "
-              f"{circ.get('volumes', '?')} circulation volume(s)"
-              + (f" ({circ.get('error')})" if circ.get("error") else ""))
+        line, details = circulation_gate(circ)
+        print(line)
         if not circ.get("ok"):
-            for c in (circ.get("conflicts") or [])[:10]:
-                print(f"[compose]   {c.get('prop')} intrudes "
-                      f"{c.get('penetration')}m into {c.get('volume')}",
-                      file=sys.stderr)
-            print("[compose] ERROR: dressing blocks circulation -- see "
+            for d in details:
+                print(d, file=sys.stderr)
+            print("[compose] ERROR: a prop blocks circulation -- see "
                   "circulation_check in the manifest.", file=sys.stderr)
             return 6
     return 0

@@ -481,92 +481,163 @@ class PresentationAdapter(BaseAdapter):
         # is the shape of "I cannot see it" reported as "it is not there".
         issues.extend(material_census.issues(output_paths))
 
-        manifest = next((p for p in output_paths
-                         if p.name == "portable_resource_manifest.json"), None)
-        if manifest is None:
-            return issues
-        try:
-            man = json.loads(manifest.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return issues
-
-        # Closure: a dangling res:// ref means Lux will light a broken scene.
-        closure = man.get("closure") or {}
-        if closure and not closure.get("portable", True):
-            issues.append({
-                "code": "PRESENTATION_UNRESOLVED_REF",
-                "severity": "blocker", "category": "packaging",
-                "message": ("composed scene has dangling/absolute resource refs: "
-                            f"{(closure.get('dangling_refs') or [])[:5]}"),
-                "blocking": True, "raw_source_path": str(manifest)})
-
-        # Ground-truth placement gate: themed visuals must sit on DC's collision.
-        # A partial kit leaves slots greybox, and those are not counted -- the
-        # gate checks only the modules the composer placed. This was advisory
-        # from the day it was written, and every cold run from 9001 to 9012
-        # carried it as a moderate finding nobody read (9005: 30 mismatched;
-        # 9012's bank: 18) while the packages shipped wall remainders standing
-        # across their walls. The walker found one beside a doorway. The
-        # driver's exit is advisory by design (`exit_advisory`), so this
-        # finding is where the red has to live: it blocks, and names the slots.
-        pc = man.get("placement_check")
-        if pc and pc.get("mismatched"):
-            named = ", ".join(
-                f"{m.get('slot')} ({m.get('stem')}: placed "
-                f"{m.get('placed_extent')} on greybox {m.get('greybox_extent')})"
-                for m in (pc.get("mismatches") or [])[:5] if isinstance(m, Mapping))
-            issues.append({
-                "code": "PRESENTATION_PLACEMENT_MISMATCH",
-                "severity": "blocker", "category": "collision",
-                "message": (f"{pc.get('mismatched')} themed module(s) do not match "
-                            f"the greybox footprint (visual off the collision); "
-                            f"{pc.get('matched')}/{pc.get('checked')} aligned. "
-                            f"Worst: {named or 'not reported'}"),
-                "blocking": True, "raw_source_path": str(manifest)})
-
-        # Z-FIGHTING: the composer computes it, prints "the package would
-        # flicker", exits 3 -- and nothing read it. `presentation_compose`'s
-        # exit code is advisory by design, so the job records SUCCEEDED, and
-        # with no branch here the finding never reached a status line. Three
-        # cold runs shipped a package the composer itself said would flicker
-        # and each was recorded as clean (roadmap 133).
-        #
-        # Advisory, like the placement gate beside it: coplanar faces are an
-        # art defect and refusing to build the level over one would stop it
-        # existing long enough to be looked at. Loud, though -- the count and
-        # the worst offenders by name, so it is actionable rather than a
-        # number.
-        #
-        # `buried_pairs` and `greybox_internal_pairs` are broken out because
-        # they are not the same defect: a pair where one face is buried inside
-        # a solid cannot flicker, and a pair between two greybox faces is
-        # under the art rather than in it. Reporting the total alone would
-        # send somebody hunting for 30 visible seams when this scene has 8.
-        zf = man.get("zfight_check")
-        if isinstance(zf, Mapping) and zf.get("ok") is False:
-            pairs = int(zf.get("pairs") or 0)
-            buried = int(zf.get("buried_pairs") or 0)
-            internal = int(zf.get("greybox_internal_pairs") or 0)
-            visible = max(0, pairs - buried - internal)
-            worst = ", ".join(
-                f"{f.get('a')} / {f.get('b')}"
-                for f in (zf.get("findings") or [])[:3] if isinstance(f, Mapping))
-            issues.append({
-                "code": "PRESENTATION_ZFIGHT",
-                "severity": "moderate", "category": "presentation",
-                "message": (
-                    f"{pairs} coplanar face pair(s) across "
-                    f"{zf.get('solids')} solids in {zf.get('scene')} — the "
-                    f"package would flicker where two surfaces share a plane. "
-                    f"{buried} buried, {internal} greybox-internal, so "
-                    f"{visible} can be seen. Worst: {worst or 'not reported'}"),
-                "blocking": False, "raw_source_path": str(manifest)})
-
-        # No themed modules resolved at all = the kit didn't feed the compose.
-        if not man.get("walkable", True):
-            issues.append({
-                "code": "PRESENTATION_NO_BASE",
-                "severity": "moderate", "category": "packaging",
-                "message": "no greybox base composed — level has no floors to stand on",
-                "blocking": False, "raw_source_path": str(manifest)})
+        # EVERY PLACED BUILDING, NOT THE FIRST MANIFEST (0.149.0). A varied
+        # lot composes one package a building under `_LOT_SUBDIR`, and this
+        # read `next(...)` of the sorted manifests -- the first building's.
+        # In cold run 9187 three of fifteen failed z-fight (deli_a01 203
+        # pairs, office 121, rail_station_a02 117) and the one finding
+        # recorded was deli_a01's. Each building is read now, and each
+        # finding names it.
+        for manifest, building in _placed_manifests(output_paths):
+            try:
+                man = json.loads(manifest.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                # Said, not swallowed: an unreadable manifest used to return
+                # quietly and take every finding about its package with it.
+                issues.append({
+                    "code": "PRESENTATION_MANIFEST_UNREADABLE",
+                    "severity": "moderate", "category": "packaging",
+                    "message": (f"{building}: the composed package's manifest "
+                                f"could not be read ({exc}), so none of its "
+                                f"gates were"),
+                    "blocking": False, "location": building,
+                    "raw_source_path": str(manifest)})
+                continue
+            issues.extend(_manifest_issues(man, manifest, building))
         return issues
+
+
+def _placed_manifests(output_paths) -> list:
+    """``[(manifest, building)]`` for every package the level PLACES.
+
+    A varied lot places one package a building under `_LOT_SUBDIR`. The
+    mission's own shell is composed to the root for the job's output contract
+    and placed only when there is no lot (see `_LOT_SUBDIR`). Reading the
+    root of a lot would report on a package the level does not contain:
+    9187's lists dangling refs, which block.
+    """
+    mans = sorted(p for p in output_paths
+                  if p.name == "portable_resource_manifest.json")
+    lot = [p for p in mans if p.parent.parent.name == "lot"
+           and p.parent.parent.parent.name == _OUT_SUBDIR]
+    if lot:
+        return [(p, p.parent.name) for p in lot]
+    return [(p, _STABLE_BID) for p in mans[:1]]
+
+
+def _circulation_arms(circ) -> list:
+    """``[(arm, check)]`` of a `circulation_check`. Deli Counter writes two
+    arms and a verdict when a package has a greybox and a dressing layer,
+    and one check carrying its ``source`` otherwise. The compose driver
+    splits it the same way (`circulation_gate`)."""
+    if not isinstance(circ, Mapping):
+        return []
+    arms = [(k, circ[k]) for k in ("shell", "dressing")
+            if isinstance(circ.get(k), Mapping)]
+    return arms or [(str(circ.get("source") or "shell"), circ)]
+
+
+def _manifest_issues(man, manifest, building) -> list:
+    """The gates of ONE composed package; every finding names its building."""
+    issues: list[dict] = []
+    where = f"{building}: "
+
+    # Closure: a dangling res:// ref means Lux will light a broken scene.
+    closure = man.get("closure") or {}
+    if closure and not closure.get("portable", True):
+        issues.append({
+            "code": "PRESENTATION_UNRESOLVED_REF",
+            "severity": "blocker", "category": "packaging",
+            "message": (where + "composed scene has dangling/absolute resource refs: "
+                        f"{(closure.get('dangling_refs') or [])[:5]}"),
+            "blocking": True, "location": building, "raw_source_path": str(manifest)})
+
+    # Ground-truth placement gate: themed visuals must sit on DC's collision.
+    # A partial kit leaves slots greybox, and those are not counted -- the
+    # gate checks only the modules the composer placed. This was advisory
+    # from the day it was written, and every cold run from 9001 to 9012
+    # carried it as a moderate finding nobody read (9005: 30 mismatched;
+    # 9012's bank: 18) while the packages shipped wall remainders standing
+    # across their walls. The walker found one beside a doorway. The
+    # driver's exit is advisory by design (`exit_advisory`), so this
+    # finding is where the red has to live: it blocks, and names the slots.
+    pc = man.get("placement_check")
+    if pc and pc.get("mismatched"):
+        named = ", ".join(
+            f"{m.get('slot')} ({m.get('stem')}: placed "
+            f"{m.get('placed_extent')} on greybox {m.get('greybox_extent')})"
+            for m in (pc.get("mismatches") or [])[:5] if isinstance(m, Mapping))
+        issues.append({
+            "code": "PRESENTATION_PLACEMENT_MISMATCH",
+            "severity": "blocker", "category": "collision",
+            "message": (where + f"{pc.get('mismatched')} themed module(s) do not "
+                        f"match the greybox footprint (visual off the collision); "
+                        f"{pc.get('matched')}/{pc.get('checked')} aligned. "
+                        f"Worst: {named or 'not reported'}"),
+            "blocking": True, "location": building, "raw_source_path": str(manifest)})
+
+    # Z-FIGHTING: the composer computes it, prints "the package would
+    # flicker", exits 3 -- and nothing read it. `presentation_compose`'s
+    # exit code is advisory by design, so the job records SUCCEEDED, and
+    # with no branch here the finding never reached a status line. Three
+    # cold runs shipped a package the composer itself said would flicker
+    # and each was recorded as clean (roadmap 133).
+    #
+    # Advisory, like the placement gate beside it: coplanar faces are an
+    # art defect and refusing to build the level over one would stop it
+    # existing long enough to be looked at. Loud, though -- the count and
+    # the worst offenders by name, so it is actionable rather than a
+    # number.
+    #
+    # `buried_pairs` and `greybox_internal_pairs` are broken out because
+    # they are not the same defect: a pair where one face is buried inside
+    # a solid cannot flicker, and a pair between two greybox faces is
+    # under the art rather than in it. Reporting the total alone would
+    # send somebody hunting for 30 visible seams when this scene has 8.
+    zf = man.get("zfight_check")
+    if isinstance(zf, Mapping) and zf.get("ok") is False:
+        pairs = int(zf.get("pairs") or 0)
+        buried = int(zf.get("buried_pairs") or 0)
+        internal = int(zf.get("greybox_internal_pairs") or 0)
+        visible = max(0, pairs - buried - internal)
+        worst = ", ".join(
+            f"{f.get('a')} / {f.get('b')}"
+            for f in (zf.get("findings") or [])[:3] if isinstance(f, Mapping))
+        issues.append({
+            "code": "PRESENTATION_ZFIGHT",
+            "severity": "moderate", "category": "presentation",
+            "message": (
+                where + f"{pairs} coplanar face pair(s) across "
+                f"{zf.get('solids')} solids in {zf.get('scene')} — the "
+                f"package would flicker where two surfaces share a plane. "
+                f"{buried} buried, {internal} greybox-internal, so "
+                f"{visible} can be seen. Worst: {worst or 'not reported'}"),
+            "blocking": False, "location": building, "raw_source_path": str(manifest)})
+
+    # CIRCULATION (0.149.0): props in a ladder's climb volume, a doorway or a
+    # stair's column, by Deli Counter's gate. Nothing read it, and every cold
+    # run from 9164 to 9187 failed it on every building -- on merged cover
+    # boxes, which Deli Counter 0.191.0 reads as parts. Born moderate and
+    # advisory, as a new gate is here; one finding an arm that failed.
+    for arm, check in _circulation_arms(man.get("circulation_check")):
+        if check.get("ok") is not False:
+            continue
+        conflicts = [c for c in (check.get("conflicts") or []) if isinstance(c, Mapping)]
+        named = ", ".join(f"{c.get('prop')} {c.get('penetration')} m into "
+                          f"{c.get('volume')}" for c in conflicts[:3])
+        issues.append({
+            "code": "PRESENTATION_CIRCULATION",
+            "severity": "moderate", "category": "collision",
+            "message": (where + f"{len(conflicts)} prop(s) stand in circulation "
+                        f"({arm})" + (f": {named}" if named else "")
+                        + (f" ({check.get('error')})" if check.get("error") else "")),
+            "blocking": False, "location": building, "raw_source_path": str(manifest)})
+
+    # No themed modules resolved at all = the kit didn't feed the compose.
+    if not man.get("walkable", True):
+        issues.append({
+            "code": "PRESENTATION_NO_BASE",
+            "severity": "moderate", "category": "packaging",
+            "message": where + "no greybox base composed — level has no floors to stand on",
+            "blocking": False, "location": building, "raw_source_path": str(manifest)})
+    return issues

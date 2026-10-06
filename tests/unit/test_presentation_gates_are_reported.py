@@ -158,3 +158,113 @@ def test_the_cold_run_manifest_on_disk_produces_both(tmp_path):
     codes = _codes(PresentationAdapter().normalize_validation([man]))
     assert "PRESENTATION_ZFIGHT" in codes
     assert "PRESENTATION_PLACEMENT_MISMATCH" in codes
+
+
+# ---- every placed building, not the first manifest (0.149.0) ----------------
+#
+# A varied lot composes one package per building, under `presentation/lot/`.
+# `normalize_validation` read `next(...)` of the sorted manifests, which is
+# the first building's. In cold run 9187 three of fifteen failed z-fight --
+# deli_a01 203 pairs, office 121, rail_station_a02 117 -- and the one finding
+# recorded was deli_a01's (`docs/findings/presentation_gates/` at the factory
+# root).
+
+def _lot(tmp_path, buildings, root=None):
+    """A varied lot's outputs: one package a building, and the mission's own
+    shell at the root when ``root`` is given."""
+    base = tmp_path / "presentation"
+    paths = []
+    for bid, blocks in buildings.items():
+        d = base / "lot" / bid
+        d.mkdir(parents=True)
+        man = {"schema": "portable.v1", "walkable": True, "closure": {"portable": True}}
+        man.update(blocks)
+        (d / "portable_resource_manifest.json").write_text(json.dumps(man), encoding="utf-8")
+        paths.append(d / "portable_resource_manifest.json")
+    if root is not None:
+        base.mkdir(parents=True, exist_ok=True)
+        man = {"schema": "portable.v1", "walkable": True, "closure": {"portable": True}}
+        man.update(root)
+        (base / "portable_resource_manifest.json").write_text(json.dumps(man), encoding="utf-8")
+        paths.append(base / "portable_resource_manifest.json")
+    return sorted(paths)
+
+
+def test_every_placed_building_is_read(tmp_path):
+    outs = _lot(tmp_path, {
+        "deli_a01": {"zfight_check": dict(COLD_9005, pairs=203, solids=761)},
+        "gs_empty_rowhome_a": {},
+        "office": {"zfight_check": dict(COLD_9005, pairs=121, solids=422)},
+        "rail_station_a02": {"zfight_check": dict(COLD_9005, pairs=117, solids=397)}})
+    z = [i for i in PresentationAdapter().normalize_validation(outs)
+         if i["code"] == "PRESENTATION_ZFIGHT"]
+    assert sorted(i["location"] for i in z) == ["deli_a01", "office", "rail_station_a02"]
+    assert all(i["message"].startswith(i["location"] + ": ") for i in z)
+
+
+def test_an_unplaced_mission_shell_is_not_read_in_a_lot(tmp_path):
+    """A varied lot composes the mission's own shell for the job's output
+    contract and places each building instead (`_LOT_SUBDIR`). 9187's root
+    package lists dangling refs; read, it would block a level that does not
+    contain it."""
+    outs = _lot(tmp_path, {"deli_a01": {}}, root={
+        "closure": {"portable": False, "dangling_refs": ["site.tscn -> res://x.glb"]}})
+    assert "PRESENTATION_UNRESOLVED_REF" not in _codes(
+        PresentationAdapter().normalize_validation(outs))
+
+
+def test_a_single_shell_mission_reads_its_root(tmp_path):
+    outs = _lot(tmp_path, {}, root={
+        "closure": {"portable": False, "dangling_refs": ["site.tscn -> res://x.glb"]}})
+    assert "PRESENTATION_UNRESOLVED_REF" in _codes(
+        PresentationAdapter().normalize_validation(outs))
+
+
+#: cold run 9187's deli_a01, as Deli Counter 0.191.0's gate reads it: the
+#: dressing arm clean, the shell arm naming a counter over the stairwell.
+DELI_9187 = {"ok": False,
+             "shell": {"ok": False, "source": "shell", "volumes": 14, "props": 154,
+                       "declared_props": 154, "excused": [],
+                       "conflicts": [{"prop": "counter_island_upper_hall_2",
+                                      "volume": "stair:deli_stair_up",
+                                      "penetration": 0.8}]},
+             "dressing": {"ok": True, "source": "dressing", "volumes": 14,
+                          "nodes": 8, "props": 249, "conflicts": []}}
+
+
+def test_a_failing_circulation_arm_becomes_a_finding(tmp_path):
+    """No branch read `circulation_check` at all: every cold run from 9164
+    to 9187 failed it and none reached a finding."""
+    issues = PresentationAdapter().normalize_validation(
+        _lot(tmp_path, {"deli_a01": {"circulation_check": DELI_9187}}))
+    circ = [i for i in issues if i["code"] == "PRESENTATION_CIRCULATION"]
+    assert len(circ) == 1
+    assert circ[0]["location"] == "deli_a01"
+    assert "counter_island_upper_hall_2 0.8 m into stair:deli_stair_up" in circ[0]["message"]
+    assert "(shell)" in circ[0]["message"]
+    assert circ[0]["blocking"] is False and circ[0]["severity"] == "moderate"
+
+
+def test_a_passing_circulation_check_says_nothing(tmp_path):
+    clean = {"ok": True, "shell": dict(DELI_9187["shell"], ok=True, conflicts=[]),
+             "dressing": DELI_9187["dressing"]}
+    issues = PresentationAdapter().normalize_validation(
+        _lot(tmp_path, {"deli_a01": {"circulation_check": clean}}))
+    assert "PRESENTATION_CIRCULATION" not in _codes(issues)
+
+
+def test_a_circulation_gate_that_did_not_run_is_said(tmp_path):
+    broken = {"ok": False, "source": "dressing", "error": "gate failed to run: boom"}
+    issues = PresentationAdapter().normalize_validation(
+        _lot(tmp_path, {"office": {"circulation_check": broken}}))
+    assert "gate failed to run: boom" in _one(issues, "PRESENTATION_CIRCULATION")["message"]
+
+
+def test_an_unreadable_manifest_is_said(tmp_path):
+    """It used to return quietly: a broken manifest silencing every finding
+    about its package is "I cannot see it" reported as "it is not there"."""
+    outs = _lot(tmp_path, {"office": {}})
+    outs[0].write_text("{not json", encoding="utf-8")
+    msg = _one(PresentationAdapter().normalize_validation(outs),
+               "PRESENTATION_MANIFEST_UNREADABLE")["message"]
+    assert msg.startswith("office: ")
