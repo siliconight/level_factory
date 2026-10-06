@@ -98,8 +98,9 @@ def family(archetype_id: str) -> str:
 def source_exclusion(build_dir, archetype_id) -> str:
     """Why ``archetype_id`` is not a SOURCE archetype — ``""`` when it is one.
 
-    Two kinds, and they are found two different ways because they ARE two
-    different things.
+    Three kinds, found two different ways because they ARE different
+    things: one by the prefix this pipeline writes, two by Deli Counter's own
+    word.
 
     **Level Factory's own composed outputs**, by the prefix this pipeline
     writes on them (see `_COMPOSED_PREFIX`). Nine of them sit in the library
@@ -116,6 +117,13 @@ def source_exclusion(build_dir, archetype_id) -> str:
     markers, 0 rooms and a six-polygon navmesh of three 2-poly islands — three
     floor plates with nothing joining them. A mission placed in one has
     nowhere to go.)
+
+    **Demos**, by Deli Counter's own word for that too (0.144.4, roadmap 185):
+    `demo` in the same manifest, written by Deli Counter 0.187.0 for a spec
+    that exists to demonstrate or test a capability. The breadth sweep drew
+    `setback_demo` and `pvp_station_ref` into card_block_001's lots (cold runs
+    9170 and 9174): complete builds carrying every manifest a building does,
+    with nothing but the name to say otherwise -- and a name is not read here.
 
     AN ABSENT VALIDATION MANIFEST IS NOT A FACADE. Deli Counter not having said
     is not Deli Counter saying yes, and this fails open deliberately: exactly
@@ -138,6 +146,10 @@ def source_exclusion(build_dir, archetype_id) -> str:
         return ("Deli Counter reports facade=true in its validation manifest: "
                 "a street wall with no interior, not a building a mission can "
                 "be placed inside")
+    if (data or {}).get("demo") is True:
+        return ("Deli Counter reports demo=true in its validation manifest: a "
+                "spec that demonstrates or tests a capability, not a building "
+                "a level stands")
     return ""
 
 

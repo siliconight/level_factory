@@ -129,6 +129,21 @@ def test_the_facade_rule_reads_deli_counters_flag_not_the_name(tmp_path):
     assert [e["id"] for e in non_source] == ["quiet_row_a01"]
 
 
+def test_a_demo_is_never_drawn_and_the_rule_reads_the_flag_not_the_name(tmp_path):
+    """0.144.4, roadmap 185: the breadth sweep drew `setback_demo` and
+    `pvp_station_ref` into card_block_001's lots. Deli Counter 0.187.0 writes
+    `demo: true` into the validation manifest; the name says nothing. Put
+    wrong on purpose both ways, as the facade rule is."""
+    _shell(tmp_path, "setback_demo_but_a_real_building", facade=False)
+    _shell(tmp_path, "quiet_block_a01")
+    (tmp_path / "quiet_block_a01.validation.json").write_text(
+        '{"facade": false, "demo": true}')
+    complete, _i, non_source = bl.index(tmp_path)
+    assert [e["id"] for e in complete] == ["setback_demo_but_a_real_building"]
+    assert [e["id"] for e in non_source] == ["quiet_block_a01"]
+    assert "demo" in non_source[0]["reason"]
+
+
 def test_deli_counter_not_having_said_is_not_deli_counter_saying_yes(tmp_path):
     """Fails open, deliberately. Exactly one complete shell in the library has
     no validation manifest -- `cbp_town_finale_midbalanced_schemafixed` -- and
