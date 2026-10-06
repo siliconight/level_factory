@@ -1270,6 +1270,8 @@ SIGN_FAMILIES = (
     ("supermarket", "supermarket"), ("market", "supermarket"),
     ("grocery", "supermarket"),
     ("gas_station", "gas_station"), ("gas", "gas_station"),
+    # the Flappahs store (0.146.0), before `store` reads it as retail
+    ("convenience", "convenience"),
     ("auto", "auto"), ("garage", "auto"), ("repair", "auto"),
     ("warehouse", "warehouse"), ("storage", "warehouse"),
     ("depot", "warehouse"), ("freight", "warehouse"),
@@ -1313,6 +1315,31 @@ def _sign_profile(ws, theme: str) -> list:
         return []
 
 
+def _sign_rows(buildings, archetype) -> list:
+    """The rows `_signs_for` reads (0.146.0). A row that names no archetype is
+    the brief's own generated building, so it reads as the Deli Counter
+    preset the brief's archetype builds; library and Empty rows name theirs
+    and keep it. Until 0.146.0 a generated row read as `b0` -- the `default`
+    family -- so a generated Flappahs store or gas station wore a random
+    default name. Only the sign lookup sees this: the site spec's rows are
+    not touched.
+
+    THE PRESET, NOT THE WORD. `sign_family` reads substrings, and `station`
+    is civic: read raw, a `service_station` wore a civic name and a
+    `mini_mart` a default one. The building is built from the adapter's
+    `_preset_for`, and Zoo's door sign reads that preset too (Deli Counter
+    0.188.0 writes it into the spec), so one rule says what it is. A word no
+    preset answers to is kept as it is: no generated building stands for it,
+    because Deli Counter refused it first."""
+    from adapters.deli_counter import UnknownArchetype, _preset_for as _dc_preset
+    try:
+        business = _dc_preset(archetype or "")
+    except UnknownArchetype:
+        business = archetype or ""
+    return [b if b.get("archetype") else {**b, "archetype": business}
+            for b in buildings]
+
+
 def _signs_for(ws, buildings, pixelcoat_out: Path, theme: str) -> dict[str, str]:
     """Which sign each building wears: `{building id: pack directory}`.
 
@@ -1328,11 +1355,17 @@ def _signs_for(ws, buildings, pixelcoat_out: Path, theme: str) -> dict[str, str]
         return {}
     out: dict[str, str] = {}
     taken: set[str] = set()
+    # A fascia names a business (0.146.0). Pixelcoat's fuel price board sits
+    # in the `gas_station` family because it suits a station, but it names
+    # nobody: with that family down to FLAPPAHS and the board (Pixelcoat
+    # 0.58.0), a generated gas station standing alone was dealt the board in
+    # place of its brand. An entry with no text is never dealt.
+    named = [s for s in profile if s.get("text")]
     for i, b in enumerate(buildings):
         family = sign_family(b.get("archetype") or b.get("id"))
-        pool = [s for s in profile if family in (s.get("families") or [])]
+        pool = [s for s in named if family in (s.get("families") or [])]
         if not pool:
-            pool = [s for s in profile if "default" in (s.get("families") or [])]
+            pool = [s for s in named if "default" in (s.get("families") or [])]
         if not pool:
             continue
         h = 2166136261
@@ -1899,7 +1932,8 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
     # Pixelcoat pack its band wears. Themed sites only -- the greybox one is
     # what the candidate is judged on.
     if pixelcoat_out is not None and themed_scene:
-        signs = _signs_for(ws, buildings, pixelcoat_out, model.theme)
+        signs = _signs_for(ws, _sign_rows(buildings, model.archetype),
+                           pixelcoat_out, model.theme)
         if signs:
             spec["signs"] = signs
             print(f"[site] {len(signs)} shop sign(s): " + ", ".join(

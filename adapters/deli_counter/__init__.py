@@ -46,6 +46,7 @@ _DC_HARD_CODES = {
 # registry whenever Deli Counter sits beside this repo.
 _VALID_PRESETS = {
     "auto_shop", "bank", "card_shop", "casino_tower", "compound",
+    "convenience_store",
     "corner_deli", "empty_rowhome", "facade_industrial", "facade_rowhome",
     "facade_storefront", "gas_station", "hospital", "office",
     "parking_garage", "pawn_shop", "police_station", "rowhome",
@@ -56,7 +57,24 @@ _ARCHETYPE_ALIASES = {
     "urban_bank": "bank", "bank_branch": "bank",
     "corporate_office": "office", "office_tower": "office",
     "industrial_warehouse": "warehouse", "storage_warehouse": "warehouse",
-    "convenience_store": "gas_station", "highway_stop": "gas_station",
+    # `convenience_store` is a preset of its own since Deli Counter 0.188.0
+    # (the Flappahs store, the station's shop without the forecourt); until
+    # then it aliased here to the forecourt `gas_station`.
+    "highway_stop": "gas_station",
+    # The walker's three kinds (0.146.0), in the words a brief reaches for.
+    # Each was refused, so the level never reached the recipe. Left refused
+    # on purpose: `corner_store` (in Philadelphia as often the deli as the
+    # Flappahs store), `nightclub` (not a strip club, and no dance-club
+    # recipe), `truck_stop` (a diesel plaza, not the corner station) --
+    # `test_dc_preset_registry.py` records each.
+    "gas": "gas_station", "fuel_station": "gas_station",
+    "filling_station": "gas_station", "service_station": "gas_station",
+    "petrol_station": "gas_station",
+    "convenience": "convenience_store", "c_store": "convenience_store",
+    "mini_mart": "convenience_store", "minimart": "convenience_store",
+    "gentlemens_club": "strip_club", "go_go_bar": "strip_club",
+    "gogo_bar": "strip_club", "topless_bar": "strip_club",
+    "strip_joint": "strip_club",
     "precinct": "police_station", "fortified_compound": "compound",
     "rowhouse": "rowhome", "safehouse": "suburban_safehouse",
     # The card shop (Deli Counter 0.139.0). A brief is as likely to call it

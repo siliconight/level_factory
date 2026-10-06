@@ -26,7 +26,7 @@ import ast
 
 import pytest
 
-from adapters.deli_counter import _preset_for, _VALID_PRESETS
+from adapters.deli_counter import UnknownArchetype, _preset_for, _VALID_PRESETS
 from tests.siblings import not_found, sibling_repo
 
 #: 0.94.0: the walk this file introduced now lives in `tests/siblings.py`,
@@ -80,6 +80,40 @@ def test_the_video_store_preset_resolves():
     for alias in ("video_rental", "video_rental_store", "vhs_store", "vhs_rental",
                   "movie_rental"):
         assert _preset_for(alias) == "video_store", alias
+
+
+def test_the_convenience_store_preset_resolves():
+    """Deli Counter 0.188.0's `convenience_store`: the Flappahs store, the
+    station's shop without the forecourt. Until 0.146.0 this adapter aliased
+    the name to the forecourt `gas_station`, so a convenience-store brief
+    stood pumps and a canopy. The walker, 2026-10-06: "a03 as convenience
+    store; Flappahs store always Flappahs"."""
+    assert _preset_for("convenience_store") == "convenience_store"
+    for alias in ("convenience", "c_store", "mini_mart", "minimart"):
+        assert _preset_for(alias) == "convenience_store", alias
+    assert _preset_for("highway_stop") == "gas_station"
+
+
+def test_the_walkers_three_kinds_resolve_from_a_briefs_words():
+    """0.146.0. The walker, 2026-10-06: the detail belongs "in the logic that
+    is called when a level calls for a Gas Station, Convient Store, or a
+    strip club". Each of these was refused, so the level never got there."""
+    for alias in ("gas", "fuel_station", "filling_station", "service_station",
+                  "petrol_station"):
+        assert _preset_for(alias) == "gas_station", alias
+    for alias in ("gentlemens_club", "go_go_bar", "gogo_bar", "topless_bar",
+                  "strip_joint"):
+        assert _preset_for(alias) == "strip_club", alias
+
+
+def test_the_words_left_refused_stay_refused():
+    """A wrong-but-plausible building is worse than a refusal. `corner_store`
+    is as often the deli as the Flappahs store in Philadelphia; a nightclub
+    is not a strip club and has no recipe; a truck stop is not the corner
+    station."""
+    for word in ("corner_store", "nightclub", "night_club", "truck_stop"):
+        with pytest.raises(UnknownArchetype):
+            _preset_for(word)
 
 
 def test_this_check_can_actually_find_deli_counter():
