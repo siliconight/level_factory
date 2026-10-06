@@ -79,6 +79,16 @@ _METADATA_FILES = {
     # it cannot be inside what the verdict describes -- the same reason
     # `export_closure_scan.json` itself is on this list.
     "LF_MANIFEST.json",
+    # Added 0.144.0, when the light bake became the export's default. A bake
+    # that fails ships the package unbaked and says why in this report, and
+    # the suite's first failed bake (`test_presentation_export_and_
+    # portability`, a presentation scene with no rig script) put the
+    # package's absolute path into `reason` -- so this scan refused an
+    # export the bake had already given up on cleanly. Same shape as
+    # `glb_reference_scan.json`: LF's own log of a build step. No Godot
+    # loader reads it; a grep of lux, dispatch and LF's assets finds no
+    # reader of the file. A successful bake's report carries no path.
+    "light_bake.json",
 }
 # A marker only breaks portability when it appears as a PATH reference.
 _PATH_MARKER_CHARS = ("/", "\\", ":")

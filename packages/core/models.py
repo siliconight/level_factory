@@ -59,6 +59,25 @@ class Batch:
         return _d(self)
 
 
+#: The Empties' one word for "stand them" (0.137.0). Every other value leaves
+#: the far side of the through road to the plate's edge.
+EMPTIES_ACROSS = "across"
+
+
+def empties_effective(empties, lot_library, building_count) -> str:
+    """What a brief GETS, not what it says: `EMPTIES_ACROSS` when it asks
+    for the Empties (the default since 0.144.0), has a lot library to draw
+    them from and stands two or more buildings; `""` otherwise. One rule,
+    read by `MissionBrief.functional_signature` and by
+    `building_library.empties_for_brief`, so the lock and the site cannot
+    disagree about whether a terrace stands."""
+    if str(empties or "").strip().lower() != EMPTIES_ACROSS:
+        return ""
+    if not lot_library or int(building_count or 1) < 2:
+        return ""
+    return EMPTIES_ACROSS
+
+
 @dataclass
 class MissionBrief:
     mission_id: str
@@ -94,9 +113,13 @@ class MissionBrief:
     lot_library: str = ""
     #: EMPTIES (0.137.0, roadmap 106): `"across"` stands a terrace of
     #: non-enterable shells along the far side of the through road,
-    #: drawn from the lot library's Empties. Empty (the default) leaves
-    #: the far side to the plate's edge, as every level before it.
-    empties: str = ""
+    #: drawn from the lot library's Empties. THE DEFAULT SINCE 0.144.0 (the
+    #: walker, 2026-10-05: "yes to both defaults"). `"none"` -- or any word
+    #: but `"across"`, the empty string included -- leaves the far side to
+    #: the plate's edge, as every level before 0.137.0. A brief with no
+    #: `lot_library`, or one building, stands no terrace whatever it says:
+    #: `empties_effective` is the one rule.
+    empties: str = EMPTIES_ACROSS
     #: THE ENCOUNTER, which the brief could not previously express at all.
     #:
     #: Every mission Level Factory has ever evaluated was graded against Laser
@@ -161,9 +184,14 @@ class MissionBrief:
         # the signature it has always had; the key's PRESENCE is the change.
         if self.lot_library:
             sig["lot_library"] = self.lot_library
-        # the same care for the Empties (0.137.0): they stand on the site
-        if self.empties:
-            sig["empties"] = self.empties
+        # the same care for the Empties (0.137.0): they stand on the site.
+        # Keyed on what the brief GETS since they became the default
+        # (0.144.0): a brief with no library, or one building, stands no
+        # terrace whatever it says and keeps the signature it always had --
+        # a key there would break its lock to record nothing.
+        empties = empties_effective(self.empties, self.lot_library, self.building_count)
+        if empties:
+            sig["empties"] = empties
         return sig
 
 

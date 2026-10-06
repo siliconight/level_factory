@@ -236,8 +236,11 @@ class ExportProfile:
     #: written from. "clear" when the caller has no brief in hand.
     weather: str = "clear"
     #: Bake the steady lights into a lightmap (0.131.0, roadmap item 31,
-    #: `packages/exporting/light_bake.py`). Opt-in: it needs a GPU and a
-    #: display, and opens the Godot editor for about a minute.
+    #: `packages/exporting/light_bake.py`). It needs a GPU and a display,
+    #: and opens the Godot editor for about a minute. OFF HERE and ON at the
+    #: command line since 0.144.0 (`apps/cli/main.py`): code that builds a
+    #: profile, the tests among it, says what it wants, and a person running
+    #: `export` gets the bake unless they pass --no-bake-lights.
     bake_lights: bool = False
 
     def as_dict(self) -> dict:

@@ -44,6 +44,7 @@ from pathlib import Path
 # from the candidate seed and the cache fingerprint depends on re-deriving
 # exactly what the builder derived; a second stream here would make two modules
 # disagree about what seed 5421 means.
+from packages.core.models import EMPTIES_ACROSS, empties_effective
 from packages.pipeline.site_variation import stream
 
 #: `deli_a01` -> `deli`. Deli Counter's own naming: an archetype plus a
@@ -735,13 +736,14 @@ def empty_rows(build_dir) -> list[dict]:
 
 
 def empties_for_brief(model) -> list[dict]:
-    """The Empties a brief asks for: every themeable one in its lot library
-    when it sets `empties: across` and a varied lot, [] otherwise. ONE list
+    """The Empties a brief gets: every themeable one in its lot library when
+    `models.empties_effective` says a terrace stands -- `empties: across`,
+    the default since 0.144.0, and a varied lot -- [] otherwise. ONE list
     for the planner (which fans their art jobs out), the compose rows and the
-    site spec, the way `lot_for_brief` is one lot."""
-    if str(getattr(model, "empties", "") or "").strip().lower() != "across":
-        return []
+    site spec, the way `lot_for_brief` is one lot. A model with no `empties`
+    attribute at all reads as the default."""
     library = getattr(model, "lot_library", None)
-    if not library or int(getattr(model, "building_count", 1) or 1) < 2:
+    if not empties_effective(getattr(model, "empties", EMPTIES_ACROSS), library,
+                             getattr(model, "building_count", 1)):
         return []
     return empty_rows(library)

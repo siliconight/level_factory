@@ -162,3 +162,31 @@ def test_the_bake_scene_holds_the_presentation_and_one_lightmap():
 def test_the_export_profile_does_not_bake_unless_asked():
     from packages.exporting.export import ExportProfile
     assert ExportProfile().bake_lights is False
+
+
+def test_the_export_command_bakes_unless_told_not_to():
+    """0.144.0: on at the command line, off in the profile (above)."""
+    from apps.cli.main import build_parser
+    parse = build_parser().parse_args
+    assert parse(["export", "m"]).bake_lights is True
+    # the spelling every cold run before 0.144.0 used still parses
+    assert parse(["export", "m", "--bake-lights"]).bake_lights is True
+    assert parse(["export", "m", "--no-bake-lights"]).bake_lights is False
+
+
+def test_a_failed_bake_leaves_a_package_the_closure_scan_accepts(tmp_path):
+    """0.144.0 made the bake the export's default, and the suite's first
+    failed bake put the package's absolute path into the report's `reason`;
+    the closure scan then refused an export the bake had already abandoned
+    cleanly. The report is LF's log of a build step and is exempt, as
+    `glb_reference_scan.json` is."""
+    from packages.exporting.closure import scan_closure
+    pkg = tmp_path / "LF_t.portable-godot"
+    (pkg / "presentation").mkdir(parents=True)
+    (pkg / LB.PRESENTATION).write_text("[gd_scene format=3]\n", encoding="utf-8")
+    (pkg / "mission.tscn").write_text("[gd_scene format=3]\n", encoding="utf-8")
+    r = LB.bake(pkg, "godot.exe", log=lambda *a: None)
+    # the shape that tripped the scan: a failure whose reason names the package
+    assert r["ok"] is False and str(pkg) in r["reason"], r
+    issues = [i for i in scan_closure(pkg).issues if i.startswith(LB.REPORT)]
+    assert issues == [], issues

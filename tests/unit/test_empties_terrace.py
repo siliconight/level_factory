@@ -67,7 +67,12 @@ def test_the_same_seed_builds_the_same_row():
     assert _terrace(seed=5) != _terrace(seed=6)
 
 
-def test_a_brief_asks_for_empties_and_its_signature_says_so_only_then(tmp_path):
+def test_a_brief_gets_empties_unless_it_says_none_and_its_signature_follows(tmp_path):
+    """0.144.0: the Empties are the default. Until then this test pinned the
+    opt-in -- a brief that said nothing got no terrace. Now a silent brief
+    gets one, `"none"` turns it off, and a brief with no library or one
+    building gets none whatever it says, with a signature that says so, so
+    its functional lock does not break to record nothing."""
     lib = tmp_path / "build"
     lib.mkdir()
     for aid, facade in (("gs_empty_rowhome_a", True), ("gs_facade_rowhome", True),
@@ -75,13 +80,22 @@ def test_a_brief_asks_for_empties_and_its_signature_says_so_only_then(tmp_path):
         for suf in (".glb", ".gameplay.json", ".slots.json"):
             (lib / f"{aid}{suf}").write_text("{}", encoding="utf-8")
         (lib / f"{aid}.validation.json").write_text(json.dumps({"facade": facade}), encoding="utf-8")
-    plain = MissionBrief(mission_id="m", display_name="m", lot_library=str(lib), building_count=3)
-    asked = MissionBrief(mission_id="m", display_name="m", lot_library=str(lib), building_count=3, empties="across")
-    assert building_library.empties_for_brief(plain) == []
-    # only the prefixed shell Deli Counter calls a facade
-    assert [r["id"] for r in building_library.empties_for_brief(asked)] == ["gs_empty_rowhome_a"]
-    assert "empties" not in plain.functional_signature()
-    assert asked.functional_signature()["empties"] == "across"
+
+    def brief(**kw):
+        return MissionBrief(mission_id="m", display_name="m", **kw)
+
+    for b in (brief(lot_library=str(lib), building_count=3),
+              brief(lot_library=str(lib), building_count=3, empties="across")):
+        # only the prefixed shell Deli Counter calls a facade
+        assert [r["id"] for r in building_library.empties_for_brief(b)] == ["gs_empty_rowhome_a"]
+        assert b.functional_signature()["empties"] == "across"
+    for b in (brief(lot_library=str(lib), building_count=3, empties="none"),
+              brief(lot_library=str(lib), building_count=3, empties=""),
+              brief(building_count=3),
+              brief(lot_library=str(lib), building_count=1),
+              brief(building_count=3, empties="across")):
+        assert building_library.empties_for_brief(b) == []
+        assert "empties" not in b.functional_signature()
 
 
 def test_the_planner_themes_an_empty_without_fixtures():
