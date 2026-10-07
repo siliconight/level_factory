@@ -57,6 +57,11 @@ _STOCK_SCENARIO: dict = {
     "player_height_m": 1.8,
     "player_eye_height_m": 1.6,
     "player_walk_speed_mps": 4.0,
+    # THE CONTRACT'S STEP-UP (0.154.0, roadmap 203): `max_step_up_m`, the step
+    # the player's controller lifts itself over. Laser Tag's crew had none, and
+    # cold run 9194's bank crew wedged at a 0.118 m stair edge the contract's
+    # player walks on.
+    "player_max_step_up_m": 0.5,
     # THE OTHER TWO THIRDS OF THE SIGHTLINE (Laser Tag 0.20.0, roadmap 131).
     # `player_eye_height_m` was one of SEVEN heights describing one firefight,
     # and the only one anything here could set: the enemy's eye and muzzle

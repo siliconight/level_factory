@@ -54,6 +54,9 @@ _FIELDS = {
     "player_height_m": "height_m",
     "player_eye_height_m": "eye_height_m",
     "player_walk_speed_mps": "walk_speed_mps",
+    # the step the player's controller lifts itself over (0.154.0, roadmap
+    # 203): Laser Tag 0.24.0's crew steps up to it
+    "player_max_step_up_m": "max_step_up_m",
     "aim_height_m": "chest_height_m",
 }
 
