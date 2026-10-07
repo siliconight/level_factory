@@ -23,6 +23,17 @@ from typing import Iterable, Mapping, Sequence
 from packages.adapters.sdk import BaseAdapter, PlannedCommand
 from packages.core.hashing import hash_file, scene_payload_hashes
 
+#: THE STATUSES LOT'S PACING WRITES (`site_pacing.estimate_pacing`, Lot
+#: 0.97.4), by name (0.153.0, roadmap 200). Anything else is reported as
+#: LOT_PACING_UNREAD, never passed. `tests/unit/test_brief_pacing.py` reads
+#: Lot's source and fails when the two lists differ.
+LOT_PACING_WITHIN = ("within target",)
+LOT_PACING_OUTSIDE = ("likely TOO SHORT vs target",
+                      "likely TOO LONG vs target",
+                      "partly outside target (range straddles the window)")
+LOT_PACING_STATUSES = LOT_PACING_WITHIN + LOT_PACING_OUTSIDE
+
+
 class LotAdapter(BaseAdapter):
     adapter_id = "lot"
     # 0.3.0: fingerprint_inputs also folds in the payload a composed .tscn
@@ -342,16 +353,45 @@ class LotAdapter(BaseAdapter):
 
         # Pacing is an ESTIMATE and never blocks (24.2). Surface an outside-target
         # window as an informational note the operator can weigh.
-        pacing = data.get("pacing") or {}
+        #
+        # EVERY STATUS LOT WRITES, BY NAME (0.153.0, roadmap 200). This matched
+        # "outside target" in the status, which only the straddle case carries,
+        # so "likely TOO SHORT vs target" and "likely TOO LONG vs target" --
+        # the two verdicts that mean most -- never surfaced. A status not in
+        # LOT_PACING_STATUSES, or no pacing block at all, is said out loud
+        # rather than read as a pass.
+        raw = data.get("pacing")
+        pacing = raw if isinstance(raw, dict) else {}
         status = str(pacing.get("status", ""))
-        if "outside target" in status:
+        if status in LOT_PACING_OUTSIDE:
+            # What the estimate counted, from its own breakdown: the reader
+            # weighs a window against the phases that filled it.
+            counted = []
+            for part in pacing.get("breakdown") or []:
+                phase = str(part.get("phase", "?"))
+                phase = "travel" if phase.startswith("travel") else phase
+                if phase not in counted:
+                    counted.append(phase)
             issues.append({
                 "code": "LOT_PACING_OUTSIDE_TARGET",
                 "severity": "moderate",
                 "category": "pacing",
                 "message": (f"pacing estimate {pacing.get('estimate_expected_min','?')} min "
                             f"({pacing.get('range_min','?')}) vs target "
-                            f"{pacing.get('target_min','?')}: {status}"),
+                            f"{pacing.get('target_min','?')}: {status} "
+                            f"(counted: {', '.join(counted) or 'nothing'})"),
+                "blocking": False,  # pacing never blocks
+                "raw_source_path": str(gameplay),
+            })
+        elif status not in LOT_PACING_WITHIN:
+            issues.append({
+                "code": "LOT_PACING_UNREAD",
+                "severity": "moderate",
+                "category": "pacing",
+                "message": ("Lot's gameplay manifest carries no pacing block"
+                            if raw is None else
+                            f"Lot's pacing status {status!r} is not one this "
+                            f"adapter knows (LOT_PACING_STATUSES)"),
                 "blocking": False,  # pacing never blocks
                 "raw_source_path": str(gameplay),
             })

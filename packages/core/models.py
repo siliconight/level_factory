@@ -91,6 +91,12 @@ class MissionBrief:
     #: ever generated stood on a T. Empty means T, the street the factory
     #: has always built.
     road_grammar: str = ""
+    #: RECORDED, NOT BUILT (roadmap 200): nothing builds from `route_shape`,
+    #: `objective_hypotheses`, `extraction_relationship`, `verticality`,
+    #: `landmark` or `seed_policy` yet. The first five are in
+    #: `functional_signature` below, so changing one re-locks a mission and
+    #: changes no geometry. `batch create` names the ones a brief sets
+    #: (`apps.cli.commands.UNBUILT_BRIEF_FIELDS`).
     route_shape: str = ""
     objective_hypotheses: list[str] = field(default_factory=list)
     extraction_relationship: str = ""

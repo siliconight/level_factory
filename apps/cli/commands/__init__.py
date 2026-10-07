@@ -81,6 +81,31 @@ def _brief_model(brief: dict) -> MissionBrief:
 LOT_LIBRARY_NONE = "none"
 
 
+def mission_mode(model) -> str:
+    """THE MISSION'S MODE, asked once (0.153.0, roadmap 200). The brief has no
+    `mode` field, so every mission is a heist. Deli Counter's spec and Lot's
+    site spec both read this, so the two cannot disagree."""
+    return getattr(model, "mode", None) or "heist"
+
+
+#: BRIEF FIELDS NOTHING BUILDS FROM YET (0.153.0, roadmap 200). Each is
+#: recorded in the brief and in the workspace's copy of it. Searched across
+#: every repo on 2026-10-07: the first five are read only by
+#: `MissionBrief.functional_signature`, so changing one re-locks a mission
+#: and changes no geometry; `seed_policy` is read by nothing. 181 cold-run
+#: briefs set the first five; none sets `seed_policy`. A field leaves this
+#: list in the release that builds something from it.
+UNBUILT_BRIEF_FIELDS = ("route_shape", "objective_hypotheses",
+                       "extraction_relationship", "verticality", "landmark",
+                       "seed_policy")
+
+
+def unbuilt_brief_fields(brief: dict) -> list[str]:
+    """The fields this brief sets that nothing builds from yet, in
+    `UNBUILT_BRIEF_FIELDS` order. An empty value is not set."""
+    return [f for f in UNBUILT_BRIEF_FIELDS if brief.get(f)]
+
+
 def _default_lot_library(ws: Workspace, brief: dict) -> str:
     """Give a brief the workspace's lot library when it named none and the
     library can honour it (0.145.0). Changes `brief` in place; returns the
@@ -186,6 +211,13 @@ def cmd_batch_create(args) -> int:
         note = _default_lot_library(ws, brief)
         if note:
             print(note)
+        # RECORDED, NOT BUILT (0.153.0, roadmap 200): a design intent the
+        # brief carries and nothing builds from is named, never silently
+        # dropped.
+        unbuilt = unbuilt_brief_fields(brief)
+        if unbuilt:
+            print(f"[batch] {mission_id}: recorded, not built -- nothing builds "
+                  f"from {', '.join(unbuilt)} yet (roadmap 200)")
         mdir = ws.mission_dir(batch_id, mission_id)
         for sub in ("brief", "source", "candidates", "selected", "presentation",
                     "validation", "handoff", "history"):
@@ -421,7 +453,7 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
         if job.adapter_id == "deli_counter":
             specs[job.job_id] = {
                 "archetype": model.archetype,
-                "mode": getattr(model, "mode", None) or "heist",
+                "mode": mission_mode(model),
                 "theme": model.theme or batch.get("theme_family", ""),
                 "seed": int(job.candidate_id.rsplit("_", 1)[-1]),
                 # Unique spec name per mission so parallel builds don't clash in
@@ -1526,7 +1558,9 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
     Matches the REAL Lot 0.18 schema: a top-level ``name`` (Lot reads
     site_spec["name"]) and per-building placement ``at`` [x, y] + ``rot`` (yaw
     degrees). Extra keys Lot ignores (site_shape/route_shape/target_minutes) are
-    kept for LF's own readers.
+    kept for the record: Level Factory reads `site_shape`, and nothing reads
+    the other two (roadmap 200). Lot's pacing reads `mode` and
+    `pacing.target_minutes` (0.153.0).
     """
     from packages.pipeline import road_grammar, site_variation
     from packages.pipeline.site_variation import (
@@ -1902,6 +1936,17 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         },
         "route_shape": model.route_shape,
         "target_minutes": list(model.target_minutes),
+        # THE BRIEF'S PACING REACHES LOT (0.153.0, roadmap 200). Lot's
+        # `site_pacing` reads its window from `pacing.target_minutes` and
+        # counts travel only for a `mode` it knows. The key above reached no
+        # reader, so every level was judged against Lot's 7-15 min default
+        # (144 of 144 candidate specs on disk) with no travel counted (cold
+        # run 9193: `"mode": null`). The mode also turns on Lot's heist gate
+        # (`site_tactical.gate`): spawn, objective and extraction must be
+        # joined, and all 144 were
+        # (`docs/findings/brief_pacing_mode/heist_gate_census.py`).
+        "mode": mission_mode(model),
+        "pacing": {"target_minutes": list(model.target_minutes)},
     }
     if not road_grammar.grammar_known(model.road_grammar):
         err = sys.stderr
