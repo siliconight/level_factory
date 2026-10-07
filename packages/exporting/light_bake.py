@@ -33,6 +33,16 @@ WHAT A BAKE NEEDS, AND WHO SUPPLIES IT:
     the editor window shows for about a minute. Bounded, and the process tree
     is killed on the bound.
 
+THE ROOMS' FLOOR (0.151.0). A lightmapped surface takes its light from the
+lightmap alone, so a room probe's ambient -- the floor Lux puts under a
+room's fixtures -- stopped reaching any wall or floor when this bake
+shipped, and a corner no lamp reaches baked to black
+(`docs/findings/night_interiors/` at the factory root). The plugin asks the
+level's Lux (>= 0.68.0) to lay bake-only fills over its room probes before
+Bake is pressed and frees them before the save: the lightmap holds their
+light and the package carries no fill. `room_fills` in the report counts
+them; -1 means the level's Lux lays none.
+
 WHAT SHIPS. `bake.tscn` at the package root (the presentation scene and its
 `LightmapGI`), `bake.lmbake`, `bake.exr` and the texture's sidecar, the
 presentation scene's steady rigs static, and `mission.tscn` instancing
@@ -292,6 +302,7 @@ def bake(export_dir, godot_executable, *, log=print) -> dict:
         result_p = work / RESULT
         result = json.loads(result_p.read_text(encoding="utf-8")) if result_p.exists() else None
         report["result"] = result
+        report["room_fills"] = (result or {}).get("room_fills")
         if code is None:
             raise RuntimeError(f"the editor did not finish in {EDITOR_TIMEOUT_S} s")
         if not result or not result.get("ok"):
@@ -306,10 +317,13 @@ def bake(export_dir, godot_executable, *, log=print) -> dict:
             raise RuntimeError("mission.tscn does not instance the presentation scene")
         _import(export_dir, godot_executable)
         report["ok"] = True
+        fills = report["room_fills"]
         log("[export] light bake: %d model(s) and %d primitive mesh(es) lightmapped, %d kept dynamic; "
-            "%d steady rig(s) baked, %d failing left live; %d users, %s s in the editor"
+            "%d steady rig(s) baked, %d failing left live; %s; %d users, %s s in the editor"
             % (len(report["imports"]["baked"]), sum(report["primitives"].values()),
                len(report["imports"]["dynamic"]), report["rigs"]["static"], report["rigs"]["live"],
+               "no room floor (the level's Lux lays none)" if fills in (None, -1)
+               else "%d room fill(s)" % fills,
                result.get("users"), report["editor_s"]))
     except Exception as exc:  # any failure ships the package unbaked
         pres.write_bytes(keep_pres)

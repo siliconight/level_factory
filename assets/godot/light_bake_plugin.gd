@@ -18,6 +18,14 @@ var _lm: LightmapGI = null
 ## loop, which calls `_process` again from inside them; the control run's
 ## save recursed until the stack overflowed. Nothing runs while this is set.
 var _busy: bool = false
+## THE ROOMS' FLOOR (0.151.0). Lux >= 0.68.0 lays bake-only fills over the
+## level's room probes (`LuxLightLoader.add_bake_fills`), because a
+## lightmapped wall takes no light from a room probe's ambient. The lightmap
+## must keep their light and the saved scene must not keep them: laid after
+## the scene opens and before Bake is pressed, freed before the save.
+## `_fill_count` is -1 when the level's Lux has no such call.
+var _fill: Node = null
+var _fill_count: int = -1
 
 
 func _enter_tree() -> void:
@@ -73,6 +81,37 @@ func _find_button(n: Node) -> Button:
 	return null
 
 
+## The level's Lux loader sits beside its LuxRoot's script, in a package
+## (`res://runtime/lux/runtime/`) and in Lux's own repo alike. Its
+## `add_bake_fills` lays the fill under `root` and returns the container.
+func _lay_room_fill(root: Node) -> Node:
+	if root == null:
+		return null
+	for n in root.get_tree().get_nodes_in_group(&"lux_root"):
+		if n != root and not root.is_ancestor_of(n):
+			continue
+		var s: Script = n.get_script()
+		if s == null:
+			continue
+		var path := s.resource_path.get_base_dir().path_join("lux_light_loader.gd")
+		if not ResourceLoader.exists(path):
+			continue
+		var loader: Script = load(path)
+		if loader == null or not loader.has_method("add_bake_fills"):
+			return null
+		var fill: Node = loader.call("add_bake_fills", root)
+		_fill_count = fill.get_child_count() if fill != null else 0
+		print("BAKE room fills: ", _fill_count)
+		return fill
+	return null
+
+
+func _free_room_fill() -> void:
+	if _fill != null and is_instance_valid(_fill):
+		_fill.free()
+	_fill = null
+
+
 func _process(_delta: float) -> void:
 	if _busy:
 		return
@@ -108,6 +147,7 @@ func _process(_delta: float) -> void:
 			if b == null:
 				_done({"ok": false, "error": "no Bake Lightmaps button"})
 				return
+			_fill = _lay_room_fill(EditorInterface.get_edited_scene_root())
 			_t0 = Time.get_ticks_msec()
 			_busy = true
 			b.pressed.emit()
@@ -131,6 +171,7 @@ func _process(_delta: float) -> void:
 				return
 			if _frames < 30:
 				return
+			_free_room_fill()
 			_busy = true
 			EditorInterface.save_scene()
 			_busy = false
@@ -140,5 +181,6 @@ func _process(_delta: float) -> void:
 				if t != null:
 					tex.append({"path": t.resource_path, "w": t.get_width(), "h": t.get_height()})
 			_done({"ok": true, "bake_ms": took, "users": d.get_user_count(),
+				"room_fills": _fill_count,
 				"data_path": d.resource_path, "textures": tex,
 				"quality": _lm.quality, "bounces": _lm.bounces})

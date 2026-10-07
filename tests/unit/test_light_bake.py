@@ -190,3 +190,41 @@ def test_a_failed_bake_leaves_a_package_the_closure_scan_accepts(tmp_path):
     assert r["ok"] is False and str(pkg) in r["reason"], r
     issues = [i for i in scan_closure(pkg).issues if i.startswith(LB.REPORT)]
     assert issues == [], issues
+
+
+def test_the_bake_lays_the_rooms_floor_and_frees_it_before_it_saves():
+    """THE ROOMS' FLOOR (0.151.0). Lux >= 0.68.0 lays bake-only fills over the
+    level's room probes (`LuxLightLoader.add_bake_fills`): the lightmap must
+    keep their light and the shipped scene must not keep them. The plugin
+    runs only inside the editor, so its order is read off its source: laid
+    before the button is pressed, freed before the scene is saved, counted in
+    the result."""
+    src = LB.PLUGIN_SCRIPT.read_text(encoding="utf-8")
+    lay = src.find("_fill = _lay_room_fill(")
+    press = src.find("b.pressed.emit()")
+    free = src.find("_free_room_fill()\n\t\t\t_busy = true\n\t\t\tEditorInterface.save_scene()")
+    assert '"add_bake_fills"' in src, "the plugin never asks Lux for the rooms' floor"
+    assert 0 <= lay < press, "the floor must be laid before Bake is pressed"
+    assert free > press, "the floor must be freed after the bake and before the save"
+    assert '"room_fills": _fill_count' in src, "the result must say how many fills the bake held"
+
+
+def test_a_bake_reports_its_room_fills(tmp_path, monkeypatch):
+    """What the plugin counted reaches `light_bake.json` and the export log."""
+    pkg = _package(tmp_path)
+    monkeypatch.setattr(LB, "_import", lambda d, g: True)
+
+    def fake_editor(cmd, timeout):
+        work = Path(cmd[cmd.index("--path") + 1])
+        (work / LB.RESULT).write_text(json.dumps({"ok": True, "users": 12, "room_fills": 30}), encoding="utf-8")
+        (work / "bake.tscn").write_text("[gd_scene format=3]\n", encoding="utf-8")
+        for f in ("bake.lmbake", "bake.exr", "bake.exr.import"):
+            (work / f).write_text("x", encoding="utf-8")
+        return 0, 3.0
+    monkeypatch.setattr(LB, "_run", fake_editor)
+    said = []
+    r = LB.bake(pkg, "godot.exe", log=said.append)
+    assert r["ok"] is True, r
+    assert r["room_fills"] == 30
+    assert json.loads((pkg / LB.REPORT).read_text(encoding="utf-8"))["room_fills"] == 30
+    assert any("30 room fill(s)" in s for s in said), said
