@@ -106,6 +106,17 @@ def test_the_walkers_three_kinds_resolve_from_a_briefs_words():
         assert _preset_for(alias) == "strip_club", alias
 
 
+def test_a_delis_words_resolve_to_the_corner_deli():
+    """0.150.0. Refused since 0.146.0 while the delis lacked the store's
+    detail; Deli Counter 0.199.0-0.201.0 and Zoo 1.81.0 gave it them. A
+    brief that asks for a deli in plain words gets `corner_deli`, and
+    `stop_n_go`, the library's Flappahs store by another name, the store."""
+    for alias in ("deli", "delicatessen", "night_deli"):
+        assert _preset_for(alias) == "corner_deli", alias
+    assert _preset_for("stop_n_go") == "convenience_store"
+    assert _preset_for("corner_deli") == "corner_deli"
+
+
 def test_the_words_left_refused_stay_refused():
     """A wrong-but-plausible building is worse than a refusal. `corner_store`
     is as often the deli as the Flappahs store in Philadelphia; a nightclub

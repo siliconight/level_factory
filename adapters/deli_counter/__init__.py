@@ -91,6 +91,16 @@ _ARCHETYPE_ALIASES = {
     "video_rental": "video_store", "video_rental_store": "video_store",
     "vhs_store": "video_store", "vhs_rental": "video_store",
     "movie_rental": "video_store",
+    # THE CORNER DELI (0.150.0). Refused from 0.146.0 while the delis lacked
+    # the store's detail; Deli Counter 0.199.0-0.201.0 stop the case at its
+    # wall, build it as Zoo 1.81.0's `deli_case` and hang a beer sign and
+    # posters in the window, generated and drawn alike. `stop_n_go` is the
+    # library's Flappahs store by another name (0.147.0 dresses it in
+    # FLAPPAHS). `corner_store` stays refused, above: as often the deli as
+    # the Flappahs store.
+    "deli": "corner_deli", "delicatessen": "corner_deli",
+    "night_deli": "corner_deli",
+    "stop_n_go": "convenience_store",
 }
 
 
