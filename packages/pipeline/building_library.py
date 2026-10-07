@@ -591,6 +591,18 @@ def anchor_families(entries: list[dict], archetype: str) -> list[str]:
     return out
 
 
+def score_building(entries: list[dict], archetype: str):
+    """The site building that IS the score: ``"b0"`` when a library family
+    answers to the brief's archetype, ``None`` when none does.
+
+    `pick_lot` places a variant of an anchor family FIRST, so the archetype's
+    building is always b0 on an anchored lot. With no such family the
+    archetype is not on the site at all, and the seeded pick stands rather
+    than a guess (0.152.0, roadmap 201).
+    """
+    return "b0" if anchor_families(entries, archetype) else None
+
+
 def pick_lot(entries: list[dict], seed: int, count: int,
              anchor: str = None) -> list[dict]:
     """``count`` archetypes for one candidate, no two from the same family.

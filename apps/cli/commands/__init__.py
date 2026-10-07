@@ -1579,6 +1579,8 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
     # a worse lie than the repetition it replaces.
     themed_map = themed_scene if isinstance(themed_scene, dict) else None
     lot = []
+    # the building that IS the score, when the lot is anchored (0.152.0)
+    score = None
     library = getattr(model, "lot_library", None)
     # THE SILENT DEFAULT, SAID OUT LOUD. Roadmap 37's mechanism is built and
     # opt-in, and the opting-in is the part nobody does: of eight briefs on
@@ -1687,6 +1689,10 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         lot = building_library.pick_lot(
             complete, seed, count,
             anchor=getattr(model, "archetype", "") or "")
+        # THE SCORE IS THE BUILDING THE BRIEF ASKED FOR (0.152.0, roadmap
+        # 201): the anchor family's building, which `pick_lot` placed first.
+        score = building_library.score_building(
+            complete, getattr(model, "archetype", "") or "")
         if len(lot) < count:
             # Loud, not silent. A short lot means the library is smaller than
             # the brief asked for, and a site quietly missing buildings is the
@@ -1703,6 +1709,7 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         from packages.pipeline import street_line as _sl
         placed = site_placements(seed, len(lot), footprints=footprints,
                                  shape=model.site_shape,
+                                 objective=score,
                                  fronts=[_fd.facing_yaw(w) for w, _r in front_of],
                                  extents=[_sl.shell_extents(e["glb"]) for e in lot])
         # `scene` when this archetype has been composed, `glb` otherwise --
@@ -1851,6 +1858,11 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         "spawn": placed["spawn"],
         "objective": placed["objective"],
         "extraction": placed["extraction"],
+        # WHICH RULE PICKED THE SCORE (0.152.0): "archetype" when the lot
+        # is anchored and b0 is the brief's building; "seed" otherwise --
+        # a single generated shell (every copy is the archetype's) or a lot
+        # whose library has no family for the archetype.
+        "objective_from": "archetype" if score else "seed",
         # LF-only metadata (ignored by Lot, read by LF's own tooling):
         "schema": "lot.site.v0.18",
         "site_id": model.mission_id,

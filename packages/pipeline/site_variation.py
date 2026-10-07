@@ -101,13 +101,18 @@ stream = _stream
 
 def site_placements(seed: int, count: int, *, spacing: int = 45,
                     footprints=None, shape=None, fronts=None,
-                    extents=None) -> dict:
+                    extents=None, objective=None) -> dict:
     """Deterministic placement + role assignment for one candidate's buildings.
 
     Returns ``{"buildings": [{"at": [x, y], "rot": deg}, ...], "spawn": id,
     "objective": id, "extraction": id}`` -- the building-role keys Lot reads to
     place the walkable scene's spawn/objective/extraction, which LF was leaving
     unset so every candidate spawned the player at Lot's origin default.
+
+    ``objective`` (0.152.0): the building id that IS the score -- the brief's
+    archetype, which `pick_lot` places first (`building_library.score_building`).
+    Given, the spawn is drawn among the other buildings. Not given, the roles
+    are the seeded draw that always was.
 
     The row is centred on the origin. It used to start there and march out along
     +x, which put a four-building row at x -6..141 under a plate centred on 0 --
@@ -165,8 +170,21 @@ def site_placements(seed: int, count: int, *, spacing: int = 45,
     # one you leave from. On a one-building site all three collapse onto it,
     # which is correct rather than degenerate.
     ids = [f"b{i}" for i in range(count)]
-    spawn = ids[next(rng) % count]
-    objective = ids[next(rng) % count]
+    if objective is not None and objective not in ids:
+        raise ValueError("objective %r is not one of this site's buildings %r"
+                         % (objective, ids))
+    if objective is not None and count > 1:
+        # THE SCORE IS THE BUILDING THE BRIEF ASKED FOR (0.152.0, roadmap 201).
+        # The two draws below used to pick spawn and objective independently,
+        # so the score ignored the archetype and, on 3 of 12 three-building
+        # sites (seeds 9000-9011), the crew spawned inside it. The objective's
+        # draw is still made, so the extraction draw does not move.
+        rest = [b for b in ids if b != objective]
+        spawn = rest[next(rng) % len(rest)]
+        next(rng)
+    else:
+        spawn = ids[next(rng) % count]
+        objective = ids[next(rng) % count]
     # Prefer an extraction that is not the spawn, so the route crosses the site.
     others = [b for b in ids if b != spawn] or ids
     extraction = others[next(rng) % len(others)]
