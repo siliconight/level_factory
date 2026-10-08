@@ -80,7 +80,7 @@ def _godot(p):
 def test_the_package_says_how_each_responder_arrives(tmp_path):
     result = _export(tmp_path, _gameplay(tmp_path))
     doc = json.loads((result.export_dir / RESPONDER_ARRIVALS_NAME).read_text(encoding="utf-8"))
-    assert doc["schema"] == "level_factory.responder_arrivals.v1"
+    assert doc["schema"] == "level_factory.responder_arrivals.v2"
     assert len(doc["arrivals"]) == len(ARRIVALS)
     for got, a in zip(doc["arrivals"], ARRIVALS):
         assert got["entry"] == _godot(a["entry"]) and got["stop"] == _godot(a["stop"])
@@ -91,6 +91,47 @@ def test_the_package_says_how_each_responder_arrives(tmp_path):
         x0, y0, x1, y1 = a["stop_box"]
         assert got["stop_box"] == {"min": [x0, -y1], "max": [x1, -y0]}
         assert got["vehicle_m"] == a["vehicle"]
+        # a Lot 0.99 lane: its one box, the only one, at shift 0
+        x0, y0, x1, y1 = a["lane_box"]
+        assert got["lane_boxes"] == [{"min": [x0, -y1], "max": [x1, -y0]}]
+        assert got["lane_shift_m"] == 0.0
+        assert "lane_box" not in got
+
+
+#: Lot 0.100.0's arrival for cold run 9204's road 0 east end, the one a
+#: rigid lane lost to the getaway van, verbatim from `site_responders.plan`
+#: on Lot's `club_block_014_seed_9181` fixture: its lane steered 0.648 m round
+#: the van, nine boxes (plan rects, site frame) in order from the entry, the
+#: shift ramping 0.192 a metre up and back down.
+STEERED = {
+    "road": 0, "travel": -1, "entry": [92.5, -22.75], "stop": [62.637, -22.75], "yaw": 270.0,
+    "vehicle": [2.196, 5.545, 1.578], "stop_box": [59.865, -24.743, 65.41, -20.757],
+    "lane_boxes": [[82.5, -24.348, 92.5, -21.152], [81.5, -24.42, 82.5, -21.224],
+                   [80.5, -24.612, 81.5, -21.416], [79.5, -24.804, 80.5, -21.608],
+                   [71.5, -24.996, 79.5, -21.8], [70.5, -24.804, 71.5, -21.608],
+                   [69.5, -24.612, 70.5, -21.416], [68.5, -24.42, 69.5, -21.224],
+                   [65.41, -24.348, 68.5, -21.152]],
+    "lane_shift": 0.648, "toward": [63.87, -16.101], "to_way_back": 6.763, "run": 29.863,
+}
+
+
+def test_a_steered_lane_ships_every_box_in_order(tmp_path):
+    """Lot 0.100.0's `lane_boxes`, each turned to the package's frame, in the
+    order Lot wrote them, with the lane's largest shift."""
+    gp = {"up_axis": "z", "markers": [],
+          "site_markers": [{"type": "crew_spawn", "at": VAN, "source": "getaway_van"},
+                           {"type": "responder_spawn", "at": STEERED["stop"],
+                            "source": "responder_arrival", "arrival": STEERED}],
+          "responder_plan": {"arrivals": [STEERED], "findings": []}}
+    path = tmp_path / "site.site.gameplay.json"
+    path.write_text(json.dumps(gp), encoding="utf-8")
+    result = _export(tmp_path, path)
+    doc = json.loads((result.export_dir / RESPONDER_ARRIVALS_NAME).read_text(encoding="utf-8"))
+    (got,) = doc["arrivals"]
+    assert got["lane_boxes"] == [{"min": [x0, -y1], "max": [x1, -y0]}
+                                 for x0, y0, x1, y1 in STEERED["lane_boxes"]]
+    assert got["lane_shift_m"] == 0.648
+    assert got["vehicle_m"] == [2.196, 5.545, 1.578]
 
 
 def test_the_manifest_lists_it(tmp_path):

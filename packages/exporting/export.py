@@ -1072,6 +1072,14 @@ def write_responder_arrivals(export_dir: Path, lot_gameplay) -> dict | None:
     faces arriving, the lane and stop boxes nothing else stands in, and the
     point of the crew's way back the stop was chosen for.
 
+    THE LANE IS BOXES (0.161.0, schema v2). Lot 0.100.0 steers a lane round
+    what stands in it -- toward and across the centre line, tapered, back in
+    its own half by the stop -- and writes it as `lane_boxes`, one box a run
+    of slices at one shift, with `lane_shift` the largest. One box could not
+    say that: drawn round a steered lane it covers the van the lane goes
+    round. A lane from Lot 0.99 is its one `lane_box`, shipped as the only
+    box, at shift 0.
+
     Frame: Godot -- x, y up, z = -(site y) -- metres, the frame of every
     position in `gameplay_anchors.json`; the ground at y 0. A box is the
     x/z extent of a plan rect. Lot's output from before 0.99.0 carries no
@@ -1092,20 +1100,23 @@ def write_responder_arrivals(export_dir: Path, lot_gameplay) -> dict | None:
         dx, dz = sx - ex, sz - ez
         n = math.hypot(dx, dz) or 1.0
         tx, tz = _package_xz(*a["toward"][:2])
-        boxes = {}
-        for key in ("stop_box", "lane_box"):
-            x0, y0, x1, y1 = a[key]
-            boxes[key] = {"min": _package_xz(x0, y1), "max": _package_xz(x1, y0)}
+        def box(rect):
+            x0, y0, x1, y1 = rect
+            return {"min": _package_xz(x0, y1), "max": _package_xz(x1, y0)}
+
+        lane = a["lane_boxes"] if "lane_boxes" in a else [a["lane_box"]]
         arrivals.append({
             "anchor": anchor["id"],
             "entry": [ex, 0.0, ez], "stop": [sx, 0.0, sz],
             "forward": [dx / n, 0.0, dz / n],
             "vehicle_m": list(a.get("vehicle") or []),
-            "stop_box": boxes["stop_box"], "lane_box": boxes["lane_box"],
+            "stop_box": box(a["stop_box"]),
+            "lane_boxes": [box(r) for r in lane],
+            "lane_shift_m": a.get("lane_shift", 0.0),
             "toward": [tx, 0.0, tz],
             "to_way_back_m": a.get("to_way_back"), "run_m": a.get("run"),
         })
-    doc = {"schema": "level_factory.responder_arrivals.v1",
+    doc = {"schema": "level_factory.responder_arrivals.v2",
            "frame": "Godot: x, y up, z = -(site y); metres; the ground at y 0",
            "what": ("Where responders can arrive. The factory reserves each "
                     "lane and stop; spawning and timing responders is the "
