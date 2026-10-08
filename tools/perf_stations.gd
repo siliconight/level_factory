@@ -59,7 +59,8 @@ extends SceneTree
 ## draw calls for lighting fidelity, so a change that improves this report's
 ## draw column can silently darken interiors; the two belong in one report.
 ## Cold run 9088: 34 of 4,625 meshes over the cap of 8, worst a 47 m roof
-## reached by 47 lights.
+## reached by 47 lights. Two counts since 0.159.0, BY REACH and PAIRED --
+## `_light_census` says why the second is the one the cap is spent on.
 ##
 ## ============================== NOT THIS ===============================
 ##
@@ -170,7 +171,7 @@ func _arg(name: String, fallback: String) -> String:
 ## the box under rotation. An AABB is a SUPERSET of the mesh, so this can
 ## under-report a distance and never over-report one, which is the safe
 ## direction for "does this light reach this mesh".
-func _surface_dist(mi: MeshInstance3D, p: Vector3) -> float:
+static func _surface_dist(mi: MeshInstance3D, p: Vector3) -> float:
 	var lp: Vector3 = mi.global_transform.affine_inverse() * p
 	var ab: AABB = mi.get_aabb()
 	var q := Vector3(
@@ -180,7 +181,7 @@ func _surface_dist(mi: MeshInstance3D, p: Vector3) -> float:
 	return (mi.global_transform * q).distance_to(p)
 
 
-func _reach(l: Light3D) -> float:
+static func _reach(l: Light3D) -> float:
 	var sp: SpotLight3D = l as SpotLight3D
 	if sp != null:
 		return sp.spot_range
@@ -377,7 +378,51 @@ func _sample(cam: Camera3D, eye: Vector3, yaw: float) -> Dictionary:
 const OVER_LIST_MAX := 200
 
 
-func _light_census(nodes: Array, cap: int) -> Dictionary:
+## THE MESHES THAT HAVE A LIGHTMAP (0.159.0): every LightmapGI's own users,
+## resolved the way LightmapGI resolves them, relative to itself. A mesh gets
+## a lightmap in the renderer only by being one -- `gi_mode` static on a mesh
+## the bake skipped is not -- so this list, not a mesh's flags, is what the
+## pairing rule reads. Keyed by instance id.
+static func _lightmap_users(nodes: Array) -> Dictionary:
+	var users: Dictionary = {}
+	for n in nodes:
+		var lm: LightmapGI = n as LightmapGI
+		if lm == null or lm.light_data == null:
+			continue
+		var data: LightmapGIData = lm.light_data
+		for i in range(data.get_user_count()):
+			var u: Node = lm.get_node_or_null(data.get_user_path(i))
+			if u != null:
+				users[u.get_instance_id()] = true
+	return users
+
+
+## WHETHER THE RENDERER PAIRS `l` WITH `mi`, given that the light reaches it.
+## Godot 4.7, servers/rendering/renderer_scene_cull.cpp, `_scene_cull`, where a
+## mesh's lights are rebuilt (FLAG_GEOM_LIGHTING_DIRTY): a light whose cull
+## mask misses the mesh's layers is skipped, and so is a BAKE_STATIC light on
+## a mesh that has a lightmap -- that light is in the lightmap already. A
+## hidden light is not in the scenario's pairing at all.
+static func _pairs(l: Light3D, mi: MeshInstance3D, mapped: bool) -> bool:
+	if not l.is_visible_in_tree():
+		return false
+	if (l.light_cull_mask & mi.layers) == 0:
+		return false
+	return not (mapped and l.light_bake_mode == Light3D.BAKE_STATIC)
+
+
+## TWO COUNTS (0.159.0).
+##   BY REACH, the top-level fields as they always were: every positional
+##   light whose range reaches a mesh's box, baked or live.
+##   PAIRED, under `paired`: of those, the ones the renderer binds (`_pairs`).
+## Since the light bake (0.131.0) most Lux rigs are BAKE_STATIC, and the
+## renderer never binds one to a lightmapped mesh, so the reach count stopped
+## being what the cap is spent on: cold run 9204's package read "33 of 3,954
+## meshes over 8, worst 31" with its club's stage lamps baked and with them
+## live (docs/findings/club_stage_live_price/ at the factory root). Both
+## counts take a light's range against the mesh's box -- spot cones as
+## spheres -- so both are upper bounds on what the renderer binds.
+static func _light_census(nodes: Array, cap: int) -> Dictionary:
 	var lights: Array = []
 	var meshes: Array = []
 	for n in nodes:
@@ -389,35 +434,71 @@ func _light_census(nodes: Array, cap: int) -> Dictionary:
 		var mi: MeshInstance3D = n as MeshInstance3D
 		if mi != null and mi.visible and mi.mesh != null:
 			meshes.append(mi)
-	var over: int = 0
-	var worst: int = 0
-	var worst_name: String = "-"
+	var users: Dictionary = _lightmap_users(nodes)
+	var n_static: int = 0
+	for o in lights:
+		if (o as Light3D).light_bake_mode == Light3D.BAKE_STATIC:
+			n_static += 1
 	# WHICH MESHES, not only how many. Cold run 9125 moved one light and the
 	# count went 43 -> 44, and nothing could say which mesh had crossed: the
 	# report kept the count and the single worst name, and names repeat
 	# (`Prop_Panel`). Every mesh over the cap by its node PATH, worst first,
 	# at most OVER_LIST_MAX, and a flag that says when the list was cut.
-	var over_list: Array = []
+	# AND HOW MANY IN ALL, not only over the cap: `pairs` is every
+	# (light, mesh) the count holds and `histogram` how many meshes hold how
+	# many, so a change that moves lights under the cap still shows.
+	var reach: Dictionary = {"over": 0, "worst": 0, "worst_mesh": "-", "list": [],
+		"pairs": 0, "hist": {}}
+	var paired: Dictionary = {"over": 0, "worst": 0, "worst_mesh": "-", "list": [],
+		"pairs": 0, "hist": {}}
 	for m in meshes:
 		var mi2: MeshInstance3D = m as MeshInstance3D
+		var mapped: bool = users.has(mi2.get_instance_id())
 		var n_reach: int = 0
+		var n_paired: int = 0
 		for o in lights:
 			var ol: Light3D = o as Light3D
 			if _surface_dist(mi2, ol.global_position) <= _reach(ol):
 				n_reach += 1
-		if n_reach > cap:
-			over += 1
-			over_list.append({"mesh": String(mi2.get_path()), "lights": n_reach})
-		if n_reach > worst:
-			worst = n_reach
-			worst_name = String(mi2.name)
-	over_list.sort_custom(func(a, b): return int(a["lights"]) > int(b["lights"]) 		or (int(a["lights"]) == int(b["lights"]) and String(a["mesh"]) < String(b["mesh"])))
-	var truncated: bool = over_list.size() > OVER_LIST_MAX
+				if _pairs(ol, mi2, mapped):
+					n_paired += 1
+		var path: String = String(mi2.get_path())
+		_tally(reach, n_reach, cap, {"mesh": path, "lights": n_reach}, mi2)
+		_tally(paired, n_paired, cap,
+			{"mesh": path, "lights": n_paired, "by_reach": n_reach}, mi2)
+	var out: Dictionary = {"cap": cap, "lights": lights.size(),
+		"meshes": meshes.size(), "basis": "reach"}
+	out.merge(_close(reach))
+	var p: Dictionary = _close(paired)
+	p["basis"] = "paired"
+	p["lightmap_users"] = users.size()
+	p["lights_static"] = n_static
+	out["paired"] = p
+	return out
+
+
+static func _tally(t: Dictionary, n: int, cap: int, row: Dictionary,
+		mi: MeshInstance3D) -> void:
+	t["pairs"] = int(t["pairs"]) + n
+	var h: Dictionary = t["hist"]
+	h[n] = int(h.get(n, 0)) + 1
+	if n > cap:
+		t["over"] = int(t["over"]) + 1
+		(t["list"] as Array).append(row)
+	if n > int(t["worst"]):
+		t["worst"] = n
+		t["worst_mesh"] = String(mi.name)
+
+
+static func _close(t: Dictionary) -> Dictionary:
+	var lst: Array = t["list"]
+	lst.sort_custom(func(a, b): return int(a["lights"]) > int(b["lights"]) or (int(a["lights"]) == int(b["lights"]) and String(a["mesh"]) < String(b["mesh"])))
+	var truncated: bool = lst.size() > OVER_LIST_MAX
 	if truncated:
-		over_list = over_list.slice(0, OVER_LIST_MAX)
-	return {"cap": cap, "lights": lights.size(), "meshes": meshes.size(),
-		"over_cap": over, "worst": worst, "worst_mesh": worst_name,
-		"over_list": over_list, "over_list_truncated": truncated}
+		lst = lst.slice(0, OVER_LIST_MAX)
+	return {"over_cap": t["over"], "worst": t["worst"], "worst_mesh": t["worst_mesh"],
+		"over_list": lst, "over_list_truncated": truncated,
+		"pairs": t["pairs"], "histogram": t["hist"]}
 
 
 func _write() -> void:
@@ -645,9 +726,13 @@ func _run() -> void:
 				worst["draws"], worst["primitives"], worst["gpu_ms"],
 				worst["render_cpu_ms"]])
 
-	print("[perf] lights per object: cap %d, %d of %d mesh(es) over it, worst %d (%s)"
+	# BOTH COUNTS (0.159.0): by reach, as this line always printed it, and
+	# paired -- what the renderer binds, the one the cap is spent on.
+	var pc: Dictionary = census["paired"]
+	print("[perf] lights per object: cap %d; by reach %d of %d mesh(es) over it, worst %d (%s); paired %d over it, worst %d (%s)"
 		% [census["cap"], census["over_cap"], census["meshes"],
-			census["worst"], census["worst_mesh"]])
+			census["worst"], census["worst_mesh"],
+			pc["over_cap"], pc["worst"], pc["worst_mesh"]])
 	_complete = true
 	_write()
 	_exit(0)

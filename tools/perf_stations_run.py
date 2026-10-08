@@ -289,17 +289,37 @@ def main(argv=None) -> int:
     census = rows[0].get("light_census") or {}
     if census:
         print()
-        print("  lights per object: cap %s, %s of %s mesh(es) over it, "
-              "worst %s (%s)"
+        print("  lights per object, by reach: cap %s, %s of %s mesh(es) over it, "
+              "worst %s (%s); %s light-mesh pair(s)"
               % (census.get("cap"), census.get("over_cap"),
                  census.get("meshes"), census.get("worst"),
-                 census.get("worst_mesh")))
+                 census.get("worst_mesh"), census.get("pairs", "?")))
         # WHICH MESHES (0.125.0): the probe lists every mesh over the cap
         # by node path, worst first; a report from before it has no list
         for o in (census.get("over_list") or [])[:OVER_PRINT]:
             print("    %3s lights  %s" % (o.get("lights"), o.get("mesh")))
         if census.get("over_list_truncated"):
             print("    (list cut at the probe's limit; `over_cap` is the full count)")
+        # PAIRED (0.159.0): what the renderer binds -- by reach less the
+        # baked lights on lightmapped meshes, the lights masked off a
+        # mesh's layers and the hidden ones. The cap is spent on this one.
+        paired = census.get("paired")
+        if paired:
+            print("  lights per object, paired: %s of %s mesh(es) over the cap, "
+                  "worst %s (%s); %s light-mesh pair(s); %s lightmap user(s), "
+                  "%s of %s light(s) baked"
+                  % (paired.get("over_cap"), census.get("meshes"),
+                     paired.get("worst"), paired.get("worst_mesh"),
+                     paired.get("pairs", "?"), paired.get("lightmap_users"),
+                     paired.get("lights_static"), census.get("lights")))
+            for o in (paired.get("over_list") or [])[:OVER_PRINT]:
+                print("    %3s lights  (%s by reach)  %s"
+                      % (o.get("lights"), o.get("by_reach"), o.get("mesh")))
+            if paired.get("over_list_truncated"):
+                print("    (list cut at the probe's limit; `over_cap` is the full count)")
+        else:
+            print("  lights per object, paired: no paired count in this report "
+                  "(a probe from before 0.159.0)")
         print("  (merging and instancing buy draw calls with lighting "
               "fidelity; a change that")
         print("   improves the draw column can darken interiors, so the two "
