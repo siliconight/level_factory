@@ -87,6 +87,55 @@ def markers_to_anchors(gameplay: dict, source: str, up: str = "z") -> list:
     return anchors
 
 
+#: Lot's SITE-LEVEL markers (its gameplay file's `site_markers`) -> the
+#: Dispatch anchor type each becomes and the mission-flow tag it carries.
+#: A site-level `crew_spawn` and `extraction` are the mission's own: Lot's
+#: `_walk_positions` takes them over any building's, which is how the
+#: getaway van (Lot 0.98.0) puts the crew's start and exit at its door. A
+#: `responder_spawn` is where responders arrive (Lot 0.99.0, roadmap 212).
+_SITE_MARKERS = {
+    "crew_spawn": ("player_start", "mission_start"),
+    "extraction": ("extraction", "extraction"),
+    "responder_spawn": ("ai_spawn", "responder"),
+}
+
+
+def site_markers_to_anchors(gameplay: dict, source: str) -> list:
+    """Lot's site-level markers as Dispatch anchors (0.156.0, roadmap 204).
+
+    `_iter_records` reads `markers`, `objectives` and `loot`, and the site's
+    own markers live in `site_markers` -- so until this no site-level marker
+    reached Dispatch. The getaway van's crew spawn and extraction never
+    became the package's; `ensure_mission_anchors` synthesized a
+    `player_start` at the centroid of every Lot anchor and tagged every
+    building's extraction as the mission's (cold run 9198's package:
+    `lot:mission_start` at (-7.03, 0.68), 14 m from the van).
+
+    A site marker stands on the plate: `at` is a plan point, and its height
+    is the ground's, as `lot._walk_positions` reads it. No facing is
+    passed: a Lot slot yaw and a Dispatch `rot_y` have not been shown to
+    share a convention, and a yaw read in the wrong one is silently wrong."""
+    anchors: list = []
+    counts: dict = {}
+    for m in gameplay.get("site_markers", []) or []:
+        if not isinstance(m, dict):
+            continue
+        at = m.get("at")
+        if not isinstance(at, (list, tuple)) or len(at) < 2:
+            continue
+        raw = str(m.get("type") or "interaction")
+        atype, tag = _SITE_MARKERS.get(raw, (_TYPE_MAP.get(raw, raw), None))
+        origin = str(m.get("source") or "site")
+        n = counts.get((origin, raw), 0)
+        counts[(origin, raw)] = n + 1
+        anchor = {"id": f"{source}:{origin}_{raw}_{n}", "type": atype,
+                  "pos": [_num(at[0]), _num(at[1]), 0.0]}
+        if tag:
+            anchor["tags"] = [tag]
+        anchors.append(anchor)
+    return anchors
+
+
 #: anchor type -> the `mission_flow` location_tag that binds to it.
 #: `location_tag` matches an anchor's TAGS, never its type, so a type with no
 #: tagged instance is invisible to the mission flow no matter how many of them
@@ -212,8 +261,13 @@ def stage_dispatch_inputs(dest_dir: Path, *, deli_gameplay: Path, shell_glb: Pat
     # ---- lot (site layout + nav; glb is a passthrough of the DC shell) ----
     lot_gp = _read_json(lot_gameplay)
     lot_up = str(lot_gp.get("up_axis", up))
+    # THE SITE'S OWN MARKERS FIRST (0.156.0, roadmap 204): the getaway van's
+    # start and exit carry the mission's tags, so `ensure_mission_anchors`
+    # finds them tagged -- it neither synthesizes a start at the centroid
+    # nor tags every building's extraction as the mission's.
     lot_anchors = ensure_mission_anchors(
-        markers_to_anchors(lot_gp, "lot", lot_up), "lot", lot_up)
+        site_markers_to_anchors(lot_gp, "lot") + markers_to_anchors(lot_gp, "lot", lot_up),
+        "lot", lot_up)
     (lot_dir / "lot.gameplay.json").write_text(json.dumps({
         "schema": "lot.gameplay.v1", "license": {**lic, "source": "lot"},
         "up_axis": lot_up, "anchors": lot_anchors,
