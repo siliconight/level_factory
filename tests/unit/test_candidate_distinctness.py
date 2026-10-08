@@ -98,7 +98,8 @@ def test_every_candidate_names_a_spawn_objective_and_extraction():
         assert p["spawn"] in ids
         assert p["objective"] in ids
         assert p["extraction"] in ids
-        assert p["extraction"] != p["spawn"], "the route should cross the site"
+        # the crew leaves from where it came: the getaway van (0.155.0)
+        assert p["extraction"] == p["spawn"], "the van is at the spawn"
 
 
 def test_a_single_building_site_is_valid_not_degenerate():

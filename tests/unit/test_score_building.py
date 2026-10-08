@@ -23,7 +23,8 @@ def test_a_fixed_score_is_the_objective_and_never_the_spawn(count):
         p = site_placements(s, count, objective="b0")
         assert p["objective"] == "b0", (s, p)
         assert p["spawn"] != "b0", ("the crew spawned in the score", s, p)
-        assert p["extraction"] != p["spawn"], ("the route should cross the site", s, p)
+        # the crew leaves from where it came: the getaway van (0.155.0)
+        assert p["extraction"] == p["spawn"], ("the van is at the spawn", s, p)
 
 
 def test_a_one_building_site_is_all_three_whatever_is_asked():
@@ -38,9 +39,11 @@ def test_an_unknown_score_building_is_refused():
 
 def test_no_score_given_is_the_draw_that_always_was():
     """Pinned on 0.151.0's own output, so a site with no anchored score -- and
-    every candidate already graded -- keeps its roles."""
-    expect = {9000: ("b0", "b0", "b1"), 9001: ("b2", "b1", "b0"),
-              9002: ("b2", "b2", "b0"), 9003: ("b1", "b0", "b0")}
+    every candidate already graded -- keeps its spawn and its objective. The
+    extraction is the spawn since 0.155.0 (the getaway van); 0.151.0 drew
+    b1, b0, b0, b0 for these four, and that draw is still made."""
+    expect = {9000: ("b0", "b0", "b0"), 9001: ("b2", "b1", "b2"),
+              9002: ("b2", "b2", "b2"), 9003: ("b1", "b0", "b1")}
     for s, roles in expect.items():
         p = site_placements(s, 3)
         assert (p["spawn"], p["objective"], p["extraction"]) == roles, (s, p)

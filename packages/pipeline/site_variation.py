@@ -185,9 +185,17 @@ def site_placements(seed: int, count: int, *, spacing: int = 45,
     else:
         spawn = ids[next(rng) % count]
         objective = ids[next(rng) % count]
-    # Prefer an extraction that is not the spawn, so the route crosses the site.
-    others = [b for b in ids if b != spawn] or ids
-    extraction = others[next(rng) % len(others)]
+    # THE CREW LEAVES FROM WHERE IT CAME (0.155.0, roadmap 206). The walker,
+    # 2026-10-07: "location of the getaway vehicle should be the same as the
+    # missions spawn point. you spawn, do the job, then return to the car" --
+    # so the extraction is the spawn building, and Lot (0.98.0) parks the
+    # getaway van at its kerb and puts the crew's start and exit at the van's
+    # door. The draw that chose another building is still made, so no number
+    # a seed gives after it moves. *As first written:* "Prefer an extraction
+    # that is not the spawn, so the route crosses the site." -- which on 43
+    # of 136 specs crossed it into the score building itself.
+    next(rng)
+    extraction = spawn
     return {"buildings": buildings, "spawn": spawn,
             "objective": objective, "extraction": extraction}
 
