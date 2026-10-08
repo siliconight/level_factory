@@ -100,6 +100,13 @@ HANDOFF_LANGUAGE = (
     "Nothing else in this folder is expected to be absent from the manifest; up "
     "to level_factory 0.103.0 four files were, which is the defect this block "
     "exists to have made impossible.\n\n"
+    "WHERE THE MISSION STARTS AND ENDS, AND WHERE RESPONDERS ARRIVE. "
+    "`gameplay_anchors.json` tags the mission's start `mission_start` and its exit "
+    "`extraction` -- on a heist, both at the crew's getaway van -- and tags each "
+    "place responders can arrive `responder`. `responder_arrivals.json`, when "
+    "present, says how each arrives: the road end a vehicle appears at, the lane it "
+    "drives in by and the stop it pulls up at, both kept clear by the factory, and "
+    "which way it faces. Spawning and timing responders is your runtime's.\n\n"
     "Level Factory and its authoring tools are not required to consume this package.\n\n"
     "The production game runtime remains authoritative for mission progression, "
     "gameplay behavior, enemy AI, replication, persistence, late joining, "
@@ -1040,6 +1047,75 @@ def _guard_manifest_accounts_for_the_package(export_dir: Path) -> None:
                   else "\n  ... and %d more" % (len(problems) - 20))))
 
 
+#: The package's account of how responders arrive (0.157.0, roadmap 212).
+RESPONDER_ARRIVALS_NAME = "responder_arrivals.json"
+
+
+def _package_xz(x, y) -> list:
+    """A site plan point in the package's frame: x, then z = -(site y).
+    `+ 0.0` so a point on the axis writes 0.0, not -0.0."""
+    return [x + 0.0, -y + 0.0]
+
+
+def write_responder_arrivals(export_dir: Path, lot_gameplay) -> dict | None:
+    """How each responder arrives, in the package's frame -- or None, and no
+    file, when Lot's gameplay carries no `responder_plan`.
+
+    The walker, 2026-10-08: "have responders show up after the job, on the
+    way back (and this would be on the gameplay layer, but we can make thee
+    assets and ensure there is clearance and routes for their arrival)".
+    Lot 0.99.0 plans each arrival and reserves its lane and its stop from
+    everything it stands in the street. 0.156.0 put each stop in
+    `gameplay_anchors.json` as an `ai_spawn` tagged `responder`. A Dispatch
+    anchor holds a position and tags, so the rest is here, keyed by that
+    anchor's id: the road end a vehicle appears at, the stop, which way it
+    faces arriving, the lane and stop boxes nothing else stands in, and the
+    point of the crew's way back the stop was chosen for.
+
+    Frame: Godot -- x, y up, z = -(site y) -- metres, the frame of every
+    position in `gameplay_anchors.json`; the ground at y 0. A box is the
+    x/z extent of a plan rect. Lot's output from before 0.99.0 carries no
+    `responder_plan`, and its package is exactly what it was."""
+    import math
+    if not lot_gameplay or not Path(lot_gameplay).is_file():
+        return None
+    gp = json.loads(Path(lot_gameplay).read_text(encoding="utf-8"))
+    if "responder_plan" not in gp:
+        return None
+    from packages.staging.dispatch_inputs import site_marker_anchor_pairs
+    arrivals = []
+    for marker, anchor in site_marker_anchor_pairs(gp, "lot"):
+        a = marker.get("arrival")
+        if marker.get("type") != "responder_spawn" or not isinstance(a, dict):
+            continue
+        (ex, ez), (sx, sz) = _package_xz(*a["entry"][:2]), _package_xz(*a["stop"][:2])
+        dx, dz = sx - ex, sz - ez
+        n = math.hypot(dx, dz) or 1.0
+        tx, tz = _package_xz(*a["toward"][:2])
+        boxes = {}
+        for key in ("stop_box", "lane_box"):
+            x0, y0, x1, y1 = a[key]
+            boxes[key] = {"min": _package_xz(x0, y1), "max": _package_xz(x1, y0)}
+        arrivals.append({
+            "anchor": anchor["id"],
+            "entry": [ex, 0.0, ez], "stop": [sx, 0.0, sz],
+            "forward": [dx / n, 0.0, dz / n],
+            "vehicle_m": list(a.get("vehicle") or []),
+            "stop_box": boxes["stop_box"], "lane_box": boxes["lane_box"],
+            "toward": [tx, 0.0, tz],
+            "to_way_back_m": a.get("to_way_back"), "run_m": a.get("run"),
+        })
+    doc = {"schema": "level_factory.responder_arrivals.v1",
+           "frame": "Godot: x, y up, z = -(site y); metres; the ground at y 0",
+           "what": ("Where responders can arrive. The factory reserves each "
+                    "lane and stop; spawning and timing responders is the "
+                    "runtime's. Each `anchor` is an `ai_spawn` tagged "
+                    "`responder` in gameplay_anchors.json."),
+           "arrivals": arrivals}
+    (export_dir / RESPONDER_ARRIVALS_NAME).write_text(pretty_dumps(doc), encoding="utf-8")
+    return doc
+
+
 def strip_dead_node_paths(export_dir: Path) -> dict:
     """Move every `node` field that names nothing in the package aside.
 
@@ -1250,6 +1326,11 @@ def export_mission(
     #: `<site>_dressing.tscn` and `dressing/<asset>.res`.
     dressing_manifest: Path | None = None,
     clutter_dir: Path | None = None,
+    #: Where responders arrive (0.157.0, roadmap 212): the selected Lot
+    #: candidate's `site.site.gameplay.json`, read for its
+    #: `responder_plan`. None for a caller with nothing to pass, and then
+    #: the package is exactly what it was.
+    lot_gameplay: Path | None = None,
 ) -> ExportResult:
     # ONE INSTANT, used by the archive name and the manifest both. Two
     # calls to the clock would put two different times on one build.
@@ -1770,6 +1851,17 @@ def export_mission(
         print("[export] %d handoff node path(s) named nothing in the package "
               "and were moved to node_dispatch -- see handoff_bindings.json"
               % bindings["moved_total"])
+
+    # 4.81 HOW RESPONDERS ARRIVE (0.157.0, roadmap 212). Above the glb
+    # scan, the closure verdict and the manifest walk, so the file is inside
+    # the package each of them describes and the manifest lists it.
+    # `closure._METADATA_FILES` names it: its anchor ids are shaped like the
+    # NodePath strings the authoring-path test reads as paths, the reasoning
+    # that put `handoff_bindings.json` there.
+    arrivals_doc = write_responder_arrivals(export_dir, lot_gameplay)
+    if arrivals_doc is not None:
+        print("[export] responder arrivals: %d, in %s"
+              % (len(arrivals_doc["arrivals"]), RESPONDER_ARRIVALS_NAME))
 
     # 4.85 DOES EVERY GLB IN THIS PACKAGE GET WHAT IT ASKS FOR? See
     # `packages.exporting.glb_refs` for what was shipped without this and why

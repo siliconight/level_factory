@@ -100,13 +100,17 @@ _SITE_MARKERS = {
 }
 
 
-def site_markers_to_anchors(gameplay: dict, source: str) -> list:
-    """Lot's site-level markers as Dispatch anchors (0.156.0, roadmap 204).
+def site_marker_anchor_pairs(gameplay: dict, source: str) -> list:
+    """``(marker, anchor)`` for each of Lot's site-level markers that becomes a
+    Dispatch anchor (0.156.0, roadmap 204). One counting of the ids for every
+    reader of them: the staging, and the export's `responder_arrivals.json`,
+    which names each arrival by the anchor it is (0.157.0) -- two spellings
+    of one id would be two places for it to drift.
 
     `_iter_records` reads `markers`, `objectives` and `loot`, and the site's
-    own markers live in `site_markers` -- so until this no site-level marker
-    reached Dispatch. The getaway van's crew spawn and extraction never
-    became the package's; `ensure_mission_anchors` synthesized a
+    own markers live in `site_markers` -- so until 0.156.0 no site-level
+    marker reached Dispatch. The getaway van's crew spawn and extraction
+    never became the package's; `ensure_mission_anchors` synthesized a
     `player_start` at the centroid of every Lot anchor and tagged every
     building's extraction as the mission's (cold run 9198's package:
     `lot:mission_start` at (-7.03, 0.68), 14 m from the van).
@@ -115,7 +119,7 @@ def site_markers_to_anchors(gameplay: dict, source: str) -> list:
     is the ground's, as `lot._walk_positions` reads it. No facing is
     passed: a Lot slot yaw and a Dispatch `rot_y` have not been shown to
     share a convention, and a yaw read in the wrong one is silently wrong."""
-    anchors: list = []
+    pairs: list = []
     counts: dict = {}
     for m in gameplay.get("site_markers", []) or []:
         if not isinstance(m, dict):
@@ -132,8 +136,14 @@ def site_markers_to_anchors(gameplay: dict, source: str) -> list:
                   "pos": [_num(at[0]), _num(at[1]), 0.0]}
         if tag:
             anchor["tags"] = [tag]
-        anchors.append(anchor)
-    return anchors
+        pairs.append((m, anchor))
+    return pairs
+
+
+def site_markers_to_anchors(gameplay: dict, source: str) -> list:
+    """Lot's site-level markers as Dispatch anchors: the anchors of
+    `site_marker_anchor_pairs`."""
+    return [anchor for _m, anchor in site_marker_anchor_pairs(gameplay, source)]
 
 
 #: anchor type -> the `mission_flow` location_tag that binds to it.

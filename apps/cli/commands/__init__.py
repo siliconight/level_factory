@@ -3675,6 +3675,12 @@ def cmd_export(args) -> int:
         dressing_manifest=(dressing_manifest if dressing_manifest.is_file()
                            else None),
         clutter_dir=clutter_dir if clutter_dir.is_dir() else None,
+        # how responders arrive (0.157.0, roadmap 212): the selected
+        # candidate's Lot gameplay, read for its `responder_plan`
+        lot_gameplay=(lot_out / "site.site.gameplay.json"
+                      if lot_out is not None
+                      and (lot_out / "site.site.gameplay.json").is_file()
+                      else None),
     )
     if args.format == "zip":
         zip_export(result)

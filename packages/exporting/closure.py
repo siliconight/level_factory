@@ -32,6 +32,10 @@ _AUTHORING_MARKERS = ("deli-counter", "deli_counter", "lasertag", "pixelcoat",
 # LF/Dispatch metadata files legitimately name tools/schemas; they are not Godot
 # resources and never break portability, so exclude them from marker scanning.
 _METADATA_FILES = {
+    # 0.157.0: how responders arrive. LF's own account, read by no Godot
+    # loader, whose anchor ids (`lot:responder_arrival_...`) are shaped like
+    # the NodePath strings the authoring-path test reads as paths.
+    "responder_arrivals.json",
     "portable_resource_manifest.json", "LICENSES.json", "export_profile.json",
     "build.lock.json", "mission_manifest.json", "runtime_ownership_requirements.json",
     "proposed_beat_graph.json", "gameplay_anchors.json", "navigation_hints.json",
