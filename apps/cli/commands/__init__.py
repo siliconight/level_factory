@@ -1207,7 +1207,7 @@ def _write_dispatch_spec(ws: Workspace, model: MissionBrief,
     block relaxes objective/runtime requirements — the deliverable is the
     collision shell + nav + packaging, not a fabricated mission.
     """
-    from packages.staging.dispatch_inputs import stage_dispatch_inputs
+    from packages.staging.dispatch_inputs import mission_flow, stage_dispatch_inputs
 
     stage_dir = ws.internal_dir / "temp" / model.mission_id / "dispatch_inputs"
     manifests = stage_dispatch_inputs(
@@ -1217,6 +1217,8 @@ def _write_dispatch_spec(ws: Workspace, model: MissionBrief,
         lot_gameplay=_latest_output(lot_out, "site.site.gameplay.json"),
         mission_id=model.mission_id,
         theme=model.theme or "",
+        # which building is the score (0.158.0): the spec as Lot drew it
+        lot_site=_latest_output(lot_out, "site.site.drawn.json"),
     )
     spec = {
         "schema": "dispatch.mission.v0.2",
@@ -1233,10 +1235,8 @@ def _write_dispatch_spec(ws: Workspace, model: MissionBrief,
         },
         # Minimal, non-binding flow: just enough to be a valid spec. The gameplay
         # team authors the real objectives inside the shell.
-        "mission_flow": [
-            {"step": "spawn", "location_tag": "mission_start"},
-            {"step": "extract", "location_tag": "extraction"},
-        ],
+        # spawn, the score when the staging tagged one, extract (0.158.0)
+        "mission_flow": mission_flow(stage_dir),
         "validation": {
             "require_online_runtime_readiness": False,
             "require_all_objectives_reachable": False,

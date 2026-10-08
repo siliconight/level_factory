@@ -83,6 +83,12 @@ def markers_to_anchors(gameplay: dict, source: str, up: str = "z") -> list:
             anchor["objective"] = str(rec["objective"])
         if "rot_y" in rec or "rot" in rec:
             anchor["rot_y"] = _num(rec.get("rot_y", rec.get("rot")))
+        # THE BUILDING IT BELONGS TO (0.158.0, roadmap 204). Lot
+        # namespaces each marker by its building, and Dispatch writes an
+        # anchor's `building` as its `source_building` -- which was "" on
+        # every anchor of every package, because this never passed it.
+        if rec.get("building"):
+            anchor["building"] = str(rec["building"])
         anchors.append(anchor)
     return anchors
 
@@ -232,16 +238,35 @@ def _read_json(path: Path) -> dict:
 
 def stage_dispatch_inputs(dest_dir: Path, *, deli_gameplay: Path, shell_glb: Path,
                           lot_gameplay: Path, mission_id: str,
-                          theme: str = "", up: str = "z") -> dict:
+                          theme: str = "", up: str = "z",
+                          lot_site: Path | None = None) -> dict:
     """Write Dispatch-shaped deli_counter/ and lot/ input trees under dest_dir.
-    Returns {"deli_counter": <manifest path>, "lot": <manifest path>}."""
+    Returns {"deli_counter": <manifest path>, "lot": <manifest path>}.
+
+    ``lot_site`` is the Lot job's drawn site spec (`site.site.drawn.json`),
+    read for which building is the score (0.158.0); without it nothing is
+    tagged `score`, and `mission_flow` writes the two beats it always did."""
     dest_dir = Path(dest_dir)
     deli_dir = dest_dir / "deli_counter"; deli_dir.mkdir(parents=True, exist_ok=True)
     lot_dir = dest_dir / "lot"; lot_dir.mkdir(parents=True, exist_ok=True)
     lic = {"name": "proprietary-siliconight", "source": ""}
 
     # ---- deli_counter (collision shell) ----
-    dc_gp = _read_json(deli_gameplay)
+    # THE SITE CARRIES ITS BUILDINGS (0.158.0, roadmap 204). Lot's gameplay
+    # holds every placed building's markers in site space -- the
+    # generated shell's among them, when the lot places it. Staged beside
+    # them, the shell's own were wrong either way:
+    #   * on a library lot the shell is never placed, so they were the
+    #     anchors of a building that is not in the level, listed first
+    #     (cold run 9194: its vault objective among them);
+    #   * on deli_001 (cold run 9191), where it is placed, as b0 at (6, 0),
+    #     all 85 duplicated Lot's b0 anchors by name, in the shell's own
+    #     frame, 6 m off.
+    # So the shell side is staged only when the site has no markers to
+    # stand in for it. Its glb still passes through: it is the resolver's
+    # file check, not an anchor.
+    site_has_markers = bool(_read_json(Path(lot_gameplay)).get("markers"))
+    dc_gp = {} if site_has_markers else _read_json(deli_gameplay)
     dc_up = str(dc_gp.get("up_axis", up))
     dc_anchors = markers_to_anchors(dc_gp, "deli_counter", dc_up)
     (deli_dir / "shell.gameplay.json").write_text(json.dumps({
@@ -278,6 +303,15 @@ def stage_dispatch_inputs(dest_dir: Path, *, deli_gameplay: Path, shell_glb: Pat
     lot_anchors = ensure_mission_anchors(
         site_markers_to_anchors(lot_gp, "lot") + markers_to_anchors(lot_gp, "lot", lot_up),
         "lot", lot_up)
+    # THE SCORE (0.158.0, roadmap 204): the objective anchors of the site's
+    # objective building, tagged so the mission flow can bind a beat to
+    # them. Every anchor carried `"objective": ""`, so a package could not
+    # say which of its objectives was the job.
+    score = str(_read_json(Path(lot_site)).get("objective") or "") if lot_site else ""
+    if score:
+        for a in lot_anchors:
+            if a.get("type") == "objective" and a.get("building") == score:
+                a["tags"] = list(a.get("tags") or ()) + [SCORE_TAG]
     (lot_dir / "lot.gameplay.json").write_text(json.dumps({
         "schema": "lot.gameplay.v1", "license": {**lic, "source": "lot"},
         "up_axis": lot_up, "anchors": lot_anchors,
@@ -316,3 +350,25 @@ def stage_dispatch_inputs(dest_dir: Path, *, deli_gameplay: Path, shell_glb: Pat
 
     return {"deli_counter": str(deli_dir / "shell.gameplay.json"),
             "lot": str(lot_dir / "lot.layout.json")}
+
+
+#: The tag the score's objective anchors carry, and the beat that binds them.
+SCORE_TAG = "score"
+
+
+def mission_flow(dest_dir: Path) -> list:
+    """The minimal flow for the staged inputs under ``dest_dir``: spawn, the
+    score when the staging tagged one, extract (0.158.0).
+
+    Still minimal and non-binding -- the gameplay team authors the real
+    objectives -- but a heist has three beats, and the package said two.
+    The score beat is written only when some anchor carries the tag:
+    Dispatch refuses a mission whose beat binds to no anchor ("BLOCKER
+    [assembly] Proposed beat 'extract' binds to no anchor"), which is why
+    `ensure_mission_anchors` exists."""
+    staged = _read_json(Path(dest_dir) / "lot" / "lot.gameplay.json")
+    flow = [{"step": "spawn", "location_tag": "mission_start"}]
+    if any(SCORE_TAG in (a.get("tags") or ()) for a in staged.get("anchors", []) or []):
+        flow.append({"step": "score", "objective": SCORE_TAG})
+    flow.append({"step": "extract", "location_tag": "extraction"})
+    return flow
