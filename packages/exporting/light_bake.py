@@ -23,7 +23,8 @@ WHAT A BAKE NEEDS, AND WHO SUPPLIES IT:
     baked.
   * the steady lights marked STATIC: every Lux rig in the presentation scene
     whose resource carries no `failing_kind` gets `bake_mode = 1`. A failing
-    fixture (a stuttering tube, a cycling pole, a wavering bulb) stays live.
+    fixture (a stuttering tube, a cycling pole, a wavering bulb) stays live,
+    and so does a rig a CYCLING node uses -- a club's stage (0.160.0).
   * a BAKE, which Godot 4.7 exposes to no script (`LightmapGI` has settings
     and no `bake()`; godot-proposals #8656 is open). So the package is copied
     to a Forward+ working copy -- only a RenderingDevice can bake -- with an
@@ -168,22 +169,51 @@ def add_primitive_uv2(export_dir: Path) -> dict:
     return out
 
 
+def _cycling_rigs(blocks: list) -> set:
+    """The rig resource ids a CYCLING node uses (0.160.0, roadmap 213): a node
+    whose `cycle_period_s` is over 0 across two or more `colors` --
+    `LuxStageLightRig._cycles()`'s own test, read off the scene text. The
+    cycle is the node's and the bake mode is the resource's, so this is the
+    only place the two meet."""
+    out = set()
+    for b in blocks:
+        if not b.startswith("[node "):
+            continue
+        rig = re.search(r'^rig = SubResource\("([^"]+)"\)$', b, flags=re.M)
+        period = re.search(r"^cycle_period_s = ([0-9.eE+-]+)$", b, flags=re.M)
+        colors = re.search(r"^colors = PackedColorArray\(([^)]*)\)$", b, flags=re.M)
+        if not (rig and period and colors):
+            continue
+        n_colors = len([v for v in colors.group(1).split(",") if v.strip()]) // 4
+        if float(period.group(1)) > 0.0 and n_colors > 1:
+            out.add(rig.group(1))
+    return out
+
+
 def mark_steady_rigs(scene: Path) -> dict:
     """`bake_mode = 1` on every Lux rig resource in `scene` that carries no
-    `failing_kind`. ``{"static": n, "live": n}``. Refuses a scene with no
-    rig script, which is a scene this does not understand."""
+    `failing_kind` and no cycling node uses (`_cycling_rigs`, 0.160.0).
+    ``{"static": n, "live": n, "cycling": n}`` -- `live` the failing ones.
+    A resource a cycling node uses is left as Lux wrote it: baked, a stage
+    rig stops cycling. Refuses a scene with no rig script, which is a scene
+    this does not understand."""
     text = Path(scene).read_text(encoding="utf-8")
     m = re.search(r'\[ext_resource type="Script" (?:uid="[^"]*" )?path="res://[^"]*lux_light_rig\.gd" id="([^"]+)"\]', text)
     if m is None:
         raise ValueError(f"{scene}: no lux_light_rig.gd script resource")
     rig = m.group(1)
     blocks = re.split(r"(?=^\[)", text, flags=re.M)
-    static = live = 0
+    cycling_ids = _cycling_rigs(blocks)
+    static = live = cycling = 0
     for i, b in enumerate(blocks):
         if not b.startswith('[sub_resource type="Resource"') or f'script = ExtResource("{rig}")' not in b:
             continue
         if re.search(r"^failing_kind = [1-9]", b, flags=re.M):
             live += 1
+            continue
+        rid = re.match(r'\[sub_resource type="Resource" id="([^"]+)"\]', b)
+        if rid and rid.group(1) in cycling_ids:
+            cycling += 1
             continue
         if re.search(r"^bake_mode = ", b, flags=re.M):
             blocks[i] = re.sub(r"^bake_mode = \d+$", "bake_mode = 1", b, flags=re.M)
@@ -192,7 +222,7 @@ def mark_steady_rigs(scene: Path) -> dict:
                                   f'script = ExtResource("{rig}")\nbake_mode = 1\n', 1)
         static += 1
     Path(scene).write_text("".join(blocks), encoding="utf-8", newline="\n")
-    return {"static": static, "live": live}
+    return {"static": static, "live": live, "cycling": cycling}
 
 
 def bake_scene_text() -> str:
@@ -319,9 +349,10 @@ def bake(export_dir, godot_executable, *, log=print) -> dict:
         report["ok"] = True
         fills = report["room_fills"]
         log("[export] light bake: %d model(s) and %d primitive mesh(es) lightmapped, %d kept dynamic; "
-            "%d steady rig(s) baked, %d failing left live; %s; %d users, %s s in the editor"
+            "%d steady rig(s) baked, %d failing and %d cycling left live; %s; %d users, %s s in the editor"
             % (len(report["imports"]["baked"]), sum(report["primitives"].values()),
                len(report["imports"]["dynamic"]), report["rigs"]["static"], report["rigs"]["live"],
+               report["rigs"]["cycling"],
                "no room floor (the level's Lux lays none)" if fills in (None, -1)
                else "%d room fill(s)" % fills,
                result.get("users"), report["editor_s"]))

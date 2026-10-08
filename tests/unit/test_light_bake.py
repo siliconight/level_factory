@@ -77,7 +77,7 @@ rig_name = &"Streetlight (baked)"
 def test_steady_rigs_bake_static_and_failing_ones_stay_live(tmp_path):
     scene = tmp_path / "lux.applied.tscn"
     scene.write_text(_RIGS, encoding="utf-8")
-    assert LB.mark_steady_rigs(scene) == {"static": 2, "live": 1}
+    assert LB.mark_steady_rigs(scene) == {"static": 2, "live": 1, "cycling": 0}
     text = scene.read_text(encoding="utf-8")
     assert text.count("bake_mode = 1") == 2 and "bake_mode = 0" not in text
     cycling = text.split('id="cycling"]')[1].split("[")[0]
@@ -149,7 +149,7 @@ def test_a_bake_that_works_ships_the_lightmap_and_points_the_entry_at_it(tmp_pat
     assert all((pkg / f).exists() for f in LB.BAKE_FILES)
     assert "load('res://bake.tscn')" in (pkg / "mission.tscn").read_text(encoding="utf-8")
     assert 'uid="' not in (pkg / "bake.tscn").read_text(encoding="utf-8") and r["uids_stripped"] == 1
-    assert r["rigs"] == {"static": 2, "live": 1}
+    assert r["rigs"] == {"static": 2, "live": 1, "cycling": 0}
     assert not (tmp_path / "LF_t.portable-godot.lightbake").exists()
 
 
