@@ -81,6 +81,11 @@ def test_real_lot(tool_root, tmp_path):
     # Pacing is surfaced as a non-blocking estimate.
     issues = adapter.normalize_validation(outs)
     assert all(not i["blocking"] or i["severity"] == "blocker" for i in issues)
+    # The site audit is read, not missing (0.163.0, roadmap 215): gs_heist,
+    # Lot's calibration site, carries INFO findings only.
+    codes = [i["code"] for i in issues]
+    assert "LOT_SITE_AUDIT_UNREAD" not in codes, codes
+    assert any(c.startswith("S_") for c in codes), codes
 
 
 def test_real_dispatch_handoff_from_lf_staged_inputs(tool_root, tmp_path):

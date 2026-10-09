@@ -33,6 +33,48 @@ LOT_PACING_OUTSIDE = ("likely TOO SHORT vs target",
                       "partly outside target (range straddles the window)")
 LOT_PACING_STATUSES = LOT_PACING_WITHIN + LOT_PACING_OUTSIDE
 
+#: THE SITE AUDIT'S SEVERITIES (`lot/site_audit.py`, "severities HIGH / MED /
+#: INFO"), in this model's words (0.163.0, roadmap 215). The audit is
+#: report-only, so nothing it says blocks, HIGH included.
+#: `tests/unit/test_site_audit_report.py` reads Lot's source and fails when it
+#: writes a severity not named here.
+LOT_SITE_AUDIT_SEVERITY = {"HIGH": "major", "MED": "moderate", "INFO": "info"}
+
+
+def _site_audit_issues(block, source) -> list[dict]:
+    """Lot's `site_audit` block (Lot 0.102.0) as issues, one a finding.
+
+    No block, or a shape this cannot read, is LOT_SITE_AUDIT_UNREAD rather
+    than nothing: an absent audit and a clean one must not look alike."""
+    def unread(why: str) -> dict:
+        return {"code": "LOT_SITE_AUDIT_UNREAD", "severity": "moderate",
+                "category": "combat_structure", "message": why,
+                "blocking": False, "raw_source_path": str(source)}
+
+    if block is None:
+        return [unread("Lot's gameplay manifest carries no site_audit block "
+                       "(Lot before 0.102.0 printed the audit to its job log only)")]
+    found = block.get("findings") if isinstance(block, dict) else None
+    if not isinstance(found, list):
+        return [unread(f"Lot's site_audit block has no findings list: {block!r:.160}")]
+    out: list[dict] = []
+    for raw in found:
+        sev = raw.get("severity") if isinstance(raw, dict) else None
+        code = raw.get("code") if isinstance(raw, dict) else None
+        if (not isinstance(sev, str) or sev not in LOT_SITE_AUDIT_SEVERITY
+                or not isinstance(code, str) or not code):
+            out.append(unread(f"a site_audit finding this adapter cannot read: {raw!r:.160}"))
+            continue
+        out.append({
+            "code": code,
+            "severity": LOT_SITE_AUDIT_SEVERITY[sev],
+            "category": "combat_structure",
+            "message": str(raw.get("message", "")),
+            "blocking": False,  # report-only, HIGH included
+            "raw_source_path": str(source),
+        })
+    return out
+
 
 class LotAdapter(BaseAdapter):
     adapter_id = "lot"
@@ -408,4 +450,12 @@ class LotAdapter(BaseAdapter):
                 "blocking": sev == "blocker",
                 "raw_source_path": str(gameplay),
             })
+
+        # THE SITE AUDIT (0.163.0, roadmap 215): the site-level design grammar
+        # Lot runs at the end of every assembly -- exfil shape, responder
+        # pressure, safe anchors, leg rhythm, street crossings. Until Lot
+        # 0.102.0 it went to the job log only, so no report and no cold run's
+        # findings diff ever counted it (cold run 9209: one MED and three INFO
+        # printed, no `S_` code here). Report-only: nothing it says blocks.
+        issues.extend(_site_audit_issues(data.get("site_audit"), gameplay))
         return issues

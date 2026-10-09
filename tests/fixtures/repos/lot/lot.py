@@ -19,6 +19,8 @@ def main():
         "site": {"stem": stem}, "buildings": spec.get("buildings", []),
         "rooms": [], "markers": [], "objectives": [], "encounters": [],
         "tactical": {"findings": []},
+        "site_audit": {"mode": "heist", "counts": {"HIGH": 0, "MED": 0, "INFO": 0},
+                       "findings": []},
         "pacing": {"mode": "heist", "estimate_expected_min": 6.4,
                    "range_min": "4.1-8.6 min", "target_min": "7-12 min",
                    "status": "partly outside target (range straddles the window)"},
