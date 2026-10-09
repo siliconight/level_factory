@@ -87,6 +87,13 @@ IMPORT_TIMEOUT_S = 1800
 
 LIGHT_BAKING = "meshes/light_baking"
 STATIC_LIGHTMAPS = 2
+#: `meshes/light_baking` Dynamic (0.162.1). A model the gameplay layer spawns
+#: is never in the bake, so its light has to come from the `LightmapGI`'s
+#: probes, which only a GI_MODE_DYNAMIC mesh samples. Measured 2026-10-08 on
+#: Godot 4.7, the responders' cruiser imported at 2 gave its five meshes
+#: gi_mode STATIC, and at 3 gi_mode DYNAMIC (cold run 9208's notes at the
+#: factory root).
+DYNAMIC = 3
 PRIMITIVES = ("BoxMesh", "QuadMesh", "PlaneMesh", "CylinderMesh", "PrismMesh")
 
 BAKE_TSCN = """[gd_scene load_steps=2 format=3]
@@ -118,29 +125,42 @@ def glb_has_uv2(path: Path) -> bool:
                for m in doc.get("meshes", []) for p in m.get("primitives", []))
 
 
-def mark_imports(export_dir: Path) -> dict:
+def mark_imports(export_dir: Path, spawned=()) -> dict:
     """Static Lightmaps on every model's sidecar but those whose own second
-    UV set is shader data. ``{"baked": [...], "dynamic": [...]}``, package-
-    relative paths. A sidecar with no `meshes/light_baking` line is an
-    import Godot has not written yet, and is said rather than guessed."""
-    out = {"baked": [], "dynamic": [], "unreadable": []}
+    UV set is shader data. ``{"baked": [...], "dynamic": [...], ...}``,
+    package-relative paths. A sidecar with no `meshes/light_baking` line is
+    an import Godot has not written yet, and is said rather than guessed.
+
+    ``spawned`` (0.162.1): the package-relative paths of models the gameplay
+    layer spawns -- the responders' car. Each is set to `DYNAMIC` and listed
+    under ``spawned``, ahead of the second-UV test; a path with no sidecar is
+    listed under ``spawned_unmatched``. 0.162.0 baked the car's import static
+    like any prop, and a spawned one would have had neither the lightmap nor
+    the probes."""
+    out = {"baked": [], "dynamic": [], "spawned": [], "spawned_unmatched": [], "unreadable": []}
+    wanted = set(spawned)
     for sidecar in sorted(Path(export_dir).rglob("*.glb.import")):
         if ".godot" in sidecar.parts:
             continue
         glb = sidecar.with_suffix("")
         rel = glb.relative_to(export_dir).as_posix()
-        if glb_has_uv2(glb):
+        if rel in wanted:
+            value, bucket = DYNAMIC, "spawned"
+        elif glb_has_uv2(glb):
             out["dynamic"].append(rel)
             continue
+        else:
+            value, bucket = STATIC_LIGHTMAPS, "baked"
         text = sidecar.read_text(encoding="utf-8")
-        new, k = re.subn(rf"^{re.escape(LIGHT_BAKING)}=\d+$", f"{LIGHT_BAKING}={STATIC_LIGHTMAPS}",
+        new, k = re.subn(rf"^{re.escape(LIGHT_BAKING)}=\d+$", f"{LIGHT_BAKING}={value}",
                          text, flags=re.M)
         if k != 1:
             out["unreadable"].append(rel)
             continue
         if new != text:
             sidecar.write_text(new, encoding="utf-8", newline="\n")
-        out["baked"].append(rel)
+        out[bucket].append(rel)
+    out["spawned_unmatched"] = sorted(wanted - set(out["spawned"]) - set(out["unreadable"]))
     return out
 
 
@@ -292,7 +312,7 @@ def _import(export_dir: Path, godot) -> bool:
         return False
 
 
-def bake(export_dir, godot_executable, *, log=print) -> dict:
+def bake(export_dir, godot_executable, *, log=print, spawned=()) -> dict:
     """Bake `export_dir`'s steady lights; see the module docstring. Returns
     the report it also writes to `light_bake.json`."""
     export_dir = Path(export_dir)
@@ -309,7 +329,7 @@ def bake(export_dir, godot_executable, *, log=print) -> dict:
     keep_entry = (export_dir / "mission.tscn").read_bytes()
     work = export_dir.parent / (export_dir.name + ".lightbake")
     try:
-        report["imports"] = mark_imports(export_dir)
+        report["imports"] = mark_imports(export_dir, spawned)
         report["primitives"] = add_primitive_uv2(export_dir)
         report["rigs"] = mark_steady_rigs(pres)
         (export_dir / BAKE_SCENE).write_text(bake_scene_text(), encoding="utf-8", newline="\n")
@@ -348,10 +368,12 @@ def bake(export_dir, godot_executable, *, log=print) -> dict:
         _import(export_dir, godot_executable)
         report["ok"] = True
         fills = report["room_fills"]
-        log("[export] light bake: %d model(s) and %d primitive mesh(es) lightmapped, %d kept dynamic; "
+        log("[export] light bake: %d model(s) and %d primitive mesh(es) lightmapped, %d kept dynamic, "
+            "%d spawned set dynamic; "
             "%d steady rig(s) baked, %d failing and %d cycling left live; %s; %d users, %s s in the editor"
             % (len(report["imports"]["baked"]), sum(report["primitives"].values()),
-               len(report["imports"]["dynamic"]), report["rigs"]["static"], report["rigs"]["live"],
+               len(report["imports"]["dynamic"]), len(report["imports"]["spawned"]),
+               report["rigs"]["static"], report["rigs"]["live"],
                report["rigs"]["cycling"],
                "no room floor (the level's Lux lays none)" if fills in (None, -1)
                else "%d room fill(s)" % fills,

@@ -37,9 +37,28 @@ def test_static_lightmaps_on_every_model_but_those_whose_uv2_is_shader_data(tmp_
     _glb(tmp_path / "odd.glb", uv2=False)
     (tmp_path / "odd.glb.import").write_text("[remap]\nimporter=\"scene\"\n", encoding="utf-8")
     got = LB.mark_imports(tmp_path)
-    assert got == {"baked": ["shell.glb"], "dynamic": ["grill.glb"], "unreadable": ["odd.glb"]}
+    assert got == {"baked": ["shell.glb"], "dynamic": ["grill.glb"], "spawned": [],
+                   "spawned_unmatched": [], "unreadable": ["odd.glb"]}
     assert "meshes/light_baking=2" in (tmp_path / "shell.glb.import").read_text(encoding="utf-8")
     assert "meshes/light_baking=1" in (tmp_path / "grill.glb.import").read_text(encoding="utf-8")
+
+
+def test_a_spawned_model_is_set_dynamic_not_baked(tmp_path):
+    """0.162.1: the responders' car is spawned by the gameplay layer and never
+    in the bake, so its import is Dynamic (3), which samples the lightmap's
+    probes; Static Lightmaps (2) would leave a spawned car unlit by either.
+    A spawned path with no sidecar is said, not dropped."""
+    (tmp_path / "cover").mkdir()
+    _glb(tmp_path / "shell.glb", uv2=False)
+    _glb(tmp_path / "cover" / "car.glb", uv2=False)
+    (tmp_path / "shell.glb.import").write_text(_SIDECAR, encoding="utf-8")
+    (tmp_path / "cover" / "car.glb.import").write_text(_SIDECAR, encoding="utf-8")
+    got = LB.mark_imports(tmp_path, spawned=["cover/car.glb", "cover/gone.glb"])
+    assert got["baked"] == ["shell.glb"] and got["spawned"] == ["cover/car.glb"]
+    assert got["spawned_unmatched"] == ["cover/gone.glb"]
+    assert "meshes/light_baking=3" in (tmp_path / "cover" / "car.glb.import").read_text(encoding="utf-8")
+    assert "meshes/light_baking=2" in (tmp_path / "shell.glb.import").read_text(encoding="utf-8")
+    assert LB.DYNAMIC == 3 and LB.STATIC_LIGHTMAPS == 2
 
 
 def test_inline_primitives_unwrap_themselves_once(tmp_path):

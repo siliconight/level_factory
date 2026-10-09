@@ -1057,6 +1057,20 @@ def _package_xz(x, y) -> list:
     return [x + 0.0, -y + 0.0]
 
 
+def responder_vehicle_scenes(themed_site_dir) -> list:
+    """The package-relative paths of the cars the themed site names in
+    `responders.json` (Lot 0.101.0): models the gameplay layer spawns, which
+    the light bake sets dynamic rather than baking (0.162.1). Empty without
+    one."""
+    if not themed_site_dir:
+        return []
+    named = Path(themed_site_dir) / "responders.json"
+    if not named.is_file():
+        return []
+    doc = json.loads(named.read_text(encoding="utf-8"))
+    return sorted({v["scene"] for v in doc.get("vehicles") or []})
+
+
 def write_responder_arrivals(export_dir: Path, lot_gameplay,
                              themed_site_dir: Path | None = None) -> dict | None:
     """How each responder arrives, in the package's frame -- or None, and no
@@ -1809,7 +1823,10 @@ def export_mission(
     # touched and ships the package unbaked, saying which in light_bake.json.
     if profile.bake_lights:
         from packages.exporting.light_bake import bake as _bake_lights
-        _bake_lights(export_dir, godot_executable)
+        # the responders' car (0.162.1): spawned by the gameplay layer, so
+        # its import is set dynamic and it takes the lightmap's probes
+        _bake_lights(export_dir, godot_executable,
+                     spawned=responder_vehicle_scenes(themed_site_dir))
 
     # Settle the flag against what shipped, then drop the cache the bake
     # needed -- before `build_resource_manifest` walks the tree, so the

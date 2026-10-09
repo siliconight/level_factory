@@ -197,6 +197,16 @@ def test_a_car_named_but_not_in_the_package_is_null_and_said(tmp_path):
     assert any("not in the package" in s for s in doc["vehicle_findings"])
 
 
+def test_the_bake_is_told_which_car_is_spawned(tmp_path):
+    """0.162.1: the themed site's cars, as the light bake reads them, and the
+    export handing them over (read as source; the bake itself needs a GPU)."""
+    from packages.exporting.export import responder_vehicle_scenes
+    assert responder_vehicle_scenes(_themed(tmp_path)) == [CAR]
+    assert responder_vehicle_scenes(None) == [] and responder_vehicle_scenes(tmp_path) == []
+    src = (Path(__file__).resolve().parents[2] / "packages" / "exporting" / "export.py").read_text(encoding="utf-8")
+    assert "spawned=responder_vehicle_scenes(themed_site_dir)" in src
+
+
 def test_the_manifest_lists_it(tmp_path):
     """Inside the resource manifest, not merely on disk: the export's own
     guard holds the sum, and this names the file."""

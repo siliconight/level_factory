@@ -128,7 +128,8 @@ def test_it_runs_after_the_occluder_bake_and_before_the_light_bake():
     src = (_REPO / "packages" / "exporting" / "export.py").read_text(encoding="utf-8")
     occ = src.index("occ = emit(export_dir, godot_executable)")
     mrg = src.index("_merge_empties(export_dir, godot_executable)")
-    bake = src.index("_bake_lights(export_dir, godot_executable)")
+    # the call's opening: 0.162.1 hands the bake the spawned cars as well
+    bake = src.index("_bake_lights(export_dir, godot_executable")
     assert occ < mrg < bake
 
 
