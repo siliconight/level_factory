@@ -178,6 +178,18 @@ def test_the_bake_scene_holds_the_presentation_and_one_lightmap():
     assert t.count('type="LightmapGI"') == 1 and "quality = 0" in t and "bounces = 2" in t
 
 
+def test_the_bake_takes_the_sky():
+    """FAILS ON 0.163.1. The walker, 2026-10-09: "yes bake the sky in". 0.131.0
+    to 0.163.1 baked with `environment_mode = 0`, no sky, and a lightmapped
+    surface takes no ambient at run time, so shade on a clear afternoon came
+    out near black (`docs/findings/lighting_spec_vs_lux/` at the factory
+    root). 1 is the scene's environment. One literal line: the root's
+    `tools/lux_rebake.py --bake-environment` rewrites it by pattern."""
+    t = LB.bake_scene_text()
+    assert t.count("environment_mode = ") == 1, t
+    assert "environment_mode = 1\n" in t, t
+
+
 def test_the_export_profile_does_not_bake_unless_asked():
     from packages.exporting.export import ExportProfile
     assert ExportProfile().bake_lights is False

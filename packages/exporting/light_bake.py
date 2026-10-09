@@ -96,6 +96,21 @@ STATIC_LIGHTMAPS = 2
 DYNAMIC = 3
 PRIMITIVES = ("BoxMesh", "QuadMesh", "PlaneMesh", "CylinderMesh", "PrismMesh")
 
+#: THE SKY IS IN THE BAKE (0.164.0), the walker's call on 2026-10-09: "yes
+#: bake the sky in". `environment_mode = 1` gathers the scene's environment
+#: -- the WorldEnvironment LuxRoot builds, in the editor too, since it is
+#: `@tool` -- wherever the sky can reach. 0.131.0 shipped `0`, no sky, with
+#: no reason recorded, and a lightmapped surface takes no ambient at run
+#: time, so no baked surface had ever received sky light. Measured by
+#: re-baking cold run 9214's level slot by slot
+#: (`docs/findings/lighting_spec_vs_lux/` at the factory root): a clear
+#: afternoon's street cameras +15.1 and +21.4, shade from near black to
+#: daylight; Heavy Rain +0.3 to +2.3 and Blue Hour +0.5 to +3.7 outside;
+#: Delco Night two outer facades +3.3 and +4.4, the rest 0.2 or less; every
+#: room 1.2 or less at every slot, so a sealed room takes none. The bake
+#: time did not move, and at run time it costs nothing: the light lives in
+#: the lightmap. The root's `tools/lux_rebake.py --bake-environment none`
+#: bakes as before, and reads this line, so it stays one literal line.
 BAKE_TSCN = """[gd_scene load_steps=2 format=3]
 
 [ext_resource type="PackedScene" path="res://{presentation}" id="site"]
@@ -110,7 +125,7 @@ bounces = {bounces}
 directional = false
 use_denoiser = true
 max_texture_size = {max_texture}
-environment_mode = 0
+environment_mode = 1
 """
 
 
