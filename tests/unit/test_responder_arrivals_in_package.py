@@ -27,6 +27,7 @@ from packages.exporting.export import (  # noqa: E402
     RESPONDER_ARRIVALS_NAME, ExportProfile, export_mission,
 )
 from packages.staging.dispatch_inputs import stage_dispatch_inputs  # noqa: E402
+from tests.unit.glb_fixture import stub_glb  # noqa: E402
 
 #: Cold run 9200, seed_9054's `responder_plan.arrivals`, verbatim.
 ARRIVALS = [
@@ -80,7 +81,10 @@ def _godot(p):
 def test_the_package_says_how_each_responder_arrives(tmp_path):
     result = _export(tmp_path, _gameplay(tmp_path))
     doc = json.loads((result.export_dir / RESPONDER_ARRIVALS_NAME).read_text(encoding="utf-8"))
-    assert doc["schema"] == "level_factory.responder_arrivals.v2"
+    assert doc["schema"] == "level_factory.responder_arrivals.v3"
+    # no themed site: no car named, and said once
+    assert all(a["vehicle_scene"] is None for a in doc["arrivals"])
+    assert len(doc["vehicle_findings"]) == 1 and "no responders.json" in doc["vehicle_findings"][0]
     assert len(doc["arrivals"]) == len(ARRIVALS)
     for got, a in zip(doc["arrivals"], ARRIVALS):
         assert got["entry"] == _godot(a["entry"]) and got["stop"] == _godot(a["stop"])
@@ -132,6 +136,65 @@ def test_a_steered_lane_ships_every_box_in_order(tmp_path):
                                  for x0, y0, x1, y1 in STEERED["lane_boxes"]]
     assert got["lane_shift_m"] == 0.648
     assert got["vehicle_m"] == [2.196, 5.545, 1.578]
+
+
+#: The cruiser module Zoo's site kit builds for a responder slot at the
+#: genome's default size, as Lot 0.101.0's themed assembly names it.
+CAR = "cover/prop_cruiser_delco_1997_01_w220_d554_h158.glb"
+
+
+def _themed(tmp_path, scene_present=True):
+    """A themed site dir as Lot 0.101.0 leaves one: the scene, the car in
+    `cover/` (or not), and `responders.json` naming it for STEERED's stop."""
+    themed = tmp_path / "themed"
+    themed.mkdir()
+    (themed / "site.tscn").write_text("[gd_scene]\n", encoding="utf-8")
+    if scene_present:
+        stub_glb(themed / CAR, "cruiser")
+    (themed / "responders.json").write_text(json.dumps({
+        "schema": "lot.responder_vehicles.v1",
+        "vehicles": [{"arrival": 0, "species": "cruiser", "scene": CAR,
+                      "stop": STEERED["stop"], "yaw": 270.0,
+                      "dims": STEERED["vehicle"]}],
+        "missing": []}), encoding="utf-8")
+    return themed
+
+
+def _export_themed(tmp_path, themed):
+    gp = {"up_axis": "z", "markers": [],
+          "site_markers": [{"type": "crew_spawn", "at": VAN, "source": "getaway_van"},
+                           {"type": "responder_spawn", "at": STEERED["stop"],
+                            "source": "responder_arrival", "arrival": STEERED}],
+          "responder_plan": {"arrivals": [STEERED], "findings": []}}
+    path = tmp_path / "site.site.gameplay.json"
+    path.write_text(json.dumps(gp), encoding="utf-8")
+    handoff = tmp_path / "handoff"
+    handoff.mkdir()
+    (handoff / "mission.tscn").write_text("[gd_scene]\n", encoding="utf-8")
+    (handoff / "site.tscn").write_text("[gd_scene]\n", encoding="utf-8")
+    result = export_mission(mission_id="m1", handoff_dir=handoff, presentation_dir=None,
+                            source_dir=None, profile=ExportProfile(), tool_versions={},
+                            out_root=tmp_path / "exports", lot_gameplay=path,
+                            themed_site_dir=themed)
+    return result, json.loads((result.export_dir / RESPONDER_ARRIVALS_NAME).read_text(encoding="utf-8"))
+
+
+def test_each_arrival_names_the_car_it_brings(tmp_path):
+    """Lot 0.101.0's themed site names the cruiser for the stop; the car is
+    in the package's `cover/`, and the arrival names its `res://` path."""
+    result, doc = _export_themed(tmp_path, _themed(tmp_path))
+    (got,) = doc["arrivals"]
+    assert got["vehicle_scene"] == "res://" + CAR
+    assert (result.export_dir / CAR).is_file()
+    assert doc["vehicle_findings"] == []
+
+
+def test_a_car_named_but_not_in_the_package_is_null_and_said(tmp_path):
+    """A path the package does not hold is not shipped as if it did."""
+    _result, doc = _export_themed(tmp_path, _themed(tmp_path, scene_present=False))
+    (got,) = doc["arrivals"]
+    assert got["vehicle_scene"] is None
+    assert any("not in the package" in s for s in doc["vehicle_findings"])
 
 
 def test_the_manifest_lists_it(tmp_path):

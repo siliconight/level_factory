@@ -1057,7 +1057,8 @@ def _package_xz(x, y) -> list:
     return [x + 0.0, -y + 0.0]
 
 
-def write_responder_arrivals(export_dir: Path, lot_gameplay) -> dict | None:
+def write_responder_arrivals(export_dir: Path, lot_gameplay,
+                             themed_site_dir: Path | None = None) -> dict | None:
     """How each responder arrives, in the package's frame -- or None, and no
     file, when Lot's gameplay carries no `responder_plan`.
 
@@ -1080,6 +1081,17 @@ def write_responder_arrivals(export_dir: Path, lot_gameplay) -> dict | None:
     round. A lane from Lot 0.99 is its one `lane_box`, shipped as the only
     box, at shift 0.
 
+    THE CAR EACH BRINGS (0.162.0, schema v3). Lot 0.101.0's themed assembly
+    copies the cruiser Zoo's site kit built beside its scene -- into
+    `cover/`, a sibling this package carries -- stands it nowhere, and names
+    it in `responders.json`. Each arrival here gets `vehicle_scene`, the
+    car's `res://` path, matched by its stop. It is null when the themed
+    site names no car for that stop, or names a file the package does not
+    hold, and `vehicle_findings` says which. This file is one of
+    `closure._METADATA_FILES`, so the closure gate does not read the path:
+    the file's presence is checked here. Lot from before 0.101.0 writes no
+    `responders.json`, and every arrival's car is null with that said once.
+
     Frame: Godot -- x, y up, z = -(site y) -- metres, the frame of every
     position in `gameplay_anchors.json`; the ground at y 0. A box is the
     x/z extent of a plan rect. Lot's output from before 0.99.0 carries no
@@ -1091,6 +1103,21 @@ def write_responder_arrivals(export_dir: Path, lot_gameplay) -> dict | None:
     if "responder_plan" not in gp:
         return None
     from packages.staging.dispatch_inputs import site_marker_anchor_pairs
+
+    def stop_key(p):
+        return (round(float(p[0]), 3), round(float(p[1]), 3))
+
+    cars, said = {}, []
+    named = Path(themed_site_dir) / "responders.json" if themed_site_dir else None
+    if named is not None and named.is_file():
+        rv = json.loads(named.read_text(encoding="utf-8"))
+        for v in rv.get("vehicles") or []:
+            cars[stop_key(v["stop"])] = v["scene"]
+        if rv.get("missing"):
+            said.append("the themed site built no car for arrival(s) %s" % rv["missing"])
+    else:
+        said.append("the themed site names no responder car (no responders.json: "
+                    "Lot before 0.101.0, or no themed site)")
     arrivals = []
     for marker, anchor in site_marker_anchor_pairs(gp, "lot"):
         a = marker.get("arrival")
@@ -1105,6 +1132,13 @@ def write_responder_arrivals(export_dir: Path, lot_gameplay) -> dict | None:
             return {"min": _package_xz(x0, y1), "max": _package_xz(x1, y0)}
 
         lane = a["lane_boxes"] if "lane_boxes" in a else [a["lane_box"]]
+        scene = cars.get(stop_key(a["stop"]))
+        if scene is not None and not (export_dir / scene).is_file():
+            said.append("%s is named for the stop at %s and is not in the package"
+                        % (scene, list(a["stop"][:2])))
+            scene = None
+        elif scene is None and cars:
+            said.append("the themed site names no car for the stop at %s" % list(a["stop"][:2]))
         arrivals.append({
             "anchor": anchor["id"],
             "entry": [ex, 0.0, ez], "stop": [sx, 0.0, sz],
@@ -1113,16 +1147,17 @@ def write_responder_arrivals(export_dir: Path, lot_gameplay) -> dict | None:
             "stop_box": box(a["stop_box"]),
             "lane_boxes": [box(r) for r in lane],
             "lane_shift_m": a.get("lane_shift", 0.0),
+            "vehicle_scene": ("res://" + scene) if scene else None,
             "toward": [tx, 0.0, tz],
             "to_way_back_m": a.get("to_way_back"), "run_m": a.get("run"),
         })
-    doc = {"schema": "level_factory.responder_arrivals.v2",
+    doc = {"schema": "level_factory.responder_arrivals.v3",
            "frame": "Godot: x, y up, z = -(site y); metres; the ground at y 0",
            "what": ("Where responders can arrive. The factory reserves each "
                     "lane and stop; spawning and timing responders is the "
                     "runtime's. Each `anchor` is an `ai_spawn` tagged "
                     "`responder` in gameplay_anchors.json."),
-           "arrivals": arrivals}
+           "arrivals": arrivals, "vehicle_findings": said}
     (export_dir / RESPONDER_ARRIVALS_NAME).write_text(pretty_dumps(doc), encoding="utf-8")
     return doc
 
@@ -1869,7 +1904,7 @@ def export_mission(
     # `closure._METADATA_FILES` names it: its anchor ids are shaped like the
     # NodePath strings the authoring-path test reads as paths, the reasoning
     # that put `handoff_bindings.json` there.
-    arrivals_doc = write_responder_arrivals(export_dir, lot_gameplay)
+    arrivals_doc = write_responder_arrivals(export_dir, lot_gameplay, themed_site_dir)
     if arrivals_doc is not None:
         print("[export] responder arrivals: %d, in %s"
               % (len(arrivals_doc["arrivals"]), RESPONDER_ARRIVALS_NAME))
