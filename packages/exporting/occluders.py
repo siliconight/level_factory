@@ -124,6 +124,63 @@ class OccluderError(RuntimeError):
 CACHE_DIR = ".godot"
 
 
+#: What the import check counts as a model: the scene formats a package
+#: ships (0.163.1).
+MODEL_SUFFIXES = (".glb", ".gltf")
+
+
+def package_models(export_dir: Path) -> list:
+    """Every model in the package, package-relative and sorted. `.godot/` is
+    the cache, not the package; a folder holding `.gdignore` is one Godot
+    never imports, and is skipped the way Godot skips it."""
+    export_dir = Path(export_dir)
+    ignored = [g.parent for g in export_dir.rglob(".gdignore")]
+    out = []
+    for p in export_dir.rglob("*"):
+        if p.suffix.lower() not in MODEL_SUFFIXES or not p.is_file():
+            continue
+        rel = p.relative_to(export_dir)
+        if rel.parts[0] == CACHE_DIR or any(d in p.parents for d in ignored):
+            continue
+        out.append(rel.as_posix())
+    return sorted(out)
+
+
+_DEST_FILES = re.compile(r"^dest_files=\[(.*)\]\s*$", re.M)
+
+
+def unimported_models(export_dir: Path) -> list:
+    """The package's models Godot has not imported HERE (0.163.1): no
+    `.import` sidecar, a sidecar naming no `dest_files` -- an unrecognised
+    shape is not evidence of an import -- or one whose files are not in the
+    cache. Read off a real sidecar, cold run 9214's
+    `doorway_delco_1997_01_w100_mbrick_orange_enavy_o3e3b2d.glb.import`,
+    Godot 4.7: `[deps]` carries `dest_files=["res://.godot/imported/
+    <name>-<hash>.scn"]`.
+
+    COLD RUN 9214 IS WHY. Its export's first `--import` left sidecars on 140
+    of the package's 975 importable files -- SkyMint's, which arrive with
+    Lux's runtime -- and on none of its 425 models, and nothing looked: the
+    occluder bake loaded a scene whose every module was missing and said
+    `ok` with 0 modules, and the Empties' merge was the first step to
+    refuse. A shipped package, which keeps its sidecars and drops the cache,
+    lists every model here, and that is true: none is imported in it.
+    """
+    export_dir = Path(export_dir)
+    out = []
+    for rel in package_models(export_dir):
+        try:
+            text = (export_dir / (rel + ".import")).read_text(encoding="utf-8")
+        except OSError:
+            out.append(rel)
+            continue
+        m = _DEST_FILES.search(text)
+        dests = re.findall(r'"res://([^"]+)"', m.group(1)) if m else []
+        if not dests or not all((export_dir / d).is_file() for d in dests):
+            out.append(rel)
+    return out
+
+
 def ensure_imported(export_dir: Path, godot_executable, *,
                     timeout: int = 1200) -> bool:
     """Import the project if Godot has never imported it. True if it ran.
@@ -150,9 +207,15 @@ def ensure_imported(export_dir: Path, godot_executable, *,
     path, where the sidecar pass has already left the cache in place -- this
     is then an `is_dir()` call. The caller is responsible for removing the
     cache before the package ships; `drop_cache` below is that.
+
+    A CACHE FOLDER IS NOT AN IMPORT (0.163.1). This returned on `is_dir()`,
+    and cold run 9214's export reached it with a `.godot` its first pass had
+    made and left without a single model in it. It returns early only when
+    `unimported_models` is empty too, and refuses an import that leaves any
+    model behind.
     """
     export_dir = Path(export_dir)
-    if (export_dir / CACHE_DIR).is_dir():
+    if (export_dir / CACHE_DIR).is_dir() and not unimported_models(export_dir):
         return False
     if not godot_executable:
         raise OccluderError("no Godot executable: occluders cannot be measured")
@@ -167,6 +230,11 @@ def ensure_imported(export_dir: Path, godot_executable, *,
         raise OccluderError(
             "import pass left no %s cache: the bake cannot load anything"
             % CACHE_DIR)
+    left = unimported_models(export_dir)
+    if left:
+        raise OccluderError(
+            "import pass left %d model(s) unimported, first %s: the bake "
+            "cannot load them" % (len(left), left[0]))
     return True
 
 

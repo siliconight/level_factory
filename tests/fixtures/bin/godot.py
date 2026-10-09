@@ -160,9 +160,34 @@ def main():
     # because the REAL one does, and because the occluder bake's precondition
     # is that directory existing -- a stub that returned 0 and created nothing
     # is a Godot that imported nothing, and the export is right to refuse it.
+    #
+    # AND IT IMPORTS THE MODELS (Level Factory 0.163.1), because the export
+    # now checks that the real one did. Every `.glb`/`.gltf` outside `.godot/`
+    # and any `.gdignore` folder gets the sidecar Godot 4.7 writes -- `[deps]`
+    # `dest_files` naming `res://.godot/imported/<name>-<md5 of its res://
+    # path>.scn` -- and that file. Cold run 9214's first pass imported none,
+    # and the export went on to measure an empty scene.
     if "--import" in argv:
         proj = Path(argv[argv.index("--path") + 1]) if "--path" in argv else Path(".")
-        (proj / ".godot" / "imported").mkdir(parents=True, exist_ok=True)
+        cache = proj / ".godot" / "imported"
+        cache.mkdir(parents=True, exist_ok=True)
+        import hashlib
+        ignored = [g.parent for g in proj.rglob(".gdignore")]
+        for p in proj.rglob("*"):
+            if p.suffix.lower() not in (".glb", ".gltf") or not p.is_file():
+                continue
+            rel = p.relative_to(proj)
+            if rel.parts[0] == ".godot" or any(d in p.parents for d in ignored):
+                continue
+            res = "res://" + rel.as_posix()
+            dest = "%s-%s.scn" % (p.name, hashlib.md5(res.encode("utf-8")).hexdigest())
+            (cache / dest).write_bytes(b"stub")
+            Path(str(p) + ".import").write_text(
+                '[remap]\n\nimporter="scene"\nimporter_version=1\n'
+                'type="PackedScene"\npath="res://.godot/imported/%s"\n\n'
+                '[deps]\n\nsource_file="%s"\n'
+                'dest_files=["res://.godot/imported/%s"]\n\n[params]\n\n'
+                'nodes/root_type=""\n' % (dest, res, dest), encoding="utf-8")
         return 0
 
     if script.endswith("bake_occluders.gd") or (

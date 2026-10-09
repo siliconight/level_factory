@@ -155,6 +155,13 @@ CLOSURE_ENFORCED = True
 OCCLUDERS_ENFORCED = True
 
 
+#: How many times the export runs Godot's `--import` before it calls the
+#: import failed (0.163.1). CHOSEN, not derived: one short pass was seen in
+#: eight on cold run 9214's package, a pass costs about 40 s there, and 3
+#: bounds a bad export at about two minutes before it says so.
+IMPORT_PASSES = 3
+
+
 class ExportClosureError(RuntimeError):
     """A portable export references resources it does not contain."""
 
@@ -162,6 +169,12 @@ class ExportClosureError(RuntimeError):
 class ExportOccluderError(RuntimeError):
     """The package's occluders could not be measured, or the culling flag and
     the occluders that shipped do not agree."""
+
+
+class ExportImportError(RuntimeError):
+    """Godot's `--import` was run `IMPORT_PASSES` times with a Godot present
+    and left models the package carries unimported (0.163.1, cold run 9214):
+    every step after it loads them."""
 
 
 class ExportMergeError(RuntimeError):
@@ -612,26 +625,74 @@ def _write_import_sidecars(export_dir: Path, godot_executable) -> int:
     other than desktop -- mode 2 imports S3TC here, and a platform without it
     needs its own import flag before this pin means anything there.
 
-    Best-effort. A missing Godot is a setup problem, not an export failure, and
-    HANDOFF.md tells the recipient what to do either way.
+    Best-effort only where Godot is missing: that is a setup problem, not an
+    export failure, and HANDOFF.md tells the recipient what to do either way.
+
+    NOT BEST-EFFORT WHERE GODOT IS THERE (0.163.1), and cold run 9214 is why.
+    Its first pass left sidecars on 140 of the package's 975 importable files
+    -- SkyMint's, which arrive with Lux's runtime -- and on none of its 425
+    models. This threw the pass's exit code and output away and returned;
+    `ensure_imported` took the `.godot` folder for an import; the occluder
+    bake loaded a scene whose every module was missing and reported `ok`
+    with 0 modules; and the Empties' merge was the first step to refuse. The
+    same package imported 425 of 425 in seven fresh reruns, two of them from
+    the export's exact starting state, so the pass is a transient and the
+    cure is to look: every pass is checked by `occluders.unimported_models`
+    and repeated up to `IMPORT_PASSES` times, every pass's exit code and
+    output go to `<package>.import.log` beside the package -- not in it,
+    where the resource manifest would have to account for it -- and a pass
+    that never completes raises `ExportImportError`.
     """
     if not godot_executable:
         return 0
     import shutil as _shutil
     import subprocess as _subprocess
 
-    def _import_pass() -> bool:
+    from packages.exporting.occluders import (package_models,
+                                              unimported_models)
+    log_path = export_dir.parent / (export_dir.name + ".import.log")
+    log_path.unlink(missing_ok=True)  # this export's passes, not the last one's
+    passes: list = []
+
+    def _import_pass() -> None:
+        """One `--import`, its exit code and output appended to the log."""
         try:
-            _subprocess.run(
+            done = _subprocess.run(
                 [str(godot_executable), "--headless", "--path",
                  str(export_dir), "--import"],
-                capture_output=True, text=True, timeout=1200)
-            return True
-        except (OSError, _subprocess.SubprocessError):
-            return False
+                capture_output=True, timeout=1200)
+            code = getattr(done, "returncode", None)
+            out = ((getattr(done, "stdout", None) or b"")
+                   + (getattr(done, "stderr", None) or b""))
+        except (OSError, _subprocess.SubprocessError) as exc:
+            code, out = None, ("did not run: %s\n" % exc).encode("utf-8", "replace")
+        passes.append(code)
+        with open(log_path, "ab") as fh:
+            fh.write(("==== import pass %d: exit %s\n" % (len(passes), code))
+                     .encode("utf-8"))
+            fh.write(out if isinstance(out, bytes)
+                     else str(out).encode("utf-8", "replace"))
 
-    if not _import_pass():
-        return 0
+    def _import_pass_verified() -> None:
+        """Import until every model is, at most `IMPORT_PASSES` times."""
+        for n in range(1, IMPORT_PASSES + 1):
+            _import_pass()
+            left = unimported_models(export_dir)
+            if not left:
+                if n > 1:
+                    print("[export] import: every model imported on attempt %d "
+                          "(%s)" % (n, log_path))
+                return
+            print("[export] import pass %d left %d model(s) unimported, first "
+                  "%s" % (len(passes), len(left), left[0]))
+        raise ExportImportError(
+            "the import pass left %d of %d model(s) unimported after %d "
+            "attempt(s) and this build had a Godot to run it with; first: "
+            "%s\n  Godot's output: %s"
+            % (len(left), len(package_models(export_dir)), IMPORT_PASSES,
+               left[0], log_path))
+
+    _import_pass_verified()
 
     KEY = "gltf/embedded_image_handling"
     rewrote = 0
@@ -664,7 +725,7 @@ def _write_import_sidecars(export_dir: Path, godot_executable) -> int:
             png.unlink(missing_ok=True)
             Path(str(png) + ".import").unlink(missing_ok=True)
         _shutil.rmtree(export_dir / ".godot", ignore_errors=True)
-        _import_pass()
+        _import_pass_verified()
 
     # THE CACHE IS LEFT IN PLACE, and this is the fix for cold run 9065.
     # It used to be removed here -- one line before the occluder bake, which
