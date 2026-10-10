@@ -428,6 +428,14 @@ def surroundings_of(asked, archetype, site_shape) -> str:
     return _SURROUNDINGS_BY_SHAPE.get(shape, "borough")
 
 
+def cluster_resolved(asked, archetype) -> dict:
+    """The cluster template the lot was drawn by (0.176.0, roadmap 230), recorded
+    beside the surroundings: what was asked, what was got, whether the spelling
+    was known, and the families preferred in the guide's order."""
+    from packages.pipeline import cluster
+    return cluster.resolved(asked, archetype)
+
+
 def _steps(shape: str, count: int) -> list:
     """Unit steps between consecutive buildings, in site XY.
 

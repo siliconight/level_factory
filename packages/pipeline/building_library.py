@@ -604,7 +604,7 @@ def score_building(entries: list[dict], archetype: str):
 
 
 def pick_lot(entries: list[dict], seed: int, count: int,
-             anchor: str = None) -> list[dict]:
+             anchor: str = None, preferred=None) -> list[dict]:
     """``count`` archetypes for one candidate, no two from the same family.
 
     ``anchor`` (roadmap 44 / cold run 9007): the brief's archetype. When a
@@ -642,6 +642,17 @@ def pick_lot(entries: list[dict], seed: int, count: int,
         pool.remove(fam)
         variants = by_family[fam]
         out.append(variants[next(rng) % len(variants)])
+    # THE TEMPLATE'S FAMILIES FIRST (0.176.0, roadmap 230): in the order the
+    # guide lists them, each drawn from the pool when the library has it, the
+    # stream spent on the variant alone -- so a brief with no template keeps
+    # 0.175.1's draw byte for byte, and a family the library lacks is skipped.
+    for fam in (preferred or ()):
+        if len(out) >= count:
+            break
+        if fam in pool:
+            pool.remove(fam)
+            variants = by_family[fam]
+            out.append(variants[next(rng) % len(variants)])
     while len(out) < count and pool:
         fam = pool.pop(next(rng) % len(pool))
         variants = by_family[fam]
@@ -658,7 +669,8 @@ def pick_lot(entries: list[dict], seed: int, count: int,
 
 
 def lot_for(library, building_count, candidate_id, *,
-            themed: bool = False, anchor: str = None) -> tuple[list[dict], list[dict]]:
+            themed: bool = False, anchor: str = None,
+            preferred=None) -> tuple[list[dict], list[dict]]:
     """``(lot, incomplete)`` -- which buildings this candidate places.
 
     THE one rule, so that the planner (which must fan art jobs out per
@@ -697,7 +709,7 @@ def lot_for(library, building_count, candidate_id, *,
         # finds no composed scene for the ones it placed.
         complete = require_themed_shells(complete, count)
     seed = int(str(candidate_id).rsplit("_", 1)[-1])
-    return pick_lot(complete, seed, count, anchor=anchor), incomplete
+    return pick_lot(complete, seed, count, anchor=anchor, preferred=preferred), incomplete
 
 
 def lot_for_brief(model, candidate_id, *, themed: bool = False):
@@ -713,10 +725,15 @@ def lot_for_brief(model, candidate_id, *, themed: bool = False):
     reading three subsets of one brief is how that happens; this is the
     subset.
     """
+    # the cluster template's families, when the brief names one (0.176.0)
+    from packages.pipeline import cluster
+    template = cluster.template_for(getattr(model, "cluster", ""),
+                                    getattr(model, "archetype", "") or "")
     return lot_for(getattr(model, "lot_library", None),
                    getattr(model, "building_count", 1),
                    candidate_id, themed=themed,
-                   anchor=getattr(model, "archetype", "") or "")
+                   anchor=getattr(model, "archetype", "") or "",
+                   preferred=cluster.preferred_families(template) if template else None)
 
 
 def footprints_for(lot: list[dict], measure) -> list:

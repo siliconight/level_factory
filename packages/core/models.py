@@ -111,6 +111,11 @@ class MissionBrief:
     #: Not in the functional signature: the backdrop has no collision and
     #: changes nothing a lock protects, like the weather.
     surroundings: str = ""
+    #: WHICH BUILDINGS STAND BESIDE THE OBJECTIVE (0.176.0, roadmap 230): a cluster
+    #: template's id from the walker's adjacency guide (`cluster.TEMPLATES`), or
+    #: `auto` for the archetype's words to decide. Empty, the lot is drawn as it
+    #: always was. In the functional signature when set: it changes the lot.
+    cluster: str = ""
     seed_policy: str = "derived"
     candidate_count: int = 3
     target_minutes: tuple[int, int] = (25, 35)
@@ -203,6 +208,9 @@ class MissionBrief:
         # the signature it has always had; the key's PRESENCE is the change.
         if self.lot_library:
             sig["lot_library"] = self.lot_library
+        # the same care for the cluster (0.176.0): named, it changes the lot
+        if self.cluster:
+            sig["cluster"] = self.cluster
         # the same care for the Empties (0.137.0): they stand on the site.
         # Keyed on what the brief GETS since they became the default
         # (0.144.0): a brief with no library, or one building, stands no
