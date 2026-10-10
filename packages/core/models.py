@@ -105,6 +105,12 @@ class MissionBrief:
     time_of_day: str = "afternoon"
     weather: str = "clear"
     theme: str = ""
+    #: WHAT STANDS BEYOND THE PLATE'S EDGE (0.175.0, roadmap 228): `borough`,
+    #: `none`, `yards`, `parkland` or `roadside`, Lot's backdrop recipes. Empty,
+    #: the archetype and the site shape decide (`site_variation.surroundings_of`).
+    #: Not in the functional signature: the backdrop has no collision and
+    #: changes nothing a lock protects, like the weather.
+    surroundings: str = ""
     seed_policy: str = "derived"
     candidate_count: int = 3
     target_minutes: tuple[int, int] = (25, 35)

@@ -2143,6 +2143,17 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         "site_id": model.mission_id,
         "candidate_seed": int(seed),
         "site_shape": model.site_shape,
+        # WHAT STANDS BEYOND THE EDGE (0.175.0, roadmap 228): the recipe Lot's
+        # `site_backdrop` lays, named by the brief or decided by the archetype
+        # and the site shape, recorded as `site_shape` is below.
+        "surroundings": site_variation.surroundings_of(
+            model.surroundings, model.archetype, model.site_shape),
+        "surroundings_resolved": {
+            "asked": str(model.surroundings or ""),
+            "got": site_variation.surroundings_of(
+                model.surroundings, model.archetype, model.site_shape),
+            "known": site_variation.surroundings_known(model.surroundings),
+        },
         # WHAT THE SHAPE RESOLVED TO, ON DISK (roadmap 100). `shape_of` falls
         # back to a row for a spelling it does not know, and it should -- the
         # objection to stopping a build over a label is fair. But a fallback

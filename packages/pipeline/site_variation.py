@@ -390,6 +390,44 @@ def shape_of(site_shape) -> str:
     return _SHAPE_ALIASES.get(_norm(site_shape), "row")
 
 
+#: What stands beyond the plate's edge (0.175.0, roadmap 228): Lot's backdrop
+#: recipes, in `lot/site_backdrop.py`'s own words. `borough` is rows of
+#: rowhomes and a water tower, the walker's E; `none` lays nothing; the other
+#: three lay the borough with a finding until their kits exist.
+SURROUNDINGS = ("borough", "none", "yards", "parkland", "roadside")
+
+#: Unnamed, the archetype decides first and the site shape second. A table
+#: rather than a rule, stated so it can be argued with: a warehouse backs
+#: onto yards wherever it stands; a hospital onto parkland; a gas station or
+#: a convenience store on a strip onto the road; everything else onto the
+#: borough, which is what every level backed onto before this existed.
+_SURROUNDINGS_BY_ARCHETYPE = {"industrial_warehouse": "yards",
+                              "county_hospital": "parkland"}
+_SURROUNDINGS_BY_SHAPE = {"yard": "yards", "campus": "parkland"}
+_ROADSIDE_ARCHETYPES = ("gas_station", "convenience_store")
+
+
+def surroundings_known(asked) -> bool:
+    """Whether ``asked`` is a recipe this table has an opinion about; the
+    empty string is known, it means derive."""
+    return _norm(asked) in ("",) + SURROUNDINGS
+
+
+def surroundings_of(asked, archetype, site_shape) -> str:
+    """The backdrop recipe a brief gets: the one it names, else the one its
+    archetype and site shape decide, else the borough. A spelling nobody
+    knows is the borough too, and `surroundings_known` says which."""
+    want = _norm(asked)
+    if want in SURROUNDINGS:
+        return want
+    arch, shape = _norm(archetype), _norm(site_shape)
+    if arch in _SURROUNDINGS_BY_ARCHETYPE:
+        return _SURROUNDINGS_BY_ARCHETYPE[arch]
+    if arch in _ROADSIDE_ARCHETYPES and shape == "strip":
+        return "roadside"
+    return _SURROUNDINGS_BY_SHAPE.get(shape, "borough")
+
+
 def _steps(shape: str, count: int) -> list:
     """Unit steps between consecutive buildings, in site XY.
 

@@ -74,7 +74,10 @@ def manifest_from_drawn(drawn: dict) -> dict:
             "asset_id": f"{module_stem(sp, dims, theme, style)}__{side}",
             "module": module_stem(sp, dims, theme, style),
             "species": sp, "side": side,
-            "pos": [float(x), float(y), float(dims[2]) / 2.0],
+            # a Zoo module stands on -h/2, so the centre is h/2 above the piece's
+            # foot, which Lot lifts with `z` for a container stacked on another
+            # (Lot 0.109.0's yards)
+            "pos": [float(x), float(y), float(p.get("z") or 0.0) + float(dims[2]) / 2.0],
             "yaw": math.radians(float(p.get("yaw") or 0.0)),
             "scale": 1.0, "collision_policy": "none",
             "height_m": float(dims[2]), "in_traversed_space": False,

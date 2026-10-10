@@ -1,3 +1,33 @@
+## [0.175.0] - The brief names what stands beyond the edge, or the archetype decides
+
+**Roadmap 228, step D's other half.** The walker asked for edges that differ
+by level. Lot 0.108.0 lays the backdrop from the site spec's `surroundings`
+recipe, `borough` when unnamed; until this, nothing wrote the field, so every
+level backed onto rowhomes. Now:
+- **`MissionBrief.surroundings`** (recorded, optional): `borough`, `none`,
+  `yards`, `parkland` or `roadside`. Not in the functional signature: the
+  backdrop has no collision and changes nothing a lock protects, like the
+  weather.
+- **Unnamed, the archetype and the site shape decide**
+  (`site_variation.surroundings_of`, a table stated so it can be argued
+  with): an `industrial_warehouse`, or a `yard` site, backs onto `yards`; a
+  `county_hospital`, or a `campus`, onto `parkland`; a `gas_station` or a
+  `convenience_store` on a `strip` onto `roadside`; everything else onto
+  the `borough`.
+- **The site spec carries what was asked, what it got and whether the word
+  was known** (`surroundings`, `surroundings_resolved`), as `site_shape`
+  does, so a spelling nobody knows falls back to the borough on disk rather
+  than only in the geometry; the writer says so out loud.
+
+Lot 0.108.0 lays `yards`, `parkland` and `roadside` as the borough with
+`LOT_BACKDROP_RECIPE_PENDING`; Lot 0.109.0 lays them from Zoo 1.96.0's
+tree and warehouse and the cargo container. For its stacked containers, a
+backdrop piece may carry `z`, its foot's height above the plate, and the
+composition (`backdrop_layer.manifest_from_drawn`) stands the module at
+that foot plus half its height.
+
+**Tests:** 5 tests (16 cases), every one failing on 0.174.0, which has no `surroundings_of` and no field, and passing on the draft.. **Suite:** 2,190 passed, 14 skipped, 1 xfailed, exit 0 (2,173 as 0.174.0, the 16 new cases and the sibling guard's case for the new file).
+
 ## [0.174.0] - The backdrop beyond the plate's edge ships as MultiMeshes
 
 **Roadmap 228, step E.** The walker picked E from the edge menu
@@ -26,9 +56,9 @@ dressing layer's own road (`extract_meshes`, `dressing_scene`) puts
 `site.site.drawn.json`; a mission whose Lot laid no backdrop, or whose
 export is a pure shell, ships exactly as before.
 
-**Seen:** in cold run 9225, the first to carry Zoo 1.95.0, Lot 0.108.0 and this release together (`docs/cold_runs/cold_9225/` at the factory root); until that run this layer is exercised by its tests alone, and the entry is corrected with the frames afterwards.
+**Seen,** cold run 9225 (`docs/cold_runs/cold_9225/` at the factory root): `[export] backdrop: site_backdrop.tscn -- 277 instances of 19 module(s) on their sides, 69 draw calls`, and at the edge stations the road ends at the fence with a skyline of rowhome blocks, lit windows and the water tower behind it; the paint travels inside each extracted mesh (`embedded_textures: 2`). The 19 modules are Lot 0.108.0's three band depths making three modules of each pair; Lot 0.109.0 gives every band one depth.
 
-**Priced:** cold run 9225's package against 9224's at Level Factory's fixed stations, control, subject, control, as every step of roadmap 228 is priced; the figures land in that run's notes and in this entry afterwards.
+**Priced,** 9225's package against 9224's at the fixed stations, control, subject, control: +43 draws a heading median (+17 to +91), the 69 MultiMeshes; p95 frame time +0.02 ms median, inside the controls' own 0.67 ms spread, 7 of 53 headings over +0.5 ms, the worst +1.25.
 
 **Tests:** 8, `tests/unit/test_backdrop_layer.py`. **Suite:** 2,173 passed, 14 skipped, 1 xfailed, exit 0 (2,163 as 0.173.0, the 8 new tests and the sibling guard's two cases for the new files).
 
