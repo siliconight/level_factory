@@ -203,11 +203,22 @@ def cmd_setup(args) -> int:
     Writes `factory.local.json` beside `factory.manifest.json`, which every later `init`
     reads first, and then runs the doctor over what it found. Run again with a flag to fill
     in what it could not find; what it found before is read back from the file.
+
+    `--venv` (0.168.0) gives the tools a Python of their own: `<factory>/.venv`, made from the
+    interpreter running this command -- Blender's, for somebody who installed nothing else --
+    with what it lacks installed at `interpreter.PINNED`. Its interpreter is what gets
+    recorded. It is the one step that needs the network, and it is asked for, never assumed.
     """
+    from packages.tools import interpreter
     root = Path(args.factory).resolve() if args.factory else discovery.factory_root()
     if root is None:
         print(f"setup: no {discovery.MANIFEST} at or above this Level Factory; "
               f"pass --factory <the factory's root>", file=sys.stderr)
+        return EXIT_CONFIG
+    venv = bool(getattr(args, "venv", False))
+    if venv and args.python:
+        print("setup: --venv makes the tools' Python; pass it or --python, not both",
+              file=sys.stderr)
         return EXIT_CONFIG
     try:
         found = discovery.discover(root, blender=args.blender, godot=args.godot,
@@ -215,6 +226,16 @@ def cmd_setup(args) -> int:
     except ValueError as exc:
         print(f"setup: {exc}", file=sys.stderr)
         return EXIT_CONFIG
+    if venv:
+        pins = ", ".join(f"{d} {v}" for d, v in interpreter.PINNED.items())
+        print(f"making {root / interpreter.VENV} from {sys.executable}, with {pins}")
+        py, err = interpreter.make_venv(root, sys.executable)
+        if err:
+            print(f"setup: {err}", file=sys.stderr)
+            return EXIT_CONFIG
+        found.tools_local["python_executable"] = py
+        found.sources["python_executable"] = "setup --venv"
+        found.gaps.pop("python_executable", None)
     path = discovery.write_local(root, found.tools_local)
     print(f"wrote {path}")
     for line in found.lines():

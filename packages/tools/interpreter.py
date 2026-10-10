@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from pathlib import Path
 from typing import Mapping
 
 #: The oldest Python the tools' interpreter may be. Level Factory's own `pyproject.toml` asks
@@ -47,6 +48,49 @@ _ASK = (
     "        missing.append([name, type(exc).__name__ + ': ' + str(exc)[:200]])\n"
     "print(json.dumps({'version': list(sys.version_info[:3]), 'missing': missing}))\n"
 )
+
+
+#: What `setup --venv` installs (0.168.0): the versions every suite and cold run on the
+#: machine this was written on used, 2026-10-10. A different Pillow is a different PNG encoder
+#: and resampler, so an unpinned one would make texture packs nobody here has looked at.
+PINNED = {"pillow": "12.3.0", "pygltflib": "1.16.5", "jsonschema": "4.26.0"}
+VENV = ".venv"
+
+
+def venv_python(venv: Path) -> Path | None:
+    """The interpreter inside a virtual environment, on either platform's layout."""
+    for rel in (("Scripts", "python.exe"), ("bin", "python")):
+        p = Path(venv, *rel)
+        if p.is_file():
+            return p
+    return None
+
+
+def make_venv(root: Path, base: str, *, run=subprocess.run, timeout: int = 1800) -> tuple[str, str]:
+    """Make `<root>/.venv` from `base` and install `PINNED` into it. ``(its python, "")``, or
+    ``("", what failed)``.
+
+    `--system-site-packages`, so the environment keeps what `base` already carries -- numpy,
+    for Blender's own Python -- and installs only what it lacks. It writes nothing outside
+    `<root>/.venv`, so it needs no rights over wherever Blender is installed. pip fetches from
+    its index, so this is the one step that needs the network; its output goes to the terminal
+    as it runs, because a download that only reports at the end reads as a hang.
+    """
+    venv = Path(root) / VENV
+    made = run([base, "-m", "venv", "--system-site-packages", str(venv)],
+               capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
+    if made.returncode != 0:
+        said = (made.stderr or made.stdout or "").strip().splitlines() or ["no output"]
+        return "", f"{base} -m venv exited {made.returncode}: {said[-1][:200]}"
+    py = venv_python(venv)
+    if py is None:
+        return "", f"{venv} has no interpreter after `-m venv`"
+    pins = [f"{dist}=={ver}" for dist, ver in PINNED.items()]
+    got = run([str(py), "-m", "pip", "install", "--disable-pip-version-check", *pins],
+              timeout=timeout, stdin=subprocess.DEVNULL)
+    if got.returncode != 0:
+        return "", f"pip install {' '.join(pins)} exited {got.returncode} (its output is above)"
+    return str(py), ""
 
 
 def tools_python(installation: Mapping | None) -> str:

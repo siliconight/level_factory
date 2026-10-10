@@ -57,6 +57,9 @@ def build_parser() -> argparse.ArgumentParser:
                                       "Python are, then run the doctor")
     sp.add_argument("--factory", default="",
                     help="the factory root (default: the one holding this Level Factory)")
+    sp.add_argument("--venv", action="store_true",
+                    help="make <factory>/.venv from this Python and install what the tools "
+                         "lack into it (needs the network once)")
     _tool_path_flags(sp)
     sp.set_defaults(func=cmd_setup)
 
