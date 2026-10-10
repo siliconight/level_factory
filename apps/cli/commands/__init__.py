@@ -3652,8 +3652,12 @@ def cmd_walk(args) -> int:
         if launch and not godot:
             print("godot_executable not configured in tools.local.json; "
                   "open it manually:", file=sys.stderr)
-        print(f'  open:  & "{godot or "godot"}" --path "{report["dest"]}" -e')
-        print(f'  play:  & "{godot or "godot"}" --path "{report["dest"]}"')
+        # NOT a raw Godot command (0.171.0): `& "<godot>"` is PowerShell's call
+        # operator and an error in cmd, and the person may not know where Godot is.
+        # This command launches it from tools.local.json.
+        _again = f"{discovery.command_name()} -C {ws.root} walk {mission_id}"
+        print(f"  open:  {_again} --open")
+        print(f"  play:  {_again} --play")
     # The preview always gets built and handed over -- a failing self-check is
     # exactly when you most want to go look at it. The exit code carries the
     # verdict so a pipeline can gate on it; a human just reads the lines above.
@@ -3931,11 +3935,15 @@ def cmd_export(args) -> int:
     # to run it cold saw a grey window, then 1141 load errors, then a static
     # camera -- three separate discoveries of things HANDOFF.md already said.
     # The deliverable is this folder; the walk is a copy of it with a body.
-    print("  to run the package as shipped:   godot --headless --path <dir> --import"
-          "   (once; it ships sidecars, not the cache)")
-    print("  to walk it yourself:             python tools/walk_export.py "
-          f"{ws.internal_dir} {mission_id} [--at x,y,z]   (a copy with Lot's "
-          "body at the spawn; the package stays untouched)")
+    # NAMES WHAT THE PERSON HAS (0.171.0). These were `godot --headless ...`
+    # and `python tools/walk_export.py ...`: neither command is on the PATH of
+    # somebody who installed Blender and Godot and unpacked the factory, and
+    # the second is the factory checkout's tool, not this one.
+    print("  to run the package as shipped:   import it once in Godot first; it "
+          "ships sidecars, not the cache (HANDOFF.md, in the package, says how)")
+    print(f"  to walk it yourself:             {discovery.command_name()} -C {ws.root} "
+          f"walk {mission_id} --play   (a copy with a player at the package's "
+          "player_start; the package stays untouched)")
     return EXIT_OK
 
 

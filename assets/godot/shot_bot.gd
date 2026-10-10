@@ -28,6 +28,19 @@ extends SceneTree
 ## while an honest frame changes almost none. This is the visual counterpart to
 ## the analytic z-fight gate: that one reasons about authored planes, this one
 ## catches whatever actually reached the renderer.
+##
+## THE WARM-UP IS HELD (0.171.0, roadmap 202). An export's `mission.tscn` carries
+## the shader warm-up (`warmup.gd`), which covers the screen in black and draws at
+## a tenth of the resolution while it sweeps. Every frame this pass took inside
+## that sweep was 100% black, and black is neither magenta nor two frames that
+## differ, so all five stations on cold run 9222's package read OK. The warm-up
+## pays a compile bill this pass does not measure; its `enabled` is turned off
+## before the content enters the tree, and how many were held is reported.
+##
+## A FRAME OF ONE COLOUR FAILS. Whatever made it -- a cover, a scene that did not
+## load, a camera inside a solid -- a station that shows nothing cannot vouch for
+## anything, and the two measurements above cannot see that: they compare a
+## frame with itself.
 
 const W := 640
 const H := 360
@@ -72,6 +85,7 @@ func _run() -> void:
 		_fail("cannot load scene %s" % _scene_path)
 		return
 	var site: Node = packed.instantiate()
+	_result["warmups_held"] = _hold_warmups(site)
 	root.add_child(site)
 	for i in range(5):
 		await physics_frame
@@ -193,6 +207,13 @@ func _shoot(s: Dictionary) -> Dictionary:
 	# station is legitimately most sky, and a threshold that has to know which
 	# is which would be guessing.
 	st["ok"] = float(jd["pct"]) * 100.0 <= JITTER_FAIL_PCT
+	if _one_colour(a):
+		st["ok"] = false
+		st["one_colour"] = true
+		st["reason"] = ("the frame is a single colour, so nothing in front of the "
+			+ "camera was drawn -- a cover, a scene that did not load, or a camera "
+			+ "inside a solid; open %s") % png
+		return st
 	if not st["ok"]:
 		st["reason"] = ("%.2f%% of pixels flip when the camera moves 1 mm -- "
 			+ "coplanar surfaces are fighting for the depth test here; open "
@@ -213,6 +234,36 @@ func _frame(eye: Vector3, look: Vector3) -> Image:
 	await RenderingServer.frame_post_draw
 	var tex: ViewportTexture = root.get_texture()
 	return tex.get_image() if tex else null
+
+
+## Turn off every shader warm-up in `node`'s tree before it enters the scene, so
+## `_ready` returns at once. Found by what it is -- an `enabled` switch, a
+## `cover_screen` and the `warmup_finished` signal -- not by its node's name.
+func _hold_warmups(node: Node) -> int:
+	var held := 0
+	if node.has_signal("warmup_finished") and "cover_screen" in node and "enabled" in node:
+		node.set("enabled", false)
+		held += 1
+	for child in node.get_children():
+		held += _hold_warmups(child)
+	return held
+
+
+## True when every sampled pixel is within DIFF_TOL of the first, on every channel.
+func _one_colour(img: Image) -> bool:
+	var first: Color = img.get_pixel(0, 0)
+	var tol: float = float(DIFF_TOL) / 255.0
+	var y := 0
+	while y < img.get_height():
+		var x := 0
+		while x < img.get_width():
+			var p: Color = img.get_pixel(x, y)
+			if absf(p.r - first.r) > tol or absf(p.g - first.g) > tol \
+					or absf(p.b - first.b) > tol:
+				return false
+			x += 4
+		y += 4
+	return true
 
 
 func _void_fraction(img: Image) -> float:

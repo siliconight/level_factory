@@ -119,6 +119,45 @@ def _find_level_scene(content_dir: Path) -> str | None:
     return tscns[0] if tscns else None
 
 
+#: Where the package says a player begins (0.171.0, roadmap 202): `gameplay_anchors.json`'s
+#: `player_start`, the anchor the factory's own `tools/walk_export.py` spawns at.
+_ANCHORS_FILE = "gameplay_anchors.json"
+#: The same lift a marker gets below: the anchor sits at grade, the player's origin is its feet
+#: (`player_walk.tscn` carries its capsule 0.9 m up), and gravity settles it.
+_SPAWN_LIFT_M = 0.6
+
+
+def _spawn_from_anchors(dest: Path):
+    """``((12 Transform3D floats), source_label)`` at the package's `player_start` anchor, or
+    None when the package names none.
+
+    Read first, before the markers, because an export's `mission.tscn` is an entry scene that
+    LOADS its content at runtime: its text holds no marker, so the marker search below found
+    nothing and the player stood at the default (0, 1.5, 3), wherever that is in the level.
+    Measured on cold run 9222's restaurant_row_001: "player at default (no markers)", with the
+    package's own player_start at the getaway van, (53.85, 0, 16.965). The anchor is in Godot's
+    frame, Y up, at grade. Its `rot_y_deg` is not applied: the marker path does not turn the
+    player either.
+    """
+    path = Path(dest) / _ANCHORS_FILE
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    anchors = data.get("anchors") if isinstance(data, dict) else None
+    for a in anchors if isinstance(anchors, list) else []:
+        if not isinstance(a, dict) or a.get("anchor_type") != "player_start":
+            continue
+        pos = (a.get("transform") or {}).get("pos")
+        if (isinstance(pos, list) and len(pos) == 3
+                and all(isinstance(v, (int, float)) for v in pos)):
+            x, y, z = (float(v) for v in pos)
+            label = str(a.get("node_dispatch") or a.get("shell_id") or "player_start")
+            return ((1, 0, 0, 0, 1, 0, 0, 0, 1, round(x, 3), round(y + _SPAWN_LIFT_M, 3),
+                     round(z, 3)), f"anchor:player_start ({label})")
+    return None
+
+
 def _spawn_from_scene(scene_path: Path):
     """Read the baked marker nodes from the content scene and return
     ((12 Transform3D floats), source_label). Markers are already in Godot Y-up
@@ -166,7 +205,7 @@ def _spawn_from_scene(scene_path: Path):
         chosen = min(pool, key=lambda o: o[1])
         src = "lowest ground marker"
     gx, gy, gz = chosen
-    return ((1, 0, 0, 0, 1, 0, 0, 0, 1, round(gx, 3), round(gy + 0.6, 3),
+    return ((1, 0, 0, 0, 1, 0, 0, 0, 1, round(gx, 3), round(gy + _SPAWN_LIFT_M, 3),
              round(gz, 3)), f"marker:{src}")
 
 
@@ -285,8 +324,9 @@ def build_walk_preview(content_dir, player_src, dest, *, name="level"):
             shutil.copy2(src, dest / bot)
             bots.append(bot)
 
-    # 3. spawn from the baked markers.
-    spawn, spawn_src = _spawn_from_scene(dest / level)
+    # 3. spawn: the package's own player_start anchor, else the baked markers.
+    spawn, spawn_src = (_spawn_from_anchors(dest)
+                        or _spawn_from_scene(dest / level))
     tf = ", ".join(str(v) for v in spawn)
 
     # 4. the walk scene: content instance + player at the spawn. Lighting depends
