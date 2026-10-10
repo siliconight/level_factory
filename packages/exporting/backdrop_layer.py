@@ -100,6 +100,14 @@ def find_kit_glbs(kit_dir: Path, modules) -> tuple[dict, list]:
     return found, missing
 
 
+def pieces_by_side(orders) -> dict:
+    """How many pieces stand on each side, the tower aside (0.175.1): cold run 9226's yards
+    exported `(N 0, S 0, E 0, W 0; 1 tower)` beside 121 instances because the count was of
+    `backdrop_rowhome` orders alone."""
+    return {s: sum(1 for o in orders if o["side"] == s and o["species"] != "water_tower")
+            for s in SIDES}
+
+
 def ship_backdrop(export_dir: Path, drawn_path, godot_executable, *,
                   scratch_root: Path | None = None) -> dict:
     """Put `<site>_backdrop.tscn` and its meshes into the package.
@@ -177,10 +185,9 @@ def ship_backdrop(export_dir: Path, drawn_path, godot_executable, *,
     scene_name = f"{site_id}_backdrop.tscn"
     (export_dir / scene_name).write_text(text, encoding="utf-8", newline="\n")
     report.update(summarise(manifest, "multimesh"))
-    houses = [o for o in manifest["orders"] if o["species"] == "backdrop_rowhome"]
     report.update({
         "shipped": True, "scene": scene_name, "modules": modules, "mesh_paths": mesh_paths,
-        "by_side": {s: sum(1 for o in houses if o["side"] == s) for s in SIDES},
+        "by_side": pieces_by_side(manifest["orders"]),
         "towers": sum(1 for o in manifest["orders"] if o["species"] == "water_tower"),
     })
     return _done()

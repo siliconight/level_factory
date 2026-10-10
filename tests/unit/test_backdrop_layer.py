@@ -151,3 +151,12 @@ def test_the_entry_scene_instances_the_backdrop_beside_the_level(tmp_path):
     write_entry_scene(tmp_path, report)
     assert report.entry_instances == ["site.tscn", "site_backdrop.tscn"]
     assert "res://site_backdrop.tscn" in (tmp_path / "mission.tscn").read_text(encoding="utf-8")
+
+
+def test_the_by_side_count_is_of_every_piece_but_the_tower():
+    # cold run 9226's yards: containers and warehouses, no rowhome, one tower
+    orders = ([{"species": "cargo_container", "side": "N"}] * 3
+              + [{"species": "backdrop_warehouse", "side": "E"}] * 2
+              + [{"species": "water_tower", "side": "N"}])
+    assert backdrop_layer.pieces_by_side(orders) == {"N": 3, "S": 0, "E": 2, "W": 0}
+    assert backdrop_layer.pieces_by_side([]) == {"N": 0, "S": 0, "E": 0, "W": 0}
