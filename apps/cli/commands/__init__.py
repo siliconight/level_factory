@@ -264,6 +264,166 @@ def cmd_doctor(args) -> int:
     return EXIT_OK if report.worst in ("PASS", "NOT_CONFIGURED", "WARN") else EXIT_CONFIG
 
 
+def cmd_pick(args) -> int:
+    """Name the candidate to select after the shell leg, and why (0.169.0, roadmap 202).
+
+    `status` lists jobs, not candidates, so somebody choosing which to approve had nothing to
+    choose by. This prints each candidate's findings and route completion and, on its last
+    line, the candidate id the rule in `packages/pipeline/pick.py` selects -- the rule every
+    cold run since 9194 has picked with.
+    """
+    from packages.pipeline import pick as _pick
+    ws = _ws(args)
+    try:
+        rows = _pick.candidates(ws.internal_dir, args.mission_id)
+    except ValueError as exc:
+        print(f"pick: {exc}", file=sys.stderr)
+        return EXIT_BLOCKED
+    best, every_out = _pick.pick(rows)
+    chosen = best.candidate_id(args.mission_id)
+    if args.json:
+        print(pretty_dumps({
+            "mission_id": args.mission_id, "candidate": chosen, "every_out": every_out,
+            "candidates": [{"seed": r.seed, "major": r.major, "route_completion": r.completion,
+                            "out": r.out} for r in rows]}))
+        return EXIT_OK
+    for r in rows:
+        print(f"  {r.line()}")
+    if every_out:
+        print("  every candidate is out; taking the fewest major findings")
+    print(chosen)
+    return EXIT_OK
+
+
+#: The legs `make` runs, in order, each as its own `level-factory` process. A leg named in
+#: `_NEEDS_CLEAN` must also print "blockers open: 0", which is what the cold driver checks.
+_NEEDS_CLEAN = ("shell", "art")
+
+
+def _make_leg(argv: list[str]) -> tuple[int, str]:
+    """Run one `level-factory` command as its own process, its output shown as it comes, and
+    return ``(exit code, output)``. Separate processes, because that is how the cold driver
+    runs them and how they were proven; in one process, state one command leaves behind would
+    reach the next."""
+    import os
+    import subprocess
+    main_py = Path(__file__).resolve().parents[1] / "main.py"
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    proc = subprocess.Popen([sys.executable, str(main_py), *argv], stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+                            errors="replace", env=env, stdin=subprocess.DEVNULL)
+    seen = []
+    for line in proc.stdout:
+        print(line, end="", flush=True)
+        seen.append(line)
+    return proc.wait(), "".join(seen)
+
+
+def cmd_make(args, run_leg=None) -> int:
+    """One level from a batch, start to finish, as one command (0.169.0, roadmap 202).
+
+    The sequence the cold runs drive (`tools/cold_drive/cold_drive.sh` in the factory), as one
+    command that runs where bash does not:
+
+        init (when the workspace is new), batch create, plan, the shell leg, pick, the three
+        approvals, the art leg, export
+
+    Each leg is its own `level-factory` process with the arguments a person would type, so
+    `make` does what those commands do and nothing else. It stops at the first leg that exits
+    with an error, or that does not print "blockers open: 0" (the shell and art legs), and says
+    which. The candidate is the one `pick` names unless `--seed` says otherwise. It ends by
+    naming the export and the command that walks it. `run_leg` is for tests.
+    """
+    import re
+    run_leg = run_leg or _make_leg
+    try:
+        sys.stdout.reconfigure(errors="replace")
+    except (AttributeError, ValueError):
+        pass
+    root = Path(args.chdir).resolve()
+    batch_path = Path(args.batch_json).resolve()
+    try:
+        batch = json.loads(batch_path.read_text(encoding="utf-8"))
+        missions = list(batch["missions"])
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        print(f"make: {batch_path} is not a batch: {exc}", file=sys.stderr)
+        return EXIT_CONFIG
+    mission = args.mission or (missions[0] if len(missions) == 1 else "")
+    if not mission or mission not in missions:
+        print(f"make: {batch_path.name} names {len(missions)} mission(s) "
+              f"({', '.join(missions)}); pass --mission with one of them", file=sys.stderr)
+        return EXIT_CONFIG
+    if not (root / "factory.project.json").exists():
+        if (root / discovery.MANIFEST).exists() or (root.is_dir() and any(root.iterdir())):
+            print(f"make: {root} is not a workspace and not empty; pass -C with a new folder "
+                  f"or an existing workspace", file=sys.stderr)
+            return EXIT_CONFIG
+        print("== init", flush=True)
+        rc, _out = run_leg(["init", str(root)])
+        if rc != 0:
+            print(f"STOPPED at init: exit {rc}", file=sys.stderr)
+            return rc
+    ws = ["-C", str(root)]
+
+    def leg(name: str, *argv: str) -> tuple[int, str]:
+        print(f"== {name}", flush=True)
+        rc, out = run_leg([*ws, *argv])
+        if name in _NEEDS_CLEAN:
+            if not re.search(r"blockers open: 0\b", out):
+                found = re.search(r"blockers open: (\d+)", out)
+                why = (f"{found.group(1)} blocker(s) open" if found
+                       else f"exit {rc}, and no blocker count was printed")
+                print(f"STOPPED at {name}: {why}", file=sys.stderr)
+                return (rc or EXIT_BLOCKED), out
+            return 0, out
+        if rc != 0:
+            print(f"STOPPED at {name}: exit {rc}", file=sys.stderr)
+        return rc, out
+
+    for name, argv in (("batch", ("batch", "create", str(batch_path))),
+                       ("plan", ("plan", mission)),
+                       ("shell", ("run", mission))):
+        rc, _out = leg(name, *argv)
+        if rc != 0:
+            return rc
+    print("== pick", flush=True)
+    if args.seed is not None:
+        candidate = f"{mission}.candidate.seed_{args.seed}"
+        print(f"  {candidate}, as --seed asks")
+    else:
+        from packages.pipeline import pick as _pick
+        try:
+            rows = _pick.candidates(root / ".level_factory", mission)
+        except ValueError as exc:
+            print(f"STOPPED at pick: {exc}", file=sys.stderr)
+            return EXIT_BLOCKED
+        best, every_out = _pick.pick(rows)
+        for r in rows:
+            print(f"  {r.line()}")
+        if every_out:
+            print("  every candidate is out; taking the fewest major findings")
+        candidate = best.candidate_id(mission)
+        print(f"  picked {candidate}")
+    for name, argv in (("approve brief", ("approve", mission, "brief_approved")),
+                       ("approve candidate", ("approve", mission, "candidate_selected",
+                                              "--candidate", candidate)),
+                       ("approve shell", ("approve", mission, "functional_shell_locked")),
+                       ("art", ("run", mission, "--art", "--gameplay")),
+                       ("export", ("export", mission, "--mode", "portable-godot",
+                                   *(("--no-bake-lights",) if args.no_bake_lights else ())))):
+        rc, out = leg(name, *argv)
+        if rc != 0:
+            return rc
+    done = re.search(r"^exported \S+ \[[^\]]+\] -> (.+)$", out, re.M)
+    if not done:
+        print("STOPPED at export: it exited 0 and printed no `exported ... -> <path>` line",
+              file=sys.stderr)
+        return EXIT_TOOL
+    print(f"\nthe level: {done.group(1).strip()}")
+    print(f"walk it:   level-factory -C {root} walk {mission} --play")
+    return EXIT_OK
+
+
 def cmd_batch_create(args) -> int:
     ws = _ws(args)
     src = Path(args.batch_json)

@@ -18,7 +18,8 @@ if str(_REPO_ROOT) not in sys.path:
 from apps.cli.commands import (  # noqa: E402
     cmd_accept_exception, cmd_approve, cmd_batch_create, cmd_batch_report,
     cmd_batch_run, cmd_cache, cmd_certify, cmd_ci_init, cmd_diagnostics,
-    cmd_doctor, cmd_export, cmd_init, cmd_plan, cmd_portability_test, cmd_reject,
+    cmd_doctor, cmd_export, cmd_init, cmd_make, cmd_pick, cmd_plan, cmd_portability_test,
+    cmd_reject,
     cmd_release, cmd_review, cmd_run, cmd_setup, cmd_status, cmd_team_sign,
     cmd_team_status, cmd_validate, cmd_verify_contracts, cmd_verify_manifest,
     cmd_walk,
@@ -66,6 +67,23 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("doctor", help="check tools and environment")
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(func=cmd_doctor)
+
+    sp = sub.add_parser("make", help="one level from a batch, start to finish: plan, the "
+                                     "shell leg, pick, approvals, the art leg, export")
+    sp.add_argument("batch_json")
+    sp.add_argument("--mission", default="",
+                    help="the mission to make, when the batch names more than one")
+    sp.add_argument("--seed", type=int, default=None,
+                    help="select this candidate seed instead of the one `pick` names")
+    sp.add_argument("--no-bake-lights", action="store_true",
+                    help="export without the light bake")
+    sp.set_defaults(func=cmd_make)
+
+    sp = sub.add_parser("pick", help="name the candidate to select after the shell leg, "
+                                     "and why")
+    sp.add_argument("mission_id")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_pick)
 
     sp = sub.add_parser("batch", help="batch operations")
     bsub = sp.add_subparsers(dest="batch_command", required=True)
