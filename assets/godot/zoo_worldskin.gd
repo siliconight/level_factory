@@ -522,6 +522,66 @@ var _shutter_shader: Shader = null
 var _shutter_materials: Dictionary = {}
 
 
+## SIGNAL LENSES (0.165.0) -- one lit at a time. The walker, 2026-10-09,
+## walking club_block_014 (roadmap 219, note 9): "stop lights are only bright
+## for 1 color at a time, and if you have 2 here, they need to be the same".
+## Zoo's `traffic_signal` lights all three of its lenses at a low strength on
+## purpose -- "Which lens is LIT is not baked ... A signal whose state is
+## baked is a signal that is wrong half the time" -- and leaves the state to
+## whoever runs the level. This is that: each lens material is lit while
+## mod(TIME, SIGNAL_CYCLE_S) is in its colour's window, and is its own glass,
+## dark, otherwise.
+##
+## ONE CLOCK FOR EVERY SIGNAL: no instance term, where the shutters and the
+## turning parts have one. Lot stands a signal only on a yielding leg's
+## corner, its heads facing the through road -- both directions of it at a
+## crossroads, measured on Lot's tee and cross junctions -- so every head at a
+## junction serves the same traffic and must show the same lens. Two heads on
+## one pole share one lens mesh a colour, and agree whatever the clock. Every
+## junction in a level runs in step, as a coordinated arterial does.
+##
+## A LIT SHADER, not an unshaded one: the lens keeps its lightmap and the
+## street's light, so an unlit lens is glass in that light. The model keeps
+## its bake: the clock is in the material, not in a second UV set, which
+## would leave the whole signal unbaked (`light_bake.py`). The lenses are not
+## Lux's: its binder takes `_Lens`, `_Diffuser` and `_Face` endings, and these
+## end in their colour.
+const SIGNAL_LENS_PREFIX: String = "M_TrafficSignal_Lens_"
+const SIGNAL_CYCLE_S: float = 60.0
+## Each colour's window, seconds into the cycle, tiling it: green 33 s, amber
+## 4 s (MUTCD's yellow change interval is 3 to 6 s), red 23 s. Whole seconds,
+## so the boundary two windows share is one float in both.
+const SIGNAL_WINDOWS_S: Dictionary = {"Green": [0.0, 33.0], "Amber": [33.0, 37.0], "Red": [37.0, 60.0]}
+## Unlit glass: the lens's own colour at this fraction. A coloured lens with
+## no lamp behind it reads as dark glass, not as a painted disc.
+const SIGNAL_GLASS: float = 0.12
+
+const SIGNAL_LENS_SHADER: String = """
+shader_type spatial;
+render_mode cull_back, depth_draw_opaque;
+
+uniform vec4 glass : source_color = vec4(0.1, 0.1, 0.1, 1.0);
+uniform vec4 lamp : source_color = vec4(1.0);
+uniform float energy = 1.0;
+uniform float roughness : hint_range(0.0, 1.0) = 0.35;
+uniform float cycle_s = 60.0;
+uniform float lit_from_s = 0.0;
+uniform float lit_to_s = 0.0;
+
+void fragment() {
+	// one clock for every signal: no instance term (the pass's notes)
+	float t = mod(TIME, cycle_s);
+	float on = step(lit_from_s, t) * (1.0 - step(lit_to_s, t));
+	ALBEDO = glass.rgb;
+	ROUGHNESS = roughness;
+	EMISSION = lamp.rgb * energy * on;
+}
+"""
+
+var _signal_lens_shader: Shader = null
+var _signal_lens_materials: Dictionary = {}
+
+
 ## TURNING PARTS (0.129.0) -- small things that move. The walker, 2026-10-02:
 ## "start with the roller grill". Zoo 1.55.0 builds a part that turns (the
 ## grill's rollers, its dogs) as a surface of its own, every vertex carrying
@@ -825,6 +885,11 @@ func _post_import(scene: Node) -> Object:
 	var shut: int = _shutters(scene)
 	if shut > 0:
 		print("[worldskin] %s  %d shutter surface(s) given their clock" % [base, shut])
+	# EVERY GLB, before the kit branch for the same reason: a signal's
+	# lenses arrive in a street piece's GLB.
+	var lenses: int = _signal_lenses(scene)
+	if lenses > 0:
+		print("[worldskin] %s  %d signal lens surface(s) given the junction's clock" % [base, lenses])
 	# EVERY GLB, before the kit branch for the same reason: a turning part
 	# and a churning barrel arrive in prop GLBs.
 	var turned: int = _turning_parts(scene)
@@ -1153,6 +1218,63 @@ func _shutter_shader_material(bm: BaseMaterial3D) -> ShaderMaterial:
 	var c: Color = bm.albedo_color
 	sm.set_shader_parameter("closed_color", Color(c.r, c.g, c.b, 1.0))
 	_shutter_materials[key] = sm
+	return sm
+
+
+## Every surface wearing one of Zoo's signal lens materials gets the lens
+## clock. Its material is REPLACED by the lit shader, carrying the flat
+## material's own numbers: its colour, its lamp and that lamp's energy, its
+## roughness. A colour with no window, or a lens exported with no emission,
+## is left as Zoo made it and said -- never guessed at.
+##
+## IDEMPOTENT on a re-import: a surface already wearing the shader is left.
+func _signal_lenses(n: Node) -> int:
+	var count: int = 0
+	var mi: MeshInstance3D = n as MeshInstance3D
+	if mi != null and mi.mesh != null:
+		for i in range(mi.mesh.get_surface_count()):
+			var mat: Material = mi.mesh.surface_get_material(i)
+			if mat == null or not String(mat.resource_name).begins_with(SIGNAL_LENS_PREFIX):
+				continue
+			var bm: BaseMaterial3D = mat as BaseMaterial3D
+			if bm == null:
+				continue                      # already the shader: a re-import
+			var colour: String = String(bm.resource_name).substr(SIGNAL_LENS_PREFIX.length())
+			if not SIGNAL_WINDOWS_S.has(colour):
+				push_warning("[worldskin] %s names no signal window (the windows are %s); left alone"
+					% [bm.resource_name, ", ".join(PackedStringArray(SIGNAL_WINDOWS_S.keys()))])
+				continue
+			if not bm.emission_enabled:
+				push_warning("[worldskin] %s has no emission to cycle; left alone" % [bm.resource_name])
+				continue
+			mi.mesh.surface_set_material(i, _signal_lens_material(bm, colour))
+			count += 1
+	for c in n.get_children():
+		count += _signal_lenses(c)
+	return count
+
+
+func _signal_lens_material(bm: BaseMaterial3D, colour: String) -> ShaderMaterial:
+	var key: int = bm.get_instance_id()
+	if _signal_lens_materials.has(key):
+		return _signal_lens_materials[key] as ShaderMaterial
+	if _signal_lens_shader == null:
+		_signal_lens_shader = Shader.new()
+		_signal_lens_shader.code = SIGNAL_LENS_SHADER
+	var sm: ShaderMaterial = ShaderMaterial.new()
+	sm.shader = _signal_lens_shader
+	sm.resource_name = String(bm.resource_name)
+	var c: Color = bm.albedo_color
+	sm.set_shader_parameter("glass", Color(c.r * SIGNAL_GLASS, c.g * SIGNAL_GLASS, c.b * SIGNAL_GLASS, 1.0))
+	var e: Color = bm.emission
+	sm.set_shader_parameter("lamp", Color(e.r, e.g, e.b, 1.0))
+	sm.set_shader_parameter("energy", bm.emission_energy_multiplier)
+	sm.set_shader_parameter("roughness", bm.roughness)
+	sm.set_shader_parameter("cycle_s", SIGNAL_CYCLE_S)
+	var w: Array = SIGNAL_WINDOWS_S[colour]
+	sm.set_shader_parameter("lit_from_s", float(w[0]))
+	sm.set_shader_parameter("lit_to_s", float(w[1]))
+	_signal_lens_materials[key] = sm
 	return sm
 
 

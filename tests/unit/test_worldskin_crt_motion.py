@@ -212,7 +212,7 @@ def test_the_snow_grain_is_read_off_the_picture_not_assumed():
 #: building's own metal on a ladder's rails and rungs as the stairs and slabs
 #: passes put its floor on theirs.
 MATERIAL_REPLACERS = {"_assign_stairs", "_assign_slabs", "_shutters", "_turning_parts", "_sway_crowns",
-                      "_assign_ladders"}
+                      "_assign_ladders", "_signal_lenses"}
 
 
 def test_nothing_elses_material_class_changes():
