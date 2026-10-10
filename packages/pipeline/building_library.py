@@ -712,6 +712,19 @@ def lot_for(library, building_count, candidate_id, *,
     return pick_lot(complete, seed, count, anchor=anchor, preferred=preferred), incomplete
 
 
+def preferred_for_brief(model):
+    """The cluster template's families for a brief, or None (0.176.1): the one
+    place the template is read off a brief, so the site spec's own draw and
+    `lot_for_brief` cannot disagree about it. Cold run 9231: the planner and
+    the compose spec drew the template's lot and the site spec drew the old
+    one, the art leg dressed a pharmacy the site never placed, and the
+    export's closure gate stopped the run on the station's unresolved glb."""
+    from packages.pipeline import cluster
+    template = cluster.template_for(getattr(model, "cluster", ""),
+                                    getattr(model, "archetype", "") or "")
+    return cluster.preferred_families(template) if template else None
+
+
 def lot_for_brief(model, candidate_id, *, themed: bool = False):
     """`lot_for` read off a brief: library, count and ARCHETYPE from one
     object, so the three callers cannot disagree by construction.
@@ -725,15 +738,13 @@ def lot_for_brief(model, candidate_id, *, themed: bool = False):
     reading three subsets of one brief is how that happens; this is the
     subset.
     """
-    # the cluster template's families, when the brief names one (0.176.0)
-    from packages.pipeline import cluster
-    template = cluster.template_for(getattr(model, "cluster", ""),
-                                    getattr(model, "archetype", "") or "")
+    # the cluster template's families, when the brief names one (0.176.0),
+    # read by the one function the site spec builder also asks (0.176.1)
     return lot_for(getattr(model, "lot_library", None),
                    getattr(model, "building_count", 1),
                    candidate_id, themed=themed,
                    anchor=getattr(model, "archetype", "") or "",
-                   preferred=cluster.preferred_families(template) if template else None)
+                   preferred=preferred_for_brief(model))
 
 
 def footprints_for(lot: list[dict], measure) -> list:

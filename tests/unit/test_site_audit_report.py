@@ -71,13 +71,20 @@ def test_every_finding_lot_keeps_reaches_the_report(tmp_path):
     codes 9209's job log printed, at this model's severities, none blocking."""
     sa = _site_audit()
     block = sa.record(sa.audit(SITE_9181_SHAPE))
-    kept = sorted((f["severity"], f["code"]) for f in block["findings"])
+    # Lot 0.112.0 says the guide's gameplay targets on every audit (`S_TARGETS`,
+    # every line INFO): 9209's four codes stand beside them, and every target
+    # line Lot keeps reaches the report as info, never blocking
+    kept = sorted((f["severity"], f["code"]) for f in block["findings"]
+                  if f["code"] != "S_TARGETS")
     assert kept == [("INFO", "S_GETAWAY_AT_SPAWN"), ("INFO", "S_STREET_CROSS"),
                     ("INFO", "S_STREET_CROSS"), ("MED", "S_RESPONDER_ARC")], kept
     got = _issues(tmp_path, {"site_audit": block})
-    assert sorted((i["severity"], i["code"]) for i in got) == [
+    assert sorted((i["severity"], i["code"]) for i in got if i["code"] != "S_TARGETS") == [
         ("info", "S_GETAWAY_AT_SPAWN"), ("info", "S_STREET_CROSS"),
         ("info", "S_STREET_CROSS"), ("moderate", "S_RESPONDER_ARC")], got
+    n_targets = sum(1 for f in block["findings"] if f["code"] == "S_TARGETS")
+    targets = [i for i in got if i["code"] == "S_TARGETS"]
+    assert len(targets) == n_targets and all(i["severity"] == "info" for i in targets), got
     assert not any(i["blocking"] for i in got)
     arc = next(i for i in got if i["code"] == "S_RESPONDER_ARC")
     assert "arc around the objective" in arc["message"], arc["message"]

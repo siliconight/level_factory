@@ -1959,11 +1959,19 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         print(f"[site] {which}: {len(complete)} of {before} shell(s) "
               f"can carry a theme -- keyed on the brief, so this is the same "
               f"pool in every invocation")
-        # Anchored on the brief's archetype, the same draw `lot_for_brief`
-        # makes for the planner and the compose spec (roadmap 149).
+        # Anchored on the brief's archetype AND drawn by its cluster template,
+        # the same draw `lot_for_brief` makes for the planner and the compose
+        # spec (roadmap 149; 0.176.1). 0.176.0 threaded the template through
+        # `lot_for_brief` and missed this fourth draw, the one `grep lot_for`
+        # does not name: cold run 9231 planned and dressed the template's
+        # pharmacy while this spec placed the station the old draw gave, and
+        # the export's closure gate stopped the run on the station's
+        # unresolved glb. The template is read by the one function
+        # `lot_for_brief` reads it by, so the four draws cannot disagree.
         lot = building_library.pick_lot(
             complete, seed, count,
-            anchor=getattr(model, "archetype", "") or "")
+            anchor=getattr(model, "archetype", "") or "",
+            preferred=building_library.preferred_for_brief(model))
         # THE SCORE IS THE BUILDING THE BRIEF ASKED FOR (0.152.0, roadmap
         # 201): the anchor family's building, which `pick_lot` placed first.
         score = building_library.score_building(

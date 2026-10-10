@@ -74,3 +74,35 @@ def test_the_anchor_still_stands_first_and_is_not_drawn_twice():
     lot = bl.pick_lot(ENTRIES, 7, 3, anchor="deli", preferred=["deli", "pharmacy"])
     assert lot[0]["family"] == "deli" and lot[1]["family"] == "pharmacy"
     assert len({e["family"] for e in lot}) == 3
+
+
+
+def test_preferred_for_brief_is_the_one_place_the_template_is_read():
+    from types import SimpleNamespace
+    assert bl.preferred_for_brief(SimpleNamespace(cluster="", archetype="deli")) is None
+    got = bl.preferred_for_brief(SimpleNamespace(cluster="auto", archetype="rail_station"))
+    assert got and got == cluster.preferred_families("C03_station_neighborhood")
+
+
+def test_every_draw_outside_the_library_passes_the_template():
+    """0.176.1, cold run 9231: `lot_for_brief` threaded the template and the site spec's own
+    `pick_lot` call did not, so the art leg dressed a pharmacy the site never placed and the
+    export's closure gate stopped the run. Every `pick_lot(` in `apps/` and `packages/` outside
+    the library must say `preferred=`, read with the brackets balanced."""
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parents[2]
+    found = 0
+    for p in list((root / "apps").rglob("*.py")) + list((root / "packages").rglob("*.py")):
+        if p.name == "building_library.py":
+            continue
+        text = p.read_text(encoding="utf-8")
+        i = text.find("pick_lot(")
+        while i >= 0:
+            j, depth = i + len("pick_lot("), 1
+            while depth and j < len(text):
+                depth += {"(": 1, ")": -1}.get(text[j], 0)
+                j += 1
+            assert "preferred=" in text[i:j], f"{p.relative_to(root)}: a lot draw without the template"
+            found += 1
+            i = text.find("pick_lot(", j)
+    assert found >= 1, "the site spec's draw was not found"

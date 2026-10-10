@@ -1,3 +1,32 @@
+## [0.176.1] - The site spec's draw takes the cluster template too
+
+**Cold run 9231, roadmap 230.** The first level drawn by a template
+(restaurant_row_001 with `cluster: auto`) stopped at the export: the
+planner and the compose spec drew the template's lot through
+`lot_for_brief` (deli, pharmacy, office) and the site spec drew its own
+through `pick_lot`, anchored but untemplated (deli, office, rail station),
+so the art leg dressed a pharmacy the site never placed, the station's
+glb was unresolved, and the export's closure gate stopped the run
+(`EXPORT_CLOSURE_BROKEN: 1 unresolved res:// reference(s)`). 0.176.0's own
+note said "`grep lot_for` over the package names all three call sites";
+the fourth draw was a `pick_lot`, and the planner's disagreement guard
+compares the art jobs with the compose spec, not with the site spec, so
+nothing before the export could see it.
+
+- **`building_library.preferred_for_brief(model)`:** the one place the
+  template is read off a brief; `lot_for_brief` and the site spec builder
+  both ask it, so the four draws cannot disagree about the template.
+- **A test walks `apps/` and `packages/`** for every `pick_lot(` outside
+  the library and refuses one that does not say `preferred=`.
+- Every brief that names no cluster keeps its draw byte for byte, as
+  before; 9231's lot with the fix is deli, pharmacy and office in every
+  stage, which cold run 9232 shows.
+- **Beside it, Lot 0.112.0's `S_TARGETS`** (the guide's gameplay targets,
+  every line INFO) reach the report as info, never blocking; the report
+  test pins 9209's four codes beside them rather than instead of them.
+
+**Suite:** 2,204 passed, 14 skipped, 1 xfailed, exit 0 (the 2,202 of 0.176.0 and the two new cases; proven first on a fresh clone at 2,201 passed, 17 skipped).
+
 ## [0.176.0] - The buildings beside the objective are drawn by a cluster template, when the brief asks
 
 **Roadmap 230.** The walker's adjacency and layout guide
