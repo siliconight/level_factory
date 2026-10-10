@@ -38,7 +38,7 @@ here: this machine's flag is 1, and changing it is a system setting.
 `LEVEL_DEPTH` (217) is measured, not derived, and says what it was measured
 against.
 
-**Tests:** 9, all failing on 0.172.1 and passing on the draft. **Suite:** 2,163 passed, 14 skipped, 1 xfailed, exit 0 (2,153 as 0.172.1, the 9 new tests, and the sibling guard's case for the new file)..
+**Tests:** 9, all failing on 0.172.1 and passing on the draft. **Suite:** 2,163 passed, 14 skipped, 1 xfailed, exit 0 (2,153 as 0.172.1, the 9 new tests, and the sibling guard's case for the new file).
 
 ## [0.172.1] - Re-grounded to Lot 0.106.0
 
