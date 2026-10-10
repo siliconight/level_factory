@@ -26,7 +26,7 @@ backdrop piece may carry `z`, its foot's height above the plate, and the
 composition (`backdrop_layer.manifest_from_drawn`) stands the module at
 that foot plus half its height.
 
-**Tests:** 5 tests (16 cases), every one failing on 0.174.0, which has no `surroundings_of` and no field, and passing on the draft.. **Suite:** 2,190 passed, 14 skipped, 1 xfailed, exit 0 (2,173 as 0.174.0, the 16 new cases and the sibling guard's case for the new file).
+**Tests:** 5 tests (16 cases), every one failing on 0.174.0, which has no `surroundings_of` and no field, and passing on the draft. **Suite:** 2,190 passed, 14 skipped, 1 xfailed, exit 0 (2,173 as 0.174.0, the 16 new cases and the sibling guard's case for the new file).
 
 ## [0.174.0] - The backdrop beyond the plate's edge ships as MultiMeshes
 
