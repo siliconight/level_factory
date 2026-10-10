@@ -525,6 +525,66 @@ def _pin_shared_texture_imports(export_dir: Path) -> int:
     return changed
 
 
+#: The folder Lot copies a dealt business's sign maps into, beside its scene
+#: (Lot 0.69.0) -- and, since Lot 0.105.0, the pack's manifest with them.
+SIGNS_DIR = "signs"
+
+
+def _sign_pins(hints: dict) -> dict:
+    """The import pins a sign pack's `import_hints` ask for (0.166.0, roadmap 223).
+
+    Pixelcoat 0.62.0 letters a business smooth and asks for `linear` sampling
+    and a mip chain. A filtered texture is compressed, as Zoo's filtered ones
+    are (`FILTERED_TEX_PINS`); and a sign seen across a street is minified
+    several times and shimmers without its mips. A pixel pack asks for
+    neither and is left exactly as it was."""
+    pins = {}
+    if hints.get("interpolation") == "linear":
+        pins.update(FILTERED_TEX_PINS)
+    if hints.get("generate_mipmaps"):
+        pins["mipmaps/generate"] = "true"
+    return pins
+
+
+def _pin_sign_texture_imports(export_dir: Path) -> int:
+    """Pin each sign map's import as its pack's manifest asks (0.166.0).
+
+    Measured before this, on `LF_gas_block_001`'s package: a sign map
+    imported `compress/mode=0` and `mipmaps/generate=false`, whatever the pack
+    was. Each `signs/*.pack.json` names its maps; a map's sidecar takes the
+    keys `_sign_pins` gives and no others, and a sidecar missing a key is not
+    given one -- `_pin_shared_texture_imports`'s rule. A manifest that cannot
+    be read pins nothing. Returns how many sidecars changed."""
+    import json as _json
+    changed = 0
+    for man in sorted(p for p in export_dir.rglob("*.pack.json") if p.parent.name == SIGNS_DIR):
+        try:
+            doc = _json.loads(man.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        pins = _sign_pins(doc.get("import_hints") or {})
+        if not pins:
+            continue
+        for fname in (doc.get("maps") or {}).values():
+            sidecar = man.parent / (str(fname) + ".import")
+            if not sidecar.is_file():
+                continue
+            lines = sidecar.read_text(encoding="utf-8").splitlines()
+            out, hit = [], False
+            for ln in lines:
+                key = ln.split("=", 1)[0]
+                want = pins.get(key)
+                if want is not None and ln != f"{key}={want}":
+                    out.append(f"{key}={want}")
+                    hit = True
+                else:
+                    out.append(ln)
+            if hit:
+                sidecar.write_text("\n".join(out) + "\n", encoding="utf-8")
+                changed += 1
+    return changed
+
+
 def _write_import_sidecars(export_dir: Path, godot_executable) -> int:
     """Run one import pass and keep the `.import` sidecars, not the cache.
 
@@ -709,6 +769,7 @@ def _write_import_sidecars(export_dir: Path, godot_executable) -> int:
         rewrote += 1
 
     rewrote += _pin_shared_texture_imports(export_dir)
+    rewrote += _pin_sign_texture_imports(export_dir)
 
     if rewrote:
         # Drop what EXTRACT wrote, so the second pass is measured clean. Only
