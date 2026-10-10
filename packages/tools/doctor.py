@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from packages.adapters.registry import AdapterRegistry
+from packages.tools.discovery import command_name
 
 PASS = "PASS"
 WARN = "WARN"
@@ -107,7 +108,7 @@ def run_doctor(
         _dists = " ".join(d for _m, d, _r in _ans["missing"])
         report.add("tools_python", FAIL,
                    f"{'.'.join(map(str, _ans['version']))} at {_where} cannot import "
-                   f"{_mods}; make the factory its own with `level-factory setup --venv`, "
+                   f"{_mods}; make the factory its own with `{command_name()} setup --venv`, "
                    f"or install into this one: \"{_ans['executable']}\" -m pip install {_dists}")
     else:
         report.add("tools_python", PASS,

@@ -1,4 +1,5 @@
-"""Stub Deli Counter (v0.141.2 contract shape) for integration tests."""
+"""Stub Deli Counter for integration tests: its contract shape as of 0.141.2, and the
+version it reports is the grounded one, 0.205.0 (Level Factory 0.170.0)."""
 import argparse, json, sys
 from pathlib import Path
 
@@ -23,7 +24,7 @@ def _stub_glb(tag="stub"):
     return _struct.pack("<III", 0x46546C67, 2, 12 + len(chunk)) + chunk
 
 def cmd_contract():
-    print(json.dumps({"tool_version": "0.141.2", "gameplay_schema": "1.21.0",
+    print(json.dumps({"tool_version": "0.205.0", "gameplay_schema": "1.21.0",
                       "capabilities": ["generate_building", "validate_building",
                                        "combat_audit", "floorplan_preview",
                                        "slot_contract", "deterministic_build"]}))

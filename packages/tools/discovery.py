@@ -54,6 +54,20 @@ FLAG = {"blender_executable": "--blender", "godot_executable": "--godot",
         "python_executable": "--python"}
 
 
+#: Set by the factory's launchers to what was typed to run them (`.\factory`, `sh factory.sh`).
+COMMAND_ENV = "LEVEL_FACTORY_COMMAND"
+
+
+def command_name() -> str:
+    """What the person running Level Factory types to run it, for the commands a hint names.
+
+    `level-factory` is the console script an installed copy has. Somebody who unpacked the
+    factory has no such command: they type the launcher, which says so in `COMMAND_ENV`
+    (0.170.0). A hint naming a command they cannot run is a question they will have to ask.
+    """
+    return str(os.environ.get(COMMAND_ENV) or "").strip() or "level-factory"
+
+
 def factory_root(start: Path | None = None) -> Path | None:
     """The nearest directory at or above `start` (this file) holding `factory.manifest.json`.
 

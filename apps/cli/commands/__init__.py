@@ -191,9 +191,9 @@ def cmd_init(args) -> int:
         for line in found.lines():
             print(f"    {line}")
         if found.missing:
-            print(f"  not found: {', '.join(found.missing)} -- run `level-factory setup` "
+            print(f"  not found: {', '.join(found.missing)} -- run `{discovery.command_name()} setup` "
                   f"once with the flags above, or pass them to init")
-    print(f"  then run: level-factory -C {ws.root} doctor")
+    print(f"  then run: {discovery.command_name()} -C {ws.root} doctor")
     return EXIT_OK
 
 
@@ -420,7 +420,7 @@ def cmd_make(args, run_leg=None) -> int:
               file=sys.stderr)
         return EXIT_TOOL
     print(f"\nthe level: {done.group(1).strip()}")
-    print(f"walk it:   level-factory -C {root} walk {mission} --play")
+    print(f"walk it:   {discovery.command_name()} -C {root} walk {mission} --play")
     return EXIT_OK
 
 

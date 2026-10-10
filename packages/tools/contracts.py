@@ -61,6 +61,29 @@ LOCK_SCHEMA = "level_factory.tools_lock.v0.1"
 # comes from, and a `contract` string is recorded where the tool publishes a
 # machine-readable one.
 #
+# RE-GROUNDED 2026-10-10 (0.170.0), ALL EIGHT BEHIND AGAIN, three weeks after
+# the last time. Roadmap 202 put it in a stranger's way: `setup` on a fresh
+# unpack printed eight `drift vs certified ... re-certify` WARNs, advice the
+# stranger could not act on, for tools that were exactly what the package
+# carries. Measured by the real-tool smoke, LF_TOOLS_DIR=<factory> pytest
+# tests/real_tools, whose `test_grounded_table` failed on all eight before
+# this and is what licenses the numbers below:
+#
+#     adapter        probe                  VERSION file           was
+#     deli_counter   Deli Counter 0.205.0   Deli Counter 0.205.0   0.141.2
+#     dispatch       0.5.2                  0.5.2                  0.3.0
+#     laser_tag      Laser Tag 0.25.0       Laser Tag 0.25.0       0.23.1
+#     lot            Lot 0.105.0            Lot 0.105.0            0.74.0
+#     lux            Lux 0.72.0             Lux 0.72.0             0.40.0
+#     patina         Patina 0.30.0          Patina 0.30.0          0.22.0
+#     pixelcoat      Pixelcoat 0.62.0       Pixelcoat 0.62.0       0.45.0
+#     zoo            1.94.0                 1.94.0                 1.1.1
+#
+# The smoke otherwise ran as before: 10 of 12, test_real_dispatch skipped for
+# its example's absent build inputs. Two of the old notes had become history
+# (dispatch's probe and pixelcoat's version.py now agree with VERSION) and are
+# kept below as history; laser_tag's and patina's still hold.
+#
 # RE-GROUNDED 2026-09-21, AND SEVEN OF THE EIGHT WERE WRONG. The table had not
 # moved since the tools it names, and by the end deli_counter was 66 minors
 # behind and lot 56. It stayed invisible because a minor gap reads DRIFT,
@@ -93,9 +116,9 @@ LOCK_SCHEMA = "level_factory.tools_lock.v0.1"
 # tools the smoke just ran, so the next tool bump cannot leave it behind in
 # silence.
 GROUNDED: dict[str, dict] = {
-    "deli_counter": {"version": "0.141.2", "source": "VERSION"},
-    "lot":          {"version": "0.74.0", "source": "VERSION"},
-    "laser_tag":    {"version": "0.23.1", "source": "VERSION",
+    "deli_counter": {"version": "0.205.0", "source": "VERSION"},
+    "lot":          {"version": "0.105.0", "source": "VERSION"},
+    "laser_tag":    {"version": "0.25.0", "source": "VERSION",
                      "note": "was unpinned until 0.8.0 -- the addon declared a "
                              "version in addons/laser_tag_tool/plugin.cfg but "
                              "the repo had no root VERSION file, which is the "
@@ -104,26 +127,32 @@ GROUNDED: dict[str, dict] = {
                              "plugin.cfg says 0.19.0 against VERSION's 0.23.1, "
                              "so whatever lint job was meant to fail on that "
                              "is not running. VERSION is what LF reads; the "
-                             "addon Godot loads declares the other number"},
-    "pixelcoat":    {"version": "0.45.0", "source": "VERSION",
+                             "addon Godot loads declares the other number. "
+                             "Still so 2026-10-10: plugin.cfg 0.19.0, "
+                             "VERSION 0.25.0"},
+    "pixelcoat":    {"version": "0.62.0", "source": "VERSION",
                      "note": "the probe reads VERSION first, so this is no "
                              "longer version.py -- and the two disagree: "
                              "pixelcoat/version.py says 0.16.0, which is what "
                              "pyproject packages (version = {attr = ...}), so "
                              "a pip-installed pixelcoat reports 29 minors "
                              "behind the repo. CLI/output contract "
-                             "(pixelcoat-pack/1) verified unchanged by the smoke"},
-    "zoo":          {"version": "1.1.1", "source": "VERSION",
+                             "(pixelcoat-pack/1) verified unchanged by the smoke. "
+                             "HISTORY by 2026-10-10: version.py now derives "
+                             "__version__ from VERSION, its _FALLBACK pinned "
+                             "to the file by a test, so the two agree"},
+    "zoo":          {"version": "1.94.0", "source": "VERSION",
                      "note": "0.30.2 -> 1.1.1 crosses a major, which is why "
                              "this row was the one that finally shouted. The "
                              "0.94 fixtures-index change the adapter was "
                              "refusing packages over is handled in "
                              "adapters/zoo"},
-    "lux":          {"version": "0.40.0", "source": "VERSION"},
-    "patina":       {"version": "0.22.0", "source": "VERSION",
+    "lux":          {"version": "0.72.0", "source": "VERSION"},
+    "patina":       {"version": "0.30.0", "source": "VERSION",
                      "note": "pyproject still reports 0.1.1; the VERSION file "
-                             "the probe reads is authoritative"},
-    "dispatch":     {"version": "0.3.0",  "source": "contract probe",
+                             "the probe reads is authoritative. Still so "
+                             "2026-10-10: pyproject 0.1.1, VERSION 0.30.0"},
+    "dispatch":     {"version": "0.5.2",  "source": "contract probe",
                      "contract": "dispatch.mission.v0.2",
                      "note": "THE ONLY ROW THAT WAS ALREADY RIGHT, and it "
                              "looks stale from the outside: dispatch/VERSION "
@@ -135,7 +164,11 @@ GROUNDED: dict[str, dict] = {
                              "writes as `dispatch_version`. Pinning 0.4.2 here "
                              "would make verify-contracts read DRIFT forever "
                              "against a tool that never claims it. The "
-                             "disagreement is dispatch's to settle"},
+                             "disagreement is dispatch's to settle. "
+                             "HISTORY by 2026-10-10: settled. "
+                             "dispatch/__init__.py's __version__ and "
+                             "VERSION both read 0.5.2, and the probe "
+                             "reports it"},
 }
 
 _SEMVER = re.compile(r"(\d+)\.(\d+)\.(\d+)")
