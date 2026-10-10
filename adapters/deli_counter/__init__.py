@@ -25,6 +25,7 @@ from typing import Iterable, Mapping, Sequence
 
 from packages.adapters.sdk import BaseAdapter, PlannedCommand, ToolProbe
 from packages.core.hashing import hash_file
+from packages.tools.interpreter import tools_python
 
 # DC intel codes that must block (HARD errors in the stair/ladder specs).
 _DC_HARD_CODES = {
@@ -178,7 +179,7 @@ class DeliCounterAdapter(BaseAdapter):
         if not base.available:
             return base
         repo = Path(str(installation["repository"]))
-        py = installation.get("python_executable") or "python"
+        py = tools_python(installation)
         contract = self.run_contract_probe([py, "-m", "deli_counter", "contract"], cwd=repo)
         caps = base.capabilities
         if contract and isinstance(contract.get("capabilities"), list):

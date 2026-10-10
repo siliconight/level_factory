@@ -19,7 +19,7 @@ from apps.cli.commands import (  # noqa: E402
     cmd_accept_exception, cmd_approve, cmd_batch_create, cmd_batch_report,
     cmd_batch_run, cmd_cache, cmd_certify, cmd_ci_init, cmd_diagnostics,
     cmd_doctor, cmd_export, cmd_init, cmd_plan, cmd_portability_test, cmd_reject,
-    cmd_release, cmd_review, cmd_run, cmd_status, cmd_team_sign,
+    cmd_release, cmd_review, cmd_run, cmd_setup, cmd_status, cmd_team_sign,
     cmd_team_status, cmd_validate, cmd_verify_contracts, cmd_verify_manifest,
     cmd_walk,
 )
@@ -33,6 +33,13 @@ EXIT_INTERNAL = 5
 EXIT_CANCELLED = 130
 
 
+def _tool_path_flags(sp: argparse.ArgumentParser) -> None:
+    sp.add_argument("--blender", default="", help="Blender's executable, if not found")
+    sp.add_argument("--godot", default="", help="Godot 4.7's executable, if not found")
+    sp.add_argument("--python", default="",
+                    help="the interpreter the tools run under (default: this one)")
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="level-factory",
                                 description="Level Factory orchestration CLI")
@@ -43,7 +50,15 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("path")
     sp.add_argument("--name", default="")
     sp.add_argument("--project-id", default="")
+    _tool_path_flags(sp)
     sp.set_defaults(func=cmd_init)
+
+    sp = sub.add_parser("setup", help="record where Blender, Godot and the tools' "
+                                      "Python are, then run the doctor")
+    sp.add_argument("--factory", default="",
+                    help="the factory root (default: the one holding this Level Factory)")
+    _tool_path_flags(sp)
+    sp.set_defaults(func=cmd_setup)
 
     sp = sub.add_parser("doctor", help="check tools and environment")
     sp.add_argument("--json", action="store_true")

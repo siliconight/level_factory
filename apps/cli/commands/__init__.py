@@ -25,6 +25,7 @@ from packages.pipeline.planner import (
 )
 from packages.project_store.index import Index
 from packages.project_store.workspace import Workspace, find_workspace, init_workspace
+from packages.tools import discovery
 from packages.tools.doctor import run_doctor
 from packages.validation.model import aggregate, issue_from_normalized, readiness_label
 
@@ -162,13 +163,70 @@ def _default_lot_library(ws: Workspace, brief: dict) -> str:
 # Commands
 # --------------------------------------------------------------------------
 def cmd_init(args) -> int:
+    """Create a workspace whose `tools.local.json` is filled in (0.167.0, roadmap 202).
+
+    It used to be written blank, with "edit tools.local.json" as the next step: the first
+    thing a stranger with a fresh unpack would have had to ask about. What `tools.discovery`
+    finds is written instead, each value printed with where it came from, and what it did
+    not find is named with the flag that supplies it.
+    """
     root = Path(args.path).resolve()
     name = args.name or root.name
     project_id = args.project_id or slugify(name)
-    ws = init_workspace(root, project_id=project_id, name=name)
+    try:
+        found = discovery.discover(blender=args.blender, godot=args.godot,
+                                   python=args.python)
+    except ValueError as exc:
+        print(f"init: {exc}", file=sys.stderr)
+        return EXIT_CONFIG
+    kept = (root / "tools.local.json").exists()
+    ws = init_workspace(root, project_id=project_id, name=name,
+                        tools_local=found.tools_local)
     print(f"initialized workspace at {ws.root}")
     print(f"  project_id: {project_id}")
-    print("  edit tools.local.json to point at your tool repositories, then run: level-factory doctor")
+    if kept:
+        print("  kept the tools.local.json already there")
+    else:
+        print("  tools.local.json:")
+        for line in found.lines():
+            print(f"    {line}")
+        if found.missing:
+            print(f"  not found: {', '.join(found.missing)} -- run `level-factory setup` "
+                  f"once with the flags above, or pass them to init")
+    print(f"  then run: level-factory -C {ws.root} doctor")
+    return EXIT_OK
+
+
+def cmd_setup(args) -> int:
+    """Record where this machine's Blender, Godot and tools' Python are (0.167.0, roadmap 202).
+
+    Writes `factory.local.json` beside `factory.manifest.json`, which every later `init`
+    reads first, and then runs the doctor over what it found. Run again with a flag to fill
+    in what it could not find; what it found before is read back from the file.
+    """
+    root = Path(args.factory).resolve() if args.factory else discovery.factory_root()
+    if root is None:
+        print(f"setup: no {discovery.MANIFEST} at or above this Level Factory; "
+              f"pass --factory <the factory's root>", file=sys.stderr)
+        return EXIT_CONFIG
+    try:
+        found = discovery.discover(root, blender=args.blender, godot=args.godot,
+                                   python=args.python)
+    except ValueError as exc:
+        print(f"setup: {exc}", file=sys.stderr)
+        return EXIT_CONFIG
+    path = discovery.write_local(root, found.tools_local)
+    print(f"wrote {path}")
+    for line in found.lines():
+        print(f"  {line}")
+    from packages.project_store.workspace import DEFAULT_TOOLS_LOCK
+    report = run_doctor(found.tools_local, DEFAULT_TOOLS_LOCK, registry=AdapterRegistry())
+    print("doctor:")
+    for c in report.checks:
+        print(f"  [{c.status:<14}] {c.name:<22} {c.detail}")
+    print(f"\nworst: {report.worst}")
+    if found.missing or report.worst == "FAIL":
+        return EXIT_CONFIG
     return EXIT_OK
 
 

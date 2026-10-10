@@ -132,7 +132,11 @@ class Workspace:
         return dict(DEFAULT_TOOLS_LOCK)
 
 
-def init_workspace(root: Path, *, project_id: str, name: str) -> Workspace:
+def init_workspace(root: Path, *, project_id: str, name: str,
+                   tools_local: dict | None = None) -> Workspace:
+    """Create a workspace. `tools_local` is what `tools.local.json` starts as when the
+    workspace has none -- `init` passes what `tools.discovery` found (0.167.0) -- and the
+    all-blank default otherwise. A `tools.local.json` already there is kept."""
     ws = Workspace(root=root.resolve())
     if ws.exists():
         raise WorkspaceError(f"workspace already initialized at {ws.root}")
@@ -162,7 +166,7 @@ def init_workspace(root: Path, *, project_id: str, name: str) -> Workspace:
     ws.write_json(ws.project_file, project)
     ws.write_json(ws.tools_lock, DEFAULT_TOOLS_LOCK)
     if not ws.tools_local.exists():
-        ws.write_json(ws.tools_local, DEFAULT_TOOLS_LOCAL)
+        ws.write_json(ws.tools_local, tools_local or DEFAULT_TOOLS_LOCAL)
     (ws.root / ".gitignore").write_text(GITIGNORE, encoding="utf-8")
     return ws
 

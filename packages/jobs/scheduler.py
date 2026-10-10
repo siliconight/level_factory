@@ -37,6 +37,7 @@ from packages.core.models import Artifact, Job
 from packages.jobs.runner import Cancellation, run_command
 from packages.pipeline.graph import JobGraph
 from packages.project_store.index import Index
+from packages.tools.interpreter import tools_python
 from packages.validation import model
 from packages.validation.job_failure import issues_for_failure
 from packages.validation.model import issue_from_normalized
@@ -450,7 +451,9 @@ class Scheduler:
             "work_dir": str(work_dir),
             "blender_executable": self.installation.get("blender_executable", ""),
             "godot_executable": self.installation.get("godot_executable", ""),
-            "python_executable": self.installation.get("python_executable", "") or "python3",
+            # A blank one is the interpreter running Level Factory (0.167.0); it was
+            # `python3`, which on a fresh Windows machine is the Store's alias.
+            "python_executable": tools_python(self.installation),
             "godot_project": str(self.godot_project or work_dir),
         }
 

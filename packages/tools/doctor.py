@@ -79,13 +79,38 @@ def run_doctor(
     registry = registry or AdapterRegistry()
     report = DoctorReport()
 
-    # Python
+    # Python: the interpreter running Level Factory, which needs nothing third-party.
     py = sys.version_info
     report.add(
         "python",
         PASS if py >= (3, 11) else FAIL,
         f"{py.major}.{py.minor}.{py.micro}",
     )
+
+    # THE TOOLS' PYTHON (0.167.0, roadmap 202). Not the interpreter above: the
+    # tools run under `python_executable`, and this check never asked it
+    # anything, so a machine whose tools could not start read PASS. Asked
+    # here for its version and for what `interpreter.TOOL_IMPORTS` lists.
+    from packages.tools import interpreter as _interp
+    _ans = _interp.ask_tools_python(tools_local)
+    _where = _ans["executable"] + ("" if _ans["configured"] else
+                                   " (python_executable blank: the interpreter above)")
+    _floor = ".".join(str(n) for n in _interp.MIN_VERSION)
+    if _ans["error"]:
+        report.add("tools_python", FAIL, f"{_where}: {_ans['error']}")
+    elif _ans["version"] < _interp.MIN_VERSION:
+        report.add("tools_python", FAIL,
+                   f"{'.'.join(map(str, _ans['version']))} at {_where}; "
+                   f"the tools need >= {_floor}")
+    elif _ans["missing"]:
+        _mods = ", ".join(m for m, _d, _r in _ans["missing"])
+        _dists = " ".join(d for _m, d, _r in _ans["missing"])
+        report.add("tools_python", FAIL,
+                   f"{'.'.join(map(str, _ans['version']))} at {_where} cannot import "
+                   f"{_mods}; install into it: \"{_ans['executable']}\" -m pip install {_dists}")
+    else:
+        report.add("tools_python", PASS,
+                   f"{'.'.join(map(str, _ans['version']))} at {_where}")
 
     # Git
     report.add("git", PASS if shutil.which("git") else WARN,
