@@ -241,7 +241,9 @@ def cmd_setup(args) -> int:
     for line in found.lines():
         print(f"  {line}")
     from packages.project_store.workspace import DEFAULT_TOOLS_LOCK
-    report = run_doctor(found.tools_local, DEFAULT_TOOLS_LOCK, registry=AdapterRegistry())
+    # the long-path row weighs the workspace START_HERE.md's first level makes (0.173.0)
+    report = run_doctor(found.tools_local, DEFAULT_TOOLS_LOCK, registry=AdapterRegistry(),
+                        workspace_root=root / "levels")
     print("doctor:")
     for c in report.checks:
         print(f"  [{c.status:<14}] {c.name:<22} {c.detail}")
@@ -254,7 +256,7 @@ def cmd_setup(args) -> int:
 def cmd_doctor(args) -> int:
     ws = _ws(args)
     report = run_doctor(ws.load_tools_local(), ws.load_tools_lock(),
-                        registry=AdapterRegistry())
+                        registry=AdapterRegistry(), workspace_root=ws.root)
     if args.json:
         print(pretty_dumps(report.as_dict()))
     else:

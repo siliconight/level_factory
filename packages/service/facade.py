@@ -199,6 +199,7 @@ class FactoryService:
             tools_lock=self.ws.load_tools_lock(),
             registry=AdapterRegistry(),
             workspace_writable=True,
+            workspace_root=self.ws.root,
         )
         return report.as_dict()
 
