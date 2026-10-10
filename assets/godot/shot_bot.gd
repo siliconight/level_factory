@@ -53,7 +53,29 @@ const DIFF_TOL := 12         # per-channel 0-255 delta that counts as "changed"
 # package rebuilt with un-stripped greybox walls under the themed modules -- a
 # real double-wall z-fight -- measured 30.67%. The defect signal is ~45x the
 # noise floor, so the threshold sits well clear of both.
-const JITTER_FAIL_PCT := 2.0
+#
+# JUDGED BY THE SIZE OF A FLIP SINCE 0.172.0 (roadmap 225). Once the warm-up
+# stopped blinding this pass, the share of changed pixels failed two of cold
+# run 9222's interior stations, 3.60% and 2.33%, and every change there was
+# scattered over the drop ceiling's acoustic tiles, a wall and a floor: texture
+# sparkle, a sub-pixel blend of one texture. A pixel that z-fights swaps
+# between two surfaces' colours. Measured, on this pass's sampled grid:
+#   a control (two quads, red and blue, 0.01 mm apart): every flip 255 of 255;
+#   9222's four interior stations: median flip 16 to 19, at most 7.6% of
+#   flips over 64 (the exterior changed 7 samples in all).
+# So a FIGHT is a flip of more than FIGHT_DELTA, 64 of 255, and a station fails
+# when fights pass FIGHT_FAIL_PCT, 0.5% of the frame: 2.02% on the control, at
+# most 0.12% on 9222. All changes over DIFF_TOL are still reported, as
+# jitter_pct. REFUTED on the way, kept in the factory's
+# `docs/findings/shotbot_sparkle/`: judging the largest connected region of
+# flips (the control's z-fight broke into regions of at most 54 samples, the
+# sparkle's of 28), and moving the near plane instead of the camera (0 flips
+# on the control).
+const FIGHT_DELTA := 64
+const FIGHT_FAIL_PCT := 0.5
+# A station whose small flips pass this share is NOTED as sparkle, never failed
+# for it: the 2.0% that used to be the verdict.
+const SPARKLE_NOTE_PCT := 2.0
 const VOID := Color(1.0, 0.0, 1.0, 1.0)
 const VOID_TOL := 0.06
 
@@ -201,12 +223,15 @@ func _shoot(s: Dictionary) -> Dictionary:
 	st["void_pct"] = snappedf(_void_fraction(a) * 100.0, 0.01)
 	var jd: Dictionary = _jitter_diff(a, b)
 	st["jitter_pct"] = snappedf(float(jd["pct"]) * 100.0, 0.01)
+	st["fight_pct"] = snappedf(float(jd["fight_pct"]) * 100.0, 0.01)
 	if float(jd["pct"]) > 0.0:
 		st["jitter_worst_px"] = jd["worst"]
-	# Only jitter is a verdict. Void is reported, never gated: an open rooftop
+	st["sparkle"] = float(jd["pct"]) * 100.0 > SPARKLE_NOTE_PCT \
+			and float(jd["fight_pct"]) * 100.0 <= FIGHT_FAIL_PCT
+	# Only fighting is a verdict. Void is reported, never gated: an open rooftop
 	# station is legitimately most sky, and a threshold that has to know which
 	# is which would be guessing.
-	st["ok"] = float(jd["pct"]) * 100.0 <= JITTER_FAIL_PCT
+	st["ok"] = float(jd["fight_pct"]) * 100.0 <= FIGHT_FAIL_PCT
 	if _one_colour(a):
 		st["ok"] = false
 		st["one_colour"] = true
@@ -215,10 +240,10 @@ func _shoot(s: Dictionary) -> Dictionary:
 			+ "inside a solid; open %s") % png
 		return st
 	if not st["ok"]:
-		st["reason"] = ("%.2f%% of pixels flip when the camera moves 1 mm -- "
-			+ "coplanar surfaces are fighting for the depth test here; open "
+		st["reason"] = ("%.2f%% of pixels swap colour when the camera moves 1 mm "
+			+ "-- coplanar surfaces are fighting for the depth test here; open "
 			+ "%s and look for a shimmering face") % [
-				float(jd["pct"]) * 100.0, png]
+				float(jd["fight_pct"]) * 100.0, png]
 	return st
 
 
@@ -287,6 +312,7 @@ func _jitter_diff(a: Image, b: Image) -> Dictionary:
 	var w: int = mini(a.get_width(), b.get_width())
 	var h: int = mini(a.get_height(), b.get_height())
 	var changed := 0
+	var fights := 0
 	var total := 0
 	var worst := [-1, -1]
 	var worst_d := 0
@@ -300,13 +326,16 @@ func _jitter_diff(a: Image, b: Image) -> Dictionary:
 								  absf(pa.b - pb.b)) * 255.0)
 			if d > DIFF_TOL:
 				changed += 1
+				if d > FIGHT_DELTA:
+					fights += 1
 				if d > worst_d:
 					worst_d = d
 					worst = [x, y]
 			total += 1
 			x += 2
 		y += 2
-	return {"pct": float(changed) / float(maxi(total, 1)), "worst": worst}
+	return {"pct": float(changed) / float(maxi(total, 1)), "worst": worst,
+			"fight_pct": float(fights) / float(maxi(total, 1))}
 
 
 func _fail(msg: String) -> void:

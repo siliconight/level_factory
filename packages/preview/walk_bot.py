@@ -188,9 +188,16 @@ def summarize(walk: dict | None, shot: dict | None) -> tuple[bool, list[str]]:
             for st in shot.get("stations") or []:
                 name = st.get("station", "?")
                 tag = "OK" if st.get("ok") else "FAIL"
+                # fight (0.172.0, roadmap 225): flips between two surfaces'
+                # colours -- the verdict; sparkle, small flips of one texture,
+                # is noted and never fails a station
+                fight = st.get("fight_pct")
                 lines.append(
                     f"  shot bot [{tag}] {name}: jitter {st.get('jitter_pct')}%"
-                    f", void {st.get('void_pct')}%")
+                    + (f", fighting {fight}%" if fight is not None else "")
+                    + f", void {st.get('void_pct')}%"
+                    + ("  (sparkle: small flips of one texture, not a fight)"
+                       if st.get("sparkle") else ""))
                 if not st.get("ok"):
                     ok = False
                     if st.get("reason"):
