@@ -3736,6 +3736,9 @@ def cmd_export(args) -> int:
     dressing_manifest = (jobs_dir / f"{mission_id}.patina_surface_dressing"
                          / "out" / f"{mission_id}.surface_dressing.json")
     clutter_dir = jobs_dir / f"{mission_id}.zoo_clutter_build" / "out"
+    # the backdrop beyond the plate's edge (0.174.0, roadmap 228): the themed
+    # site's drawn spec, with its `backdrop` list and the kit it names
+    backdrop_spec = themed_site_dir / "site.site.drawn.json"
     lot_out = _selected_lot_out(ws, mission_id)
 
     # Resolve which layers were actually produced, and the functional base.
@@ -3920,6 +3923,7 @@ def cmd_export(args) -> int:
         dressing_manifest=(dressing_manifest if dressing_manifest.is_file()
                            else None),
         clutter_dir=clutter_dir if clutter_dir.is_dir() else None,
+        backdrop_spec=backdrop_spec if backdrop_spec.is_file() else None,
         # how responders arrive (0.157.0, roadmap 212): the selected
         # candidate's Lot gameplay, read for its `responder_plan`
         lot_gameplay=(lot_out / "site.site.gameplay.json"

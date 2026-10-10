@@ -525,6 +525,11 @@ def write_entry_scene(export_dir: Path, report: LocalizeReport) -> str:
     # would instance in a stable order.
     for dressing in sorted(export_dir.glob("*_dressing.tscn")):
         candidates.append(dressing.name)
+    # and the backdrop beyond the plate's edge (0.174.0, roadmap 228):
+    # `<site>_backdrop.tscn`, MultiMeshes of rowhomes and a tower past the
+    # fence, written by packages/exporting/backdrop_layer.py the same way
+    for backdrop in sorted(export_dir.glob("*_backdrop.tscn")):
+        candidates.append(backdrop.name)
     # AN ENTRY THAT INSTANCES NOTHING IS NOT AN ENTRY.
     #
     # Measured 2026-08-15 on lot_demo_001. An art-unlit export held 180

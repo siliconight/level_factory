@@ -1509,6 +1509,11 @@ def export_mission(
     #: `<site>_dressing.tscn` and `dressing/<asset>.res`.
     dressing_manifest: Path | None = None,
     clutter_dir: Path | None = None,
+    #: The backdrop beyond the plate's edge (0.174.0, roadmap 228): the themed
+    #: site's drawn spec, read for its `backdrop` list and the kit it names.
+    #: None for a caller with nothing to pass, and then the package is exactly
+    #: what it was.
+    backdrop_spec: Path | None = None,
     #: Where responders arrive (0.157.0, roadmap 212): the selected Lot
     #: candidate's `site.site.gameplay.json`, read for its
     #: `responder_plan`. None for a caller with nothing to pass, and then
@@ -1827,6 +1832,27 @@ def export_mission(
         else:
             print("[export] surface dressing NOT shipped: "
                   + "; ".join(dressing_report.get("reasons") or ["?"]))
+
+    # 2.8 THE BACKDROP BEYOND THE PLATE'S EDGE (0.174.0, roadmap 228 step E):
+    # the themed site's `backdrop` list and the site kit's modules, as
+    # `<site>_backdrop.tscn` with one MultiMesh a module a side, which the
+    # entry scene at 3.5 instances beside the level. Needs Godot for the
+    # mesh extraction, as the dressing does; without one the report says so.
+    backdrop_report = None
+    if profile.mode != MODE_PURE_SHELL and backdrop_spec:
+        from packages.exporting.backdrop_layer import ship_backdrop
+        backdrop_report = ship_backdrop(
+            export_dir, backdrop_spec, godot_executable, scratch_root=out_root)
+        if backdrop_report.get("shipped"):
+            print("[export] backdrop: %s -- %d instances of %d module(s) on their "
+                  "sides, %d draw calls (%s; %d tower)"
+                  % (backdrop_report["scene"], backdrop_report["instances"],
+                     len(backdrop_report["modules"]), backdrop_report["draw_calls"],
+                     ", ".join("%s %d" % kv for kv in backdrop_report["by_side"].items()),
+                     backdrop_report["towers"]))
+        else:
+            print("[export] backdrop NOT shipped: "
+                  + "; ".join(backdrop_report.get("reasons") or ["?"]))
 
     # 3. Source authoring (only in source mode).
     if profile.mode == MODE_SOURCE and source_dir and source_dir.exists():
