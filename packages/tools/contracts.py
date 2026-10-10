@@ -61,6 +61,16 @@ LOCK_SCHEMA = "level_factory.tools_lock.v0.1"
 # comes from, and a `contract` string is recorded where the tool publishes a
 # machine-readable one.
 #
+# RE-GROUNDED 2026-10-10 (0.172.1), ONE ROW, lot 0.105.0 -> 0.106.0: the
+# release that keeps a lamp or a tree out of a shop band's span (roadmap
+# 226). Cold run 9223's doctor WARNed `drift vs certified 0.105.0
+# (grounded); re-certify` and its notes named only the long-paths reminder
+# beside it, so the package a stranger would have received carried the
+# advice 0.170.0 took away. The smoke's `test_grounded_table` failed on
+# this row alone before (10 of 12 ran, test_real_lot passing against
+# 0.106.0), and that is what licenses the number. Any tool's release owes
+# this table its row before the factory certifies a set carrying it.
+#
 # RE-GROUNDED 2026-10-10 (0.170.0), ALL EIGHT BEHIND AGAIN, three weeks after
 # the last time. Roadmap 202 put it in a stranger's way: `setup` on a fresh
 # unpack printed eight `drift vs certified ... re-certify` WARNs, advice the
@@ -117,7 +127,7 @@ LOCK_SCHEMA = "level_factory.tools_lock.v0.1"
 # silence.
 GROUNDED: dict[str, dict] = {
     "deli_counter": {"version": "0.205.0", "source": "VERSION"},
-    "lot":          {"version": "0.105.0", "source": "VERSION"},
+    "lot":          {"version": "0.106.0", "source": "VERSION"},
     "laser_tag":    {"version": "0.25.0", "source": "VERSION",
                      "note": "was unpinned until 0.8.0 -- the addon declared a "
                              "version in addons/laser_tag_tool/plugin.cfg but "
