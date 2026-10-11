@@ -1811,6 +1811,16 @@ def export_mission(
             if src.is_dir():
                 shutil.copytree(str(src), str(export_dir / sib),
                                 dirs_exist_ok=True)
+        # ... and the road paint Lot 0.114.0 writes as one `site_marks_<colour>.obj`
+        # a paint colour beside its scene (roadmap 231), named "from ./" by the
+        # assembly and `res://site_marks_*.obj` by Lux's applied scene: sibling
+        # FILES, which the directory list above cannot carry. Cold run 9235
+        # shipped the scene without them -- 2 unresolved res://, 2 unresolved
+        # relative, and the bake's scene would not open -- one stage after 9234
+        # had shipped it without them for the adapter's reason (0.177.2). Same
+        # rule as the directories: a new sibling in Lot means a line here.
+        for obj in sorted(Path(themed_site_dir).glob("*.obj")):
+            shutil.copy2(str(obj), str(export_dir / obj.name))
 
     # 2.7 LAYER 3 SURFACE DRESSING (roadmap 110). Before 3.5 on purpose:
     # the entry scene written there instances `<site>_dressing.tscn` beside
