@@ -214,3 +214,138 @@ def test_a_crossroads_has_four_approaches_worth_of_kerb_cuts():
     assert x_cuts > t_cuts, (
         "a crossroads should drop more kerb than a T (%d vs %d); if they are "
         "equal the fourth approach is not reaching Lot" % (x_cuts, t_cuts))
+
+
+# ------------------------------------------------------------- block (0.177.0)
+
+def _cycles(roads):
+    """The road graph's cycles, as Lot's `site_targets.road_graph` counts them:
+    nodes are road ends and junctions, edges the pieces between, cycles =
+    edges - nodes + components. Axis-aligned roads only."""
+    import math as _m
+
+    def hit(r, s):
+        (ax, ay), (bx, by) = r["a"], r["b"]
+        (cx, cy), (dx, dy) = s["a"], s["b"]
+        rw, sw = r["width"] / 2.0, s["width"] / 2.0
+        r_h, s_h = abs(by - ay) < 1e-6, abs(dy - cy) < 1e-6
+        if r_h == s_h:
+            return None
+        px, py = (cx, ay) if r_h else (ax, cy)
+        if r_h and not (min(ax, bx) - rw <= px <= max(ax, bx) + rw and min(cy, dy) - sw <= py <= max(cy, dy) + sw):
+            return None
+        if not r_h and not (min(ay, by) - rw <= py <= max(ay, by) + rw and min(cx, dx) - sw <= px <= max(cx, dx) + sw):
+            return None
+        return (px, py)
+
+    def on(r, p):
+        (ax, ay), (bx, by) = r["a"], r["b"]
+        w = r["width"] / 2.0
+        return (min(ax, bx) - w <= p[0] <= max(ax, bx) + w and min(ay, by) - w <= p[1] <= max(ay, by) + w
+                and (abs(by - ay) < 1e-6 and abs(p[1] - ay) <= w or abs(bx - ax) < 1e-6 and abs(p[0] - ax) <= w))
+
+    junctions = [hit(r, s) for i, r in enumerate(roads) for j, s in enumerate(roads) if j > i and hit(r, s)]
+    nodes, pieces = {}, []
+    for r in roads:
+        pts = [tuple(r["a"]), tuple(r["b"])] + [p for p in junctions if on(r, p)]
+        along = sorted(set((round(p[0], 2), round(p[1], 2)) for p in pts))
+        for p in along:
+            nodes.setdefault(p, len(nodes))
+        pieces += list(zip(along, along[1:]))
+    parent = list(range(len(nodes)))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for p, q in pieces:
+        a, b = find(nodes[p]), find(nodes[q])
+        if a != b:
+            parent[a] = b
+    comps = len({find(i) for i in range(len(nodes))})
+    return len(pieces) - len(nodes) + comps
+
+
+def test_block_is_a_T_with_a_second_side_street_and_a_lane_behind_the_row():
+    b, fp = _buildings()
+    t_roads, t_doors, t_sx, t_sy = rg.roads_for("T", b, fp, 200, 120)
+    roads, doors, sx, sy = rg.roads_for("block", b, fp, 200, 120)
+    assert len(t_roads) == 2 and len(roads) == 4
+    # the T is untouched when the plate already holds the rest
+    assert roads[0] == t_roads[0] and roads[1] == t_roads[1] and (sx, sy) == (t_sx, t_sy)
+    cross1, cross2, lane = roads[1], roads[2], roads[3]
+    # the lane: the guide's service lane, no sidewalk, behind the deepest rear face by the yard
+    # with its dumpster and a margin, between the two side streets' centre lines
+    rear = max(float(x["at"][1]) + fp[0][1] / 2.0 for x in b)
+    assert lane["kind"] == "service_lane" and lane["sidewalk"] == 0.0 and lane["width"] == rg.LANE_WIDTH
+    assert lane["a"][1] == lane["b"][1] == rear + rg.LANE_SETBACK + rg.LANE_WIDTH / 2.0
+    assert sorted((lane["a"][0], lane["b"][0])) == sorted((cross1["a"][0], cross2["a"][0]))
+    assert lane["serves"] == ["b0", "b1", "b2"]
+    # the second side street: past the row's end farther from the first, half a band off the
+    # last building, ending on the front road and running to the plate's far margin like the first
+    west = min(float(x["at"][0]) for x in b) - fp[0][0] / 2.0
+    east = max(float(x["at"][0]) for x in b) + fp[0][0] / 2.0
+    far = west - rg.ROAD_BAND / 2.0 if cross1["a"][0] > (west + east) / 2.0 else east + rg.ROAD_BAND / 2.0
+    assert cross2["a"] == [far, roads[0]["a"][1]] and cross2["b"] == [far, sy / 2.0 - rg.ROAD_MARGIN]
+    assert cross2["width"] == rg.ROAD_WIDTH and cross2["sidewalk"] == rg.SIDEWALK_WIDTH
+    # one loop where the T had none
+    assert _cycles(t_roads) == 0 and _cycles(roads) == 1
+
+
+def test_block_gives_every_building_a_rear_door_path_to_the_lane():
+    b, fp = _buildings()
+    _t, t_doors, _sx, _sy = rg.roads_for("T", b, fp, 200, 120)
+    roads, doors, _sx2, _sy2 = rg.roads_for("block", b, fp, 200, 120)
+    lane = roads[3]
+    new = [d for d in doors if d not in t_doors]
+    rear = [d for d in new if d["a"][1] > 0 and d["a"][0] == d["b"][0]]
+    assert [d["building"] for d in rear] == ["b0", "b1", "b2"]
+    for d in rear:
+        assert d["a"][1] == fp[0][1] / 2.0 + 1.0                       # a metre out from the rear face
+        assert d["b"][1] == lane["a"][1] - rg.LANE_WIDTH / 2.0 - 0.5    # half a metre short of the lane
+        assert d["width"] == rg.SPUR_WIDTH
+    # and the far building gets a side door onto the second street, as the first street's flank does
+    assert any(d.get("building") == "b0" and d["a"][1] == d["b"][1] and d not in t_doors for d in new)
+
+
+def test_the_plate_grows_to_hold_the_lane_and_the_second_street():
+    b, fp = _buildings()
+    roads, _d, sx, sy = rg.roads_for("block", b, fp, 100, 50)
+    lane, cross2 = roads[3], roads[2]
+    assert sx / 2.0 >= abs(cross2["a"][0]) + rg.ROAD_BAND / 2.0
+    assert sy / 2.0 - rg.ROAD_MARGIN >= lane["a"][1] + rg.LANE_WIDTH / 2.0 + rg.ROAD_MARGIN
+    assert roads[0]["a"][0] == -sx / 2.0 and roads[0]["b"][0] == sx / 2.0
+    assert roads[1]["b"][1] == cross2["b"][1] == sy / 2.0 - rg.ROAD_MARGIN
+
+
+def test_block_spellings_and_the_rest_unchanged():
+    for word in ("block", "loop", "service_lane", "rear_lane", "alley", "back_lane"):
+        assert rg.grammar_of(word) == "block", word
+    assert rg.grammar_of("") == "T" and rg.grammar_of("cross") == "cross"
+    assert "block" in rg.GRAMMARS
+
+
+@pytest.mark.skipif(not os.path.isdir(LOT), reason="lot repo not beside this one")
+def test_lot_reads_the_lane_as_two_stems_that_stop_at_the_streets():
+    """Lot draws the junctions, so Lot has to believe them: the lane ENDS on both
+    side streets -- `terminal` is recorded on the road that is crossed, as the
+    T test above reads it off the front road, and the stem's slab is clipped at
+    its mouths -- and a lane without a sidewalk STOPS at a street and never
+    gets a signal (Lot 0.113.0's rule; against an older Lot every leg of an
+    arterial's junction was signalised)."""
+    b, fp = _buildings()
+    roads, _d, sx, sy = rg.roads_for("block", b, fp, 200, 120)
+    resolved = _lot_roads(roads, sx, sy)
+    lane = resolved[3]
+    for street in (resolved[1], resolved[2]):
+        hits = [c for c in street.crossings if c.kind == "road" and c.crosser == 3]
+        assert len(hits) == 1 and hits[0].terminal, "the lane should end on this street"
+    assert len([c for c in lane.crossings if c.kind == "road"]) == 2
+    assert 0.0 < lane.slab[0] < lane.slab[1] < lane.length, "the lane's slab is clipped at both mouths"
+    sys.path.insert(0, LOT)
+    import site_streets
+    legs = [a for a in site_streets.approaches(resolved) if a.road == 3]
+    assert legs and all(a.control == "stop" and a.minor for a in legs), legs
+    assert not any(a.control == "signal" for a in site_streets.approaches(resolved) if 3 in (a.road, a.crosser))

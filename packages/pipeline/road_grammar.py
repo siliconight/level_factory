@@ -63,10 +63,23 @@ ROAD_BAND = ROAD_MARGIN + SIDEWALK_WIDTH + ROAD_WIDTH + SIDEWALK_WIDTH + ROAD_MA
 #: stoop and a meter strip rather than a yard.
 FRONTAGE = ROAD_MARGIN
 
+#: THE SERVICE LANE (0.177.0, roadmap 199 and 230): the adjacency guide's
+#: "small service lane for van-scale work", 3.5 to 5 m (7.4). Five, so a
+#: hauler reaches the dumpsters that stand on the rear walls.
+LANE_WIDTH = 5.0
+#: What stands on a rear wall before the lane: Lot's dumpster pad and its
+#: apron (`site_yards.PAD_OUT + APRON`, 3 + 3), mirrored here because this
+#: module cannot import Lot and the pad is laid after the roads are. A
+#: change there is a change here.
+REAR_YARD = 6.0
+#: The lane's near edge from the deepest rear face: the yard, then the
+#: margin this module keeps between a road's band and anything else.
+LANE_SETBACK = REAR_YARD + ROAD_MARGIN
+
 #: The road graphs a site can be laid out on. `T` is the historical street and
 #: stays the default for an unset or unrecognised grammar, so a brief that says
 #: nothing gets the streets it has always had.
-GRAMMARS = ("T", "cross")
+GRAMMARS = ("T", "cross", "block")
 
 #: What a brief may write for each. Case-insensitive; anything else is a `T`,
 #: for the reason `site_variation`'s table gives -- refusing a spelling would
@@ -77,6 +90,8 @@ _GRAMMAR_ALIASES = {
     "strip": "T", "street": "T",
     "cross": "cross", "crossroads": "cross", "crossroad": "cross",
     "x": "cross", "intersection": "cross", "four_corners": "cross",
+    "block": "block", "loop": "block", "service_lane": "block",
+    "rear_lane": "block", "alley": "block", "back_lane": "block",
 }
 
 
@@ -256,6 +271,89 @@ def _cross_line(edges, span_x):
     return x_cross, span_x, flank
 
 
+def _far_line(edges, x_cross, span_x):
+    """Where the SECOND side street stands: past the row's end farther from the
+    first one, half a band off the last building, so the loop the two streets
+    and the lane make encloses the most of the row. The plate widens to hold
+    it, as `_cross_line` widens it for a street past the west end."""
+    order = sorted(range(len(edges)), key=lambda i: edges[i])
+    west, east = edges[order[0]][0], edges[order[-1]][1]
+    if x_cross <= (west + east) / 2.0:
+        x2, flank = east + ROAD_BAND / 2.0, (order[-1],)
+    else:
+        x2, flank = west - ROAD_BAND / 2.0, (order[0],)
+    need_half_x = abs(x2) + ROAD_BAND / 2.0
+    if span_x / 2.0 < need_half_x:
+        span_x = int(math.ceil(2.0 * need_half_x))
+    return x2, span_x, flank
+
+
+def _rear_spurs(spans, ids, y_lane):
+    """A door path from each building's REAR face to the lane's near edge.
+
+    The guide's service lane has users: deliveries, refuse, staff, through
+    the rear door. Lot keeps the walk where the building has a ground door on
+    that face and leaves it undrawn, with its record, where it has none
+    (`site_paths.snap_to_doors`, `LOT_PATH_END_OFF_DOOR`), so a shell with no
+    rear door is said rather than given one. The path stops half a metre
+    short of the carriageway for the reason a front spur stops in the
+    sidewalk: a path reaching a centre line is read as a street crossing.
+    """
+    edge = y_lane - LANE_WIDTH / 2.0
+    out = []
+    for i, (x0, x1, _y0, y1) in enumerate(spans):
+        end = edge - 0.5
+        if end - (y1 + 1.0) <= 0.3:
+            continue
+        door = {"a": [(x0 + x1) / 2.0, y1 + 1.0], "b": [(x0 + x1) / 2.0, end],
+                "width": SPUR_WIDTH}
+        if i < len(ids) and ids[i] is not None:
+            door["building"] = ids[i]
+        out.append(door)
+    return out
+
+
+def _block(spans, edges, ids, x_cross, y_road, span_x, span_y):
+    """The `block` grammar's additions to a T: ``([second side street, lane],
+    [their door paths], span_x, span_y)``.
+
+    THE LOOP. A T has two approaches and no cycle, on every site ever
+    generated (`docs/findings/walkable_city/`); the brief asks for a short
+    loop and the adjacency guide prefers a return loop. Two side streets and
+    a lane between them behind the row close one: main street, side street,
+    lane, side street. The lane ENDS on both streets (two T stems, the
+    junction Lot has drawn since 0.61.0), so nothing here asks Lot for a
+    shape it has never resolved.
+
+    THE LANE IS THE GUIDE'S SERVICE LANE (`docs/reference/
+    PA_1990S_ADJACENCY_AND_LAYOUT_GUIDE.md`, 7.4: 3.5 to 5 m, van scale):
+    `LANE_WIDTH` wide, no sidewalk, laid `LANE_SETBACK` past the deepest rear
+    face -- Lot's dumpster pad and its apron (`site_yards.PAD_OUT + APRON`,
+    6 m), which stand on that wall, and the margin this module keeps between
+    a road's band and anything else. It carries `kind` and `serves` so Lot's
+    audit can count it as the connector it is. Measured before it was laid
+    (`docs/findings/rear_lane/`): 21.5 to 28.5 m of empty plate behind every
+    strip row, the side street already reaching into it.
+    """
+    x2, span_x, flank2 = _far_line(edges, x_cross, span_x)
+    rear = max(s[3] for s in spans)
+    y_lane = rear + LANE_SETBACK + LANE_WIDTH / 2.0
+    # the side streets run a margin past the lane's far edge, and the plate
+    # holds them: the lane's ends must lie ON the streets to be their stems
+    need_half_y = y_lane + LANE_WIDTH / 2.0 + 2.0 * ROAD_MARGIN
+    if span_y / 2.0 < need_half_y:
+        span_y = int(math.ceil(2.0 * need_half_y))
+    cross2 = {"a": [x2, y_road], "b": [x2, span_y / 2.0 - ROAD_MARGIN],
+              "width": ROAD_WIDTH, "sidewalk": SIDEWALK_WIDTH}
+    lo, hi = sorted((x_cross, x2))
+    lane = {"a": [lo, y_lane], "b": [hi, y_lane], "width": LANE_WIDTH,
+            "sidewalk": 0.0, "kind": "service_lane",
+            "serves": [i for i in ids if i is not None]}
+    doors = (_lateral_spurs(spans, ids, x2, y_road, span_y, flank2)
+             + _rear_spurs(spans, ids, y_lane))
+    return [cross2, lane], doors, span_x, span_y
+
+
 def roads_for(grammar, buildings, footprints, span_x, span_y):
     """``(roads, spurs, span_x, span_y)`` for a site on this road grammar.
 
@@ -297,10 +395,20 @@ def roads_for(grammar, buildings, footprints, span_x, span_y):
                  "b": [x_cross, span_y / 2.0 - ROAD_MARGIN],
                  "width": ROAD_WIDTH, "sidewalk": SIDEWALK_WIDTH}
 
+    # THE BLOCK'S ADDITIONS (0.177.0): a second side street past the row's far
+    # end and a service lane behind the row between the two, one loop; the
+    # plate may widen and deepen for them, and the T's roads follow it. A T
+    # and a crossroads add nothing and are byte for byte what they were.
+    ids = [b.get("id") for b in buildings]
+    extra, extra_doors = [], []
+    if shape == "block":
+        extra, extra_doors, span_x, span_y = _block(
+            spans, edges, ids, x_cross, y_road, span_x, span_y)
+        road["a"][0], road["b"][0] = -span_x / 2.0, span_x / 2.0
+        cross["b"][1] = span_y / 2.0 - ROAD_MARGIN
     # THE CROSS STREET GETS ITS ADDRESSES. Without these it is a road through
     # empty ground: `street_members` read `{0: [b0, b1, b2], 1: []}` on every
     # site ever generated, so the junction added approaches nobody could use.
     doors = _spurs(faces, y_road) + _lateral_spurs(
-        spans, [b.get("id") for b in buildings], x_cross, y_road,
-        span_y, flank)
-    return [road, cross], doors, span_x, span_y
+        spans, ids, x_cross, y_road, span_y, flank) + extra_doors
+    return [road, cross] + extra, doors, span_x, span_y
