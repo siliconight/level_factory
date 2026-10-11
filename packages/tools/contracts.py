@@ -61,6 +61,11 @@ LOCK_SCHEMA = "level_factory.tools_lock.v0.1"
 # comes from, and a `contract` string is recorded where the tool publishes a
 # machine-readable one.
 #
+# RE-GROUNDED 2026-10-11 (0.180.1), ONE ROW: lot 0.116.0 -> 0.117.0 (the walk
+# test's navigation updates on its own thread and walktest.py runs it under
+# `--fixed-fps 60`). Licensed by the real-tool smoke, which read exactly this
+# row DRIFT before and all green after.
+#
 # RE-GROUNDED 2026-10-11 (0.180.0), TWO ROWS: laser_tag 0.26.0 -> 0.27.0 (the
 # navigation map updates on the evaluation's thread, so `--fixed-fps` reads the
 # same report) and zoo 1.101.0 -> 1.102.0 (what a roof carries follows what the
@@ -166,7 +171,7 @@ LOCK_SCHEMA = "level_factory.tools_lock.v0.1"
 # silence.
 GROUNDED: dict[str, dict] = {
     "deli_counter": {"version": "0.209.1", "source": "VERSION"},
-    "lot":          {"version": "0.116.0", "source": "VERSION"},
+    "lot":          {"version": "0.117.0", "source": "VERSION"},
     "laser_tag":    {"version": "0.27.0", "source": "VERSION",
                      "note": "was unpinned until 0.8.0 -- the addon declared a "
                              "version in addons/laser_tag_tool/plugin.cfg but "
