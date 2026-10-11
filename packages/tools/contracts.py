@@ -61,6 +61,17 @@ LOCK_SCHEMA = "level_factory.tools_lock.v0.1"
 # comes from, and a `contract` string is recorded where the tool publishes a
 # machine-readable one.
 #
+# RE-GROUNDED 2026-10-11 (0.178.2), FOUR ROWS, for factory 1.37.0: deli_counter
+# 0.205.0 -> 0.207.1 (indoor rows to the work, over aisles, a home's bays),
+# lot 0.106.0 -> 0.115.0 (adjacency and targets audits, the service lane, the
+# road paint as one mesh a colour in cells, the plate tile following the bake),
+# zoo 1.94.0 -> 1.97.0 and lux 0.72.0 -> 0.74.0 (the backdrop trees, the
+# horizon glow). Done BEFORE the install test that certifies the set, as
+# 0.172.1's note says it must be: a package carrying these tools with the old
+# rows would print four `drift vs certified ... re-certify` WARNs at a
+# stranger's first `setup`. Licensed, as before, by the real-tool smoke
+# (`test_grounded_table`), before and after.
+#
 # RE-GROUNDED 2026-10-10 (0.172.1), ONE ROW, lot 0.105.0 -> 0.106.0: the
 # release that keeps a lamp or a tree out of a shop band's span (roadmap
 # 226). Cold run 9223's doctor WARNed `drift vs certified 0.105.0
@@ -126,8 +137,8 @@ LOCK_SCHEMA = "level_factory.tools_lock.v0.1"
 # tools the smoke just ran, so the next tool bump cannot leave it behind in
 # silence.
 GROUNDED: dict[str, dict] = {
-    "deli_counter": {"version": "0.205.0", "source": "VERSION"},
-    "lot":          {"version": "0.106.0", "source": "VERSION"},
+    "deli_counter": {"version": "0.207.1", "source": "VERSION"},
+    "lot":          {"version": "0.115.0", "source": "VERSION"},
     "laser_tag":    {"version": "0.25.0", "source": "VERSION",
                      "note": "was unpinned until 0.8.0 -- the addon declared a "
                              "version in addons/laser_tag_tool/plugin.cfg but "
@@ -151,13 +162,13 @@ GROUNDED: dict[str, dict] = {
                              "HISTORY by 2026-10-10: version.py now derives "
                              "__version__ from VERSION, its _FALLBACK pinned "
                              "to the file by a test, so the two agree"},
-    "zoo":          {"version": "1.94.0", "source": "VERSION",
+    "zoo":          {"version": "1.97.0", "source": "VERSION",
                      "note": "0.30.2 -> 1.1.1 crosses a major, which is why "
                              "this row was the one that finally shouted. The "
                              "0.94 fixtures-index change the adapter was "
                              "refusing packages over is handled in "
                              "adapters/zoo"},
-    "lux":          {"version": "0.72.0", "source": "VERSION"},
+    "lux":          {"version": "0.74.0", "source": "VERSION"},
     "patina":       {"version": "0.30.0", "source": "VERSION",
                      "note": "pyproject still reports 0.1.1; the VERSION file "
                              "the probe reads is authoritative. Still so "
