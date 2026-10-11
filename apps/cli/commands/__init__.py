@@ -3577,6 +3577,14 @@ def cmd_walk(args) -> int:
     export_args.mode = "portable-godot"
     export_args.format = "dir"
     export_args.include_walk = False
+    # AND IT BAKES (0.178.3). `export_args` was the walk's own arguments, which
+    # carried no bake, so every walk since 0.144.0 re-exported the package
+    # UNBAKED into the folder `make` had shipped it to: install test 5 measured
+    # the stranger's package after `walk` at 2,526 files with no `bake.exr`
+    # and no `light_bake.json`, where `make` had left 3,008 and a bake. The
+    # walk's parser now carries `--bake-lights` at the export's own default;
+    # a caller building its own arguments says what it wants, as for export.
+    export_args.bake_lights = bool(getattr(args, "bake_lights", False))
     code = cmd_export(export_args)
     if code != EXIT_OK:
         print(f"walk needs an export and the export was refused; fix that "

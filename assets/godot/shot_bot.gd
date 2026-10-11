@@ -212,8 +212,18 @@ func _shoot(s: Dictionary) -> Dictionary:
 	var look: Vector3 = s["look"]
 
 	var a: Image = await _frame(eye, look)
+	# THE STILL CONTROL (0.178.3). Two more frames with the camera where it was,
+	# one before the move and one after it. A pixel that changes between them
+	# changed with the camera at rest -- a failing tube's flicker, a turning
+	# roller, a screen -- and is not the camera's to judge. Install test 5's
+	# Ladder_ladder_0_base read 1.39% fighting with the camera moved and 1.27%
+	# with it STILL, twice each (a bad tube in the room, Lux 0.74.0), where the
+	# same station in 1.36.0's install test read 0.12%; every other station read
+	# 0.00% still.
+	var a2: Image = await _frame(eye, look)
 	var b: Image = await _frame(eye + Vector3(JITTER, JITTER, JITTER), look)
-	if a == null or b == null:
+	var a3: Image = await _frame(eye, look)
+	if a == null or a2 == null or b == null or a3 == null:
 		st["error"] = "no frame captured"
 		return st
 
@@ -221,9 +231,10 @@ func _shoot(s: Dictionary) -> Dictionary:
 	a.save_png(png)
 	st["png"] = png
 	st["void_pct"] = snappedf(_void_fraction(a) * 100.0, 0.01)
-	var jd: Dictionary = _jitter_diff(a, b)
+	var jd: Dictionary = _jitter_diff(a, b, [a2, a3])
 	st["jitter_pct"] = snappedf(float(jd["pct"]) * 100.0, 0.01)
 	st["fight_pct"] = snappedf(float(jd["fight_pct"]) * 100.0, 0.01)
+	st["animated_pct"] = snappedf(float(jd["animated_pct"]) * 100.0, 0.01)
 	if float(jd["pct"]) > 0.0:
 		st["jitter_worst_px"] = jd["worst"]
 	st["sparkle"] = float(jd["pct"]) * 100.0 > SPARKLE_NOTE_PCT \
@@ -308,11 +319,17 @@ func _void_fraction(img: Image) -> float:
 	return float(n) / float(int(w / 2.0) * int(h / 2.0))
 
 
-func _jitter_diff(a: Image, b: Image) -> Dictionary:
+## Every sampled pixel's change between frame `a` and the moved frame `b`, judged
+## only where the STILL frames agree with `a` (0.178.3): a pixel that changed
+## with the camera at rest is animating, and its share is `animated_pct`,
+## reported and judged nowhere. `total` is every sampled pixel, so a fight's
+## share stays a share of the frame, as FIGHT_FAIL_PCT was calibrated.
+func _jitter_diff(a: Image, b: Image, stills: Array = []) -> Dictionary:
 	var w: int = mini(a.get_width(), b.get_width())
 	var h: int = mini(a.get_height(), b.get_height())
 	var changed := 0
 	var fights := 0
+	var animated := 0
 	var total := 0
 	var worst := [-1, -1]
 	var worst_d := 0
@@ -321,21 +338,34 @@ func _jitter_diff(a: Image, b: Image) -> Dictionary:
 		var x := 0
 		while x < w:
 			var pa: Color = a.get_pixel(x, y)
-			var pb: Color = b.get_pixel(x, y)
-			var d: int = int(maxf(maxf(absf(pa.r - pb.r), absf(pa.g - pb.g)),
-								  absf(pa.b - pb.b)) * 255.0)
-			if d > DIFF_TOL:
-				changed += 1
-				if d > FIGHT_DELTA:
-					fights += 1
-				if d > worst_d:
-					worst_d = d
-					worst = [x, y]
+			var moving := false
+			for s in stills:
+				var img: Image = s as Image
+				if img != null and _delta(pa, img.get_pixel(x, y)) > DIFF_TOL:
+					moving = true
+					break
+			if moving:
+				animated += 1
+			else:
+				var d: int = _delta(pa, b.get_pixel(x, y))
+				if d > DIFF_TOL:
+					changed += 1
+					if d > FIGHT_DELTA:
+						fights += 1
+					if d > worst_d:
+						worst_d = d
+						worst = [x, y]
 			total += 1
 			x += 2
 		y += 2
 	return {"pct": float(changed) / float(maxi(total, 1)), "worst": worst,
-			"fight_pct": float(fights) / float(maxi(total, 1))}
+			"fight_pct": float(fights) / float(maxi(total, 1)),
+			"animated_pct": float(animated) / float(maxi(total, 1))}
+
+
+## The largest per-channel difference between two colours, on 0-255.
+func _delta(pa: Color, pb: Color) -> int:
+	return int(maxf(maxf(absf(pa.r - pb.r), absf(pa.g - pb.g)), absf(pa.b - pb.b)) * 255.0)
 
 
 func _fail(msg: String) -> void:

@@ -192,10 +192,15 @@ def summarize(walk: dict | None, shot: dict | None) -> tuple[bool, list[str]]:
                 # colours -- the verdict; sparkle, small flips of one texture,
                 # is noted and never fails a station
                 fight = st.get("fight_pct")
+                # animated (0.178.3): pixels that changed with the camera at
+                # rest -- a failing tube, a moving part -- reported, not judged
+                anim = st.get("animated_pct")
                 lines.append(
                     f"  shot bot [{tag}] {name}: jitter {st.get('jitter_pct')}%"
                     + (f", fighting {fight}%" if fight is not None else "")
                     + f", void {st.get('void_pct')}%"
+                    + (f", animated {anim}% (changed with the camera still; not judged)"
+                       if anim else "")
                     + ("  (sparkle: small flips of one texture, not a fight)"
                        if st.get("sparkle") else ""))
                 if not st.get("ok"):

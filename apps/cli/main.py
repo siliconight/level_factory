@@ -185,6 +185,15 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--no-shots", action="store_true",
                     help="run the traversal check but skip the visual pass "
                          "(the visual pass needs a display)")
+    # THE WALK BAKES WHAT IT RE-EXPORTS (0.178.3). It exports into the folder
+    # `make` shipped, so an unbaked walk replaced a baked package -- install
+    # test 5 found the stranger's level without its bake after `walk`.
+    sp.add_argument("--bake-lights", action=argparse.BooleanOptionalAction,
+                    default=BAKE_LIGHTS_CLI_DEFAULT,
+                    help="the walk re-exports the package it wraps and bakes it as "
+                         "`export` does, so the package `make` shipped stays baked "
+                         "and the walk shows what ships; --no-bake-lights for a "
+                         "quicker look, which leaves the package unbaked")
     sp.set_defaults(func=cmd_walk)
 
     sp = sub.add_parser("export", help="export a portable mission package")

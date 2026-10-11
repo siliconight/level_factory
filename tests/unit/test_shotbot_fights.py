@@ -62,3 +62,32 @@ def test_a_verdict_from_before_still_reads():
     ok, lines = walk_bot.summarize(None, {"stations": [
         {"station": "old", "ok": True, "jitter_pct": 0.5, "void_pct": 1.0}]})
     assert ok and lines[0] == "  shot bot [OK] old: jitter 0.5%, void 1.0%"
+
+
+# --------------------------------------------------------------------------- #
+# 0.178.3: animation is not fighting
+# --------------------------------------------------------------------------- #
+
+def test_the_bot_takes_still_frames_and_judges_only_what_the_camera_moved():
+    """Install test 5: Ladder_ladder_0_base read 1.39% fighting moved and 1.27% with the
+    camera STILL (a failing tube in the room). The two still frames bracket the moved one,
+    and a pixel that changed between them is not judged."""
+    shoot = _SHOT_BOT[_SHOT_BOT.find("func _shoot"):_SHOT_BOT.find("func _frame")]
+    assert shoot.count("await _frame(eye, look)") == 3
+    assert shoot.index("var a2: Image") < shoot.index("var b: Image") < shoot.index("var a3: Image")
+    assert "_jitter_diff(a, b, [a2, a3])" in shoot and '"animated_pct"' in shoot
+    diff = _SHOT_BOT[_SHOT_BOT.find("func _jitter_diff"):_SHOT_BOT.find("func _delta")]
+    assert "if moving:" in diff and "animated += 1" in diff and '"animated_pct"' in diff
+    # the verdict and the calibration are unchanged
+    assert re.search(r'st\["ok"\] = float\(jd\["fight_pct"\]\) \* 100\.0 <= FIGHT_FAIL_PCT',
+                     shoot)
+
+
+def test_the_summary_says_what_animated_and_still_reads_without_it():
+    ok, lines = walk_bot.summarize(None, {"stations": [
+        {"station": "Ladder_ladder_0_base", "ok": True, "jitter_pct": 3.8, "fight_pct": 0.12,
+         "void_pct": 0.0, "animated_pct": 1.27}]})
+    assert ok and "animated 1.27%" in lines[0] and "not judged" in lines[0]
+    ok, lines = walk_bot.summarize(None, {"stations": [
+        {"station": "old", "ok": True, "jitter_pct": 0.5, "void_pct": 1.0, "animated_pct": 0.0}]})
+    assert ok and lines[0] == "  shot bot [OK] old: jitter 0.5%, void 1.0%"
