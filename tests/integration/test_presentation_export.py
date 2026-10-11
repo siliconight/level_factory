@@ -108,8 +108,8 @@ def test_presentation_export_and_portability(workspace):
     # stages never ran at all. Read the STATUS the line carries.
     status = _stage_status(r.stdout, "bank_block_001")
     for stage in ("pixelcoat_build", "zoo_kit_build", "patina_apply",
-                  "patina_dressing", "zoo_dressing_build", "presentation_compose",
-                  "lux_apply", "dispatch_handoff"):
+                  "patina_dressing", "zoo_dressing_build", "zoo_roof_props_build",
+                  "presentation_compose", "lux_apply", "dispatch_handoff"):
         got = [s for jid, s in sorted(status.items())
                if jid == stage or jid.startswith(stage + ".")]
         assert got, f"missing stage {stage}\n{r.stdout}"

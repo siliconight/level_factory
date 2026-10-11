@@ -968,6 +968,27 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                         _latest_output(jobs_dir / pix_job, "."))
                     if door:
                         specs[job.job_id]["sign_pack"] = door
+            elif job.stage_id == "zoo_roof_props_build":
+                # ROOF PROPS (0.179.0, roadmap 181): ITS OWN SLOTS, as the kit
+                # branch below reads them -- the library row's for an
+                # archetype, the Deli Counter job's `shell.slots.json` for the
+                # mission's own shell -- and the kit's skin library, found by
+                # candidate as the dressing branch finds it.
+                entry = _art_entry(job)
+                pix_job = next(
+                    (j.job_id for j in plan.graph.topological_order()
+                     if j.adapter_id == "pixelcoat"
+                     and j.candidate_id == job.candidate_id), None)
+                specs[job.job_id] = {
+                    "mode": "roof_props",
+                    "seed": int(str(job.candidate_id).rsplit("_", 1)[-1]),
+                    "theme": model.theme or batch.get("theme_family", ""),
+                    "slots_path": (str(entry["slots"]) if entry
+                                   else str(_lot_slots(ws, jobs_dir, job))),
+                    "wet": _is_raining(model),
+                    "skins_dir": (str(_latest_output(jobs_dir / pix_job, "."))
+                                  if pix_job else ""),
+                }
             elif job.stage_id == "zoo_dressing_build":
                 dress_job = _dep(job, "patina_dressing",
                                  getattr(job, "archetype_id", None))
@@ -1158,6 +1179,8 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
 
             dressing_glb = _layer_paths("zoo_dressing_build", "_dressing.glb")
             fixtures_glb = _layer_paths("zoo_fixtures_build", "_fixtures.glb")
+            # the third layer (0.179.0): a building's roof props, its own
+            roofprops_glb = _layer_paths("zoo_roof_props_build", "_roofprops.glb")
             # THE KIT IS A LAYER TOO, and it took until 2026-08-09 to say so.
             # This was `_dep(job, "zoo_kit_build")` -- one job's output dir,
             # handed to every building's compose -- which is the identical
@@ -1179,6 +1202,7 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                 "modules_dir": modules_dir,
                 "dressing_glb": dressing_glb,
                 "fixtures_glb": fixtures_glb,
+                "roofprops_glb": roofprops_glb,
                 "theme": model.theme or batch.get("theme_family", "") or "delco",
                 "style": 1,
                 # A partial kit (some slots keep greybox) is a quality finding,

@@ -52,6 +52,16 @@ def main():
         except Exception:
             return "building"
 
+    if a.roof_props:
+        # the roof props build (Level Factory 0.179.0): its own index and GLB
+        bid = _bid(a.roof_props)
+        idx = out / f"{bid}_roofprops.built.json"
+        idx.write_text(json.dumps(
+            {"mode": "roof_props", "building_id": bid, "props_built": 2,
+             "counts": {"hvac_unit": 1, "vent_stack": 1}}, sort_keys=True))
+        (out / f"{bid}_roofprops.glb").write_bytes(_stub_glb("zoo-roofprops"))
+        print(f"[zoo] index: {idx}")
+        return 0
     if a.fixtures:
         try:
             man = json.load(open(a.fixtures))

@@ -74,8 +74,13 @@ def _library(root: Path, ids=ARCHETYPES, *, lights=True,
         # `coverage` is what separates a shell the themed kit fills from one
         # it does not -- pharmacy_a02 (118 wall slots filled) against
         # final_stand ({}, and holes where its walls should be).
+        # A ROOF SLOT on every themeable shell (0.179.0): 133 of the real
+        # library's 145 carry one, and it is what a roof props job is
+        # planned on.
         (root / f"{aid}.slots.json").write_text(
-            json.dumps({"coverage": {"wall": 96, "doorway": 4}}
+            json.dumps({"coverage": {"wall": 96, "doorway": 4},
+                        "slots": [{"slot_id": "roof_footprint", "role": "roof",
+                                   "fit": {"dims": [20.0, 12.0, 0.3]}}]}
                        if themeable else {}), encoding="utf-8")
         # The scoped shape `nav_gate.py` writes: interior counts beside the
         # legacy totals, and one extraction point deferred to site scope
@@ -155,13 +160,15 @@ def _specs(tmp_path: Path, plan, brief, monkeypatch, *, publish=True) -> dict:
         # after the first is in, and the state the 2026-08-06 measurement was
         # taken in.
         for job in plan.graph.jobs():
-            if job.stage_id not in ("zoo_dressing_build", "zoo_fixtures_build"):
+            kinds = {"zoo_dressing_build": "dressing",
+                     "zoo_fixtures_build": "fixtures",
+                     "zoo_roof_props_build": "roofprops"}
+            if job.stage_id not in kinds:
                 continue
             out = ws.jobs_dir / job.job_id / "out"
             out.mkdir(parents=True, exist_ok=True)
             bid = job.archetype_id or "shell"
-            kind = ("dressing" if job.stage_id == "zoo_dressing_build"
-                    else "fixtures")
+            kind = kinds[job.stage_id]
             (out / f"{bid}_{kind}.glb").write_bytes(b"glb")
     return cmds._job_specs_for_plan(ws, {"theme_family": "delco"}, brief, plan)
 
@@ -252,7 +259,7 @@ def test_placement_stages_fan_out_and_libraries_do_not(tmp_path):
     # 3.300 m walls in buildings whose slots asked 3.1 to 5.2. It does cost a
     # Blender build per building. That is what it costs.
     for stage in ("patina_apply", "patina_dressing", "zoo_dressing_build",
-                  "zoo_fixtures_build", "zoo_kit_build"):
+                  "zoo_fixtures_build", "zoo_kit_build", "zoo_roof_props_build"):
         # the site's own kit (roadmap 22) is the one zoo_kit_build that is
         # not a building's; it is counted apart, by its name
         jobs = [j for j in _stages(plan, stage) if j.archetype_id != "site"]
@@ -279,7 +286,8 @@ def test_expected_outputs_follow_the_input_stem(tmp_path):
 def test_compose_waits_on_every_buildings_layers(tmp_path):
     plan = _plan(_brief(_library(tmp_path / "build")))
     compose = _stages(plan, "presentation_compose")[0]
-    for stage in ("zoo_dressing_build", "zoo_fixtures_build"):
+    for stage in ("zoo_dressing_build", "zoo_fixtures_build",
+                  "zoo_roof_props_build"):
         deps = {j.job_id for j in _stages(plan, stage)}
         assert deps <= set(compose.depends_on), stage
 
@@ -314,6 +322,9 @@ def test_the_single_shell_plan_did_not_move(tmp_path):
     assert f"{MISSION}.patina_dressing" in jobs
     assert f"{MISSION}.zoo_dressing_build" in jobs
     assert f"{MISSION}.zoo_fixtures_build" in jobs
+    # 0.179.0 grew the plan by the roof props job (roadmap 181): art on the
+    # roof, nothing the lock protects, so the golden moved on purpose.
+    assert f"{MISSION}.zoo_roof_props_build" in jobs
     assert f"{MISSION}.lux_fixture_gate" in jobs
     assert jobs[f"{MISSION}.patina_dressing"]["expected_outputs"] == [
         "shell.patina.glb", "shell.patina.json", "shell.patina.gameplay.json",
@@ -322,7 +333,8 @@ def test_the_single_shell_plan_did_not_move(tmp_path):
         f"{MISSION}.deli_generate.candidate.seed_{SEED_BASE}",
         f"{MISSION}.zoo_kit_build",
         f"{MISSION}.zoo_dressing_build",
-        f"{MISSION}.zoo_fixtures_build"]
+        f"{MISSION}.zoo_fixtures_build",
+        f"{MISSION}.zoo_roof_props_build"]
     # A mission-wide job carries no archetype, and no plan that has ever been
     # written grows a null on every line. The one exception is named: the
     # SITE's own kit (roadmap 22, 0.77.0) is archetype "site" on purpose.

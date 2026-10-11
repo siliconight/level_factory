@@ -759,6 +759,17 @@ def footprints_for(lot: list[dict], measure) -> list:
     return [measure(e["glb"]) for e in lot]
 
 
+def has_roof_slot(entry) -> bool:
+    """Does this library building's slot manifest carry a roof slot -- the
+    hook Zoo's roof props are planned on (0.179.0, roadmap 181)? False for
+    a manifest that cannot be read: a building whose slots are unreadable
+    gets no roof job rather than one that fails in Blender, and
+    `require_art_inputs` has already judged what the mission needs."""
+    data = _manifest(entry.get("slots") if isinstance(entry, dict) else entry)
+    return any(isinstance(s, dict) and s.get("role") == "roof"
+               for s in ((data or {}).get("slots") or []))
+
+
 #: EMPTIES (0.137.0): Deli Counter's non-enterable shells with real fronts
 #: (roadmap 106; Deli Counter 0.174.0 builds the rowhome family), by the id
 #: prefix it gives them. `gs_facade_rowhome` and `gs_facade_storefront`, the

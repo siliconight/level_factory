@@ -104,7 +104,7 @@ def circulation_gate(circ: dict) -> tuple[str, list]:
     with nothing in it (0.149.0). The adapter splits the arms the same way
     (`adapters.presentation._circulation_arms`).
     """
-    arms = [(k, circ[k]) for k in ("shell", "dressing")
+    arms = [(k, circ[k]) for k in ("shell", "dressing", "roofprops")
             if isinstance(circ.get(k), dict)]
     arms = arms or [(str(circ.get("source") or "shell"), circ)]
     tag = "OK" if circ.get("ok") else "FAIL"
@@ -173,6 +173,8 @@ def main() -> int:
                     help="zoo dressing GLB (props layer) to bundle + instance")
     ap.add_argument("--fixtures", default="",
                     help="zoo fixtures GLB (light fixtures + LuxEmit markers)")
+    ap.add_argument("--roofprops", default="",
+                    help="zoo roof props GLB (rooftop units) to bundle + instance")
     ap.add_argument("--out", required=True, help="output dir for the composed scene")
     a = ap.parse_args()
 
@@ -194,7 +196,7 @@ def main() -> int:
             encoding="utf-8")).get("spec_sha256_16")
     except (OSError, json.JSONDecodeError):
         pass
-    for layer in (a.dressing, a.fixtures):
+    for layer in (a.dressing, a.fixtures, a.roofprops):
         if not layer:
             continue
         side = Path(layer).with_suffix("").as_posix() + ".built.json"
@@ -233,6 +235,8 @@ def main() -> int:
         layer_kwargs["dressing_glb"] = a.dressing
     if a.fixtures:
         layer_kwargs["fixtures_glb"] = a.fixtures
+    if a.roofprops:
+        layer_kwargs["roofprops_glb"] = a.roofprops
     try:
         man = portable_building.build_package(
             a.slots, (a.gameplay or None), a.modules, a.out,

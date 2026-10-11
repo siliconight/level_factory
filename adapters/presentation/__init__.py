@@ -267,7 +267,8 @@ class PresentationAdapter(BaseAdapter):
         # exiting zero, which is how five buildings came out undressed with
         # every stage reporting success.
         for key, suffix in (("dressing_glb", "_dressing.glb"),
-                            ("fixtures_glb", "_fixtures.glb")):
+                            ("fixtures_glb", "_fixtures.glb"),
+                            ("roofprops_glb", "_roofprops.glb")):
             for aid, directory in sorted(_layer_map(job_spec.get(key)).items()):
                 _, problem = resolve_layer(directory, suffix)
                 if problem:
@@ -298,7 +299,8 @@ class PresentationAdapter(BaseAdapter):
         # exactly like the kit: a changed layer MUST invalidate the compose,
         # or a stale prop pass ships against fresh architecture.
         for key, suffix in (("dressing_glb", "_dressing.glb"),
-                            ("fixtures_glb", "_fixtures.glb")):
+                            ("fixtures_glb", "_fixtures.glb"),
+                            ("roofprops_glb", "_roofprops.glb")):
             for aid, directory in sorted(_layer_map(job_spec.get(key)).items()):
                 # The spec names a DIRECTORY -- the job that fills it has not
                 # run when the spec is written. Resolve it the same way the
@@ -375,7 +377,7 @@ class PresentationAdapter(BaseAdapter):
         # the failure the comment above that loop names. A layer that is not
         # visible at the call site is a layer nobody notices is shared.
         def compose(*, slots, gameplay, greybox, out, bid, scene_rel,
-                    dressing, fixtures, modules):
+                    dressing, fixtures, roofprops, modules):
             args = [
                 str(_driver_path()),
                 "--deli-repo", deli_repo,
@@ -401,6 +403,8 @@ class PresentationAdapter(BaseAdapter):
                 args += ["--dressing", str(dressing)]
             if fixtures:
                 args += ["--fixtures", str(fixtures)]
+            if roofprops:
+                args += ["--roofprops", str(roofprops)]
             return PlannedCommand(
                 executable=Path(str(py)), arguments=tuple(args),
                 working_directory=cwd, expected_outputs=(scene_rel,),
@@ -422,6 +426,10 @@ class PresentationAdapter(BaseAdapter):
         fixtures = {aid: resolve_layer(d, "_fixtures.glb")[0]
                     for aid, d in _layer_map(
                         job_spec.get("fixtures_glb")).items()}
+        # the third layer (0.179.0, roadmap 181), keyed like the two above
+        roofprops = {aid: resolve_layer(d, "_roofprops.glb")[0]
+                     for aid, d in _layer_map(
+                         job_spec.get("roofprops_glb")).items()}
         # The kit is a DIRECTORY of modules, not one file picked by suffix, so
         # it needs no `resolve_layer` -- but it is keyed per building exactly
         # like the two above.
@@ -432,6 +440,7 @@ class PresentationAdapter(BaseAdapter):
             greybox=job_spec.get("greybox_glb"),
             out=work / _OUT_SUBDIR, bid=_STABLE_BID, scene_rel=_SCENE_REL,
             dressing=dressing.get(""), fixtures=fixtures.get(""),
+            roofprops=roofprops.get(""),
             modules=modules.get(""),
         )]
 
@@ -457,6 +466,7 @@ class PresentationAdapter(BaseAdapter):
                 # the walls, which is to say the building.
                 dressing=dressing.get(str(a["id"])),
                 fixtures=fixtures.get(str(a["id"])),
+                roofprops=roofprops.get(str(a["id"])),
                 modules=modules.get(str(a["id"])),
             ))
         return cmds
@@ -532,7 +542,8 @@ def _circulation_arms(circ) -> list:
     splits it the same way (`circulation_gate`)."""
     if not isinstance(circ, Mapping):
         return []
-    arms = [(k, circ[k]) for k in ("shell", "dressing")
+    # `roofprops` since Deli Counter 0.209.0 (the third layer's arm)
+    arms = [(k, circ[k]) for k in ("shell", "dressing", "roofprops")
             if isinstance(circ.get(k), Mapping)]
     return arms or [(str(circ.get("source") or "shell"), circ)]
 

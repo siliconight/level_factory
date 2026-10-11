@@ -61,6 +61,14 @@ LOCK_SCHEMA = "level_factory.tools_lock.v0.1"
 # comes from, and a `contract` string is recorded where the tool publishes a
 # machine-readable one.
 #
+# RE-GROUNDED 2026-10-11 (0.179.0), TWO ROWS, for the set after factory 1.38.0:
+# deli_counter 0.208.0 -> 0.209.0 (a roof slot's landings, the roof-props layer)
+# and zoo 1.100.0 -> 1.101.0 (roof props off hatches and landings, yawed boxes,
+# the tank's height, one roof merged) -- roadmap 181, the stage this release
+# plans. Ahead of the install test that certifies that set, as the notes below
+# say; licensed by the real-tool smoke, which read exactly these two rows DRIFT
+# before and all green after.
+#
 # RE-GROUNDED 2026-10-11 (0.178.4), FOUR ROWS, for factory 1.38.0: deli_counter
 # 0.207.1 -> 0.208.0 (a home's room hangs a dome), lot 0.115.0 -> 0.116.0 (a
 # lane lights its own length), zoo 1.97.0 -> 1.100.0 (the dome fixture and its
@@ -145,7 +153,7 @@ LOCK_SCHEMA = "level_factory.tools_lock.v0.1"
 # tools the smoke just ran, so the next tool bump cannot leave it behind in
 # silence.
 GROUNDED: dict[str, dict] = {
-    "deli_counter": {"version": "0.208.0", "source": "VERSION"},
+    "deli_counter": {"version": "0.209.0", "source": "VERSION"},
     "lot":          {"version": "0.116.0", "source": "VERSION"},
     "laser_tag":    {"version": "0.25.0", "source": "VERSION",
                      "note": "was unpinned until 0.8.0 -- the addon declared a "
@@ -170,7 +178,7 @@ GROUNDED: dict[str, dict] = {
                              "HISTORY by 2026-10-10: version.py now derives "
                              "__version__ from VERSION, its _FALLBACK pinned "
                              "to the file by a test, so the two agree"},
-    "zoo":          {"version": "1.100.0", "source": "VERSION",
+    "zoo":          {"version": "1.101.0", "source": "VERSION",
                      "note": "0.30.2 -> 1.1.1 crosses a major, which is why "
                              "this row was the one that finally shouted. The "
                              "0.94 fixtures-index change the adapter was "

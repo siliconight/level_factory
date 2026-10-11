@@ -171,6 +171,14 @@ class ZooAdapter(BaseAdapter):
                 problems.append("zoo dressing build requires a Patina dressing manifest")
             elif not Path(str(man)).exists():
                 problems.append(f"dressing manifest missing: {man}")
+        elif mode == "roof_props":
+            # ROOF PROPS (0.179.0, roadmap 181): a job of its own over the
+            # building's slots, as the kit is.
+            slots = job_spec.get("slots_path")
+            if not slots:
+                problems.append("zoo roof props build requires a slots.json")
+            elif not Path(str(slots)).exists():
+                problems.append(f"slots.json missing: {slots}")
         elif mode == "habitat":
             # A SET of standalone species -- the Layer 3 clutter (roadmap
             # 110): pebble, rubble_frag, weed_tuft, litter_scrap. Named
@@ -206,6 +214,9 @@ class ZooAdapter(BaseAdapter):
         # layer none of them contains.
         if job_spec.get("mode") == "habitat":
             fp["habitat"] = str(job_spec.get("habitat") or "")
+        # The density IS a roof props job's input, folded in on the same rule.
+        if job_spec.get("mode") == "roof_props" and job_spec.get("density") is not None:
+            fp["density"] = str(job_spec.get("density"))
         # THE WET VARIANT IS AN INPUT. Without it the same mission rebuilt
         # with the weather changed reads `cache` and ships the dry road --
         # which is the defect LF 0.111.0 fixed one field along, where
@@ -328,6 +339,34 @@ class ZooAdapter(BaseAdapter):
                 expected_outputs=expected,
                 resource_class="blender", timeout_seconds=1200,
             )]
+        if mode == "roof_props":
+            # ROOF PROPS (0.179.0, roadmap 181): a job of its own. The kit branch
+            # below carried `--roof-props` on the kit's command from 0.25 to
+            # 0.178.6 for a job spec key nothing wrote, and the command could not
+            # have built both: zoo_cli answers --roof-props before --build-kit
+            # and returns. --skins with --theme, the pair the dress branch
+            # explains; --wet gated on the library as everywhere.
+            zoo_args = ["--roof-props", str(job_spec.get("slots_path", "")),
+                        "--out", str(work), "--no-blend"]
+            if job_spec.get("skins_dir"):
+                zoo_args += ["--skins", str(job_spec["skins_dir"])]
+            if job_spec.get("theme"):
+                zoo_args += ["--theme", str(job_spec["theme"])]
+            if job_spec.get("wet") and job_spec.get("skins_dir"):
+                zoo_args += ["--wet"]
+            if job_spec.get("seed") is not None:
+                zoo_args += ["--seed", str(job_spec["seed"])]
+            if job_spec.get("density") is not None:
+                zoo_args += ["--density", str(job_spec["density"])]
+            bid = _bid(job_spec.get("slots_path")) or "building"
+            # both DECLARED: the compose needs the GLB, as it does the dressing's
+            expected = (f"{bid}_roofprops.built.json", f"{bid}_roofprops.glb")
+            args = ["--background", "--python", cli, "--", *zoo_args]
+            return [PlannedCommand(
+                executable=Path(blender), arguments=tuple(args),
+                working_directory=repo, expected_outputs=expected,
+                resource_class="blender", timeout_seconds=1200,
+            )]
         if mode == "dress":
             zoo_args = ["--dress", str(job_spec.get("manifest_path", "")),
                         "--out", str(work)]
@@ -376,10 +415,11 @@ class ZooAdapter(BaseAdapter):
                 zoo_args += ["--wet"]
             if job_spec.get("seed") is not None:
                 zoo_args += ["--seed", str(job_spec["seed"])]
-            if job_spec.get("roof_props_slots"):
-                zoo_args += ["--roof-props", str(job_spec["roof_props_slots"])]
-                if job_spec.get("density"):
-                    zoo_args += ["--density", str(job_spec["density"])]
+            # `roof_props_slots` used to add --roof-props to THIS command (0.25 to
+            # 0.178.6): nothing ever wrote the key, and zoo_cli would have
+            # answered --roof-props before --build-kit and returned, so the kit
+            # could never have been built by it. Roof props are the `roof_props`
+            # mode above (0.179.0, roadmap 181).
             bid = _bid(job_spec.get("slots_path")) or "building"
             expected = (f"{bid}_kit.built.json",)
 

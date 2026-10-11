@@ -16,7 +16,7 @@ import shutil
 
 def build_package(slots_path, gameplay_path, module_dir, out_dir, *,
                   theme, style=1, building_id=None, greybox_glb=None,
-                  dressing_glb=None, fixtures_glb=None):
+                  dressing_glb=None, fixtures_glb=None, roofprops_glb=None):
     if os.path.exists(out_dir):
         shutil.rmtree(out_dir)
     art = os.path.join(out_dir, "art", "zoo")
@@ -26,7 +26,8 @@ def build_package(slots_path, gameplay_path, module_dir, out_dir, *,
     # instances them at identity; the stub just records the bundling).
     content_layers = {}
     for layer_name, layer_glb in (("dressing", dressing_glb),
-                                  ("fixtures", fixtures_glb)):
+                                  ("fixtures", fixtures_glb),
+                                  ("roofprops", roofprops_glb)):
         if layer_glb and os.path.exists(layer_glb):
             ldir = os.path.join(out_dir, "art", layer_name)
             os.makedirs(ldir, exist_ok=True)

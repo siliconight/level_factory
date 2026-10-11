@@ -130,6 +130,9 @@ _STAGE_COMPOSE = "presentation_compose"
 _STAGE_THEMED_SITE = "themed_site_assemble"
 _STAGE_LUX = "lux_apply"
 _STAGE_ZOO_FIXTURES = "zoo_fixtures_build"
+# Roof props (0.179.0, roadmap 181): Zoo's rooftop scatter, a job of its
+# own per enterable building. In LAYER_ART with the kit it stands on.
+_STAGE_ZOO_ROOF = "zoo_roof_props_build"
 _STAGE_LUX_FIXTURE_GATE = "lux_fixture_gate"
 _STAGE_REGRESSION = "regression"
 # Layer 3 surface dressing (docs/SURFACE_DRESSING.md, roadmap 110): three
@@ -370,6 +373,19 @@ def plan_mission(
 
         zoo_dress_jids: list[str] = []
         zoo_kit_jids: list[str] = []
+        # ROOF PROPS (0.179.0, roadmap 181): Zoo 0.25's rooftop scatter, a job
+        # of its own per enterable building whose slots carry a roof slot. The
+        # Zoo adapter's kit branch read `roof_props_slots` for this from 0.25
+        # to 0.178.6, and nothing wrote it -- nor could the one command it
+        # built have run both, since `zoo_cli` answers --roof-props before
+        # --build-kit and returns. An Empty is planned below, in its own loop,
+        # and gets none: its roof is never reached and carries its antenna
+        # already (Deli Counter 0.185.0). The brief's `roof_props: false`
+        # plans none at all. The mission's own shell (no library) is planned
+        # one unseen: its slots are written by its Deli Counter job, and every
+        # generated shell carries a roof slot but a `roof: none` demo.
+        zoo_roof_jids: list[str] = []
+        roof_props = bool(getattr(brief, "roof_props", True))
         for _entry in art_buildings:
             aid = _entry["id"] if _entry else None
             # Zoo structural kit for THIS building, from ITS slots, skinned by
@@ -386,6 +402,19 @@ def plan_mission(
                 expected_outputs=[],  # zoo names by building_id at exec
             ))
             zoo_kit_jids.append(zoo_kit_jid)
+            if roof_props and (_entry is None
+                               or building_library.has_roof_slot(_entry)):
+                zoo_roof_jid = job_id(brief.mission_id, _STAGE_ZOO_ROOF,
+                                      archetype=aid)
+                plan.graph.add(Job(
+                    job_id=zoo_roof_jid, mission_id=brief.mission_id,
+                    stage_id=_STAGE_ZOO_ROOF, adapter_id="zoo",
+                    candidate_id=selected_candidate, archetype_id=aid,
+                    resource_class="blender",
+                    depends_on=[lot_jid, pixelcoat_jid],
+                    expected_outputs=[],  # zoo names by building_id at exec; adapter checks
+                ))
+                zoo_roof_jids.append(zoo_roof_jid)
             # Patina names its outputs from the INPUT STEM
             # (adapters/patina/__init__.py:42-48), so a job pointed at
             # `final_stand.glb` writes `final_stand.patina.*`. The contract has
@@ -496,7 +525,7 @@ def plan_mission(
             stage_id=_STAGE_COMPOSE, adapter_id="presentation",
             candidate_id=selected_candidate, resource_class="python_cpu",
             depends_on=[deli_sel_jid, *zoo_kit_jids,
-                        *zoo_dress_jids, *zoo_fixtures_jids],
+                        *zoo_dress_jids, *zoo_fixtures_jids, *zoo_roof_jids],
             expected_outputs=["presentation/site.tscn"],
         ))
         # Themed SITE assemble — Lot again, over the composed themed BUILDING.
