@@ -1803,6 +1803,7 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
     the other two (roadmap 200). Lot's pacing reads `mode` and
     `pacing.target_minutes` (0.153.0).
     """
+    from packages.exporting.export import BAKE_LIGHTS_CLI_DEFAULT
     from packages.pipeline import road_grammar, site_variation
     from packages.pipeline.site_variation import (
         STREET, ground_size, row_spacing, shell_footprint, site_placements)
@@ -2189,6 +2190,13 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
             "degenerates_to": site_variation.degenerates_to(
                 model.site_shape, count),
         },
+        # THE PACKAGE BAKES ITS LIGHTS (0.178.0, roadmap 231): said to Lot here,
+        # because Lot cuts its plates for the per-mesh light cap and a
+        # lightmapped mesh pairs with no baked light (Lot 0.115.0's
+        # MESH_TILE_BAKED, 0.159.0's paired census). The export's own default,
+        # one constant; `export --no-bake-lights` says out loud that the site
+        # was drawn for a bake it did not get.
+        "render": {"lights_baked": bool(BAKE_LIGHTS_CLI_DEFAULT)},
         "road_grammar": model.road_grammar,
         # THE SAME TREATMENT FOR THE ROAD, and for the same reason. The
         # grammar falls back to a T for a spelling it does not know, so a
@@ -3734,7 +3742,7 @@ def _layers_produced(*, compose_root: Path, lux_dir: Path,
 
 def cmd_export(args) -> int:
     from packages.exporting.export import (
-        MODES, ExportProfile, export_mission, zip_export,
+        BAKE_LIGHTS_CLI_DEFAULT, MODES, ExportProfile, export_mission, zip_export,
     )
     ws = _ws(args)
     mission_id = args.mission_id
@@ -3801,6 +3809,14 @@ def cmd_export(args) -> int:
                             include_walk=bool(getattr(args, "include_walk", False)),
                             weather=weather,
                             bake_lights=bool(getattr(args, "bake_lights", False)))
+    if not profile.bake_lights and BAKE_LIGHTS_CLI_DEFAULT:
+        # The site spec told Lot the package would bake (0.178.0), so its
+        # plates are cut to the baked tile (Lot 0.115.0, 32 m) rather than the
+        # 8 m priced against live lights. Said, not refused: the perf report's
+        # paired light census is the per-mesh cap's gate.
+        print("  lights NOT baked: the site was drawn for a bake (render.lights_baked), "
+              "its plates tiled for one; the perf report's paired light census is "
+              "the per-mesh cap's gate")
 
     # OPEN BLOCKERS BLOCK THE EXPORT. Cold run 9015 (2026-09-12): the Lux
     # stage exited 2 on a scene it could not parse, the scheduler filed

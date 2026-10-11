@@ -24,6 +24,7 @@ from apps.cli.commands import (  # noqa: E402
     cmd_team_status, cmd_validate, cmd_verify_contracts, cmd_verify_manifest,
     cmd_walk,
 )
+from packages.exporting.export import BAKE_LIGHTS_CLI_DEFAULT  # noqa: E402
 
 EXIT_OK = 0
 EXIT_FINDINGS = 1
@@ -199,7 +200,8 @@ def build_parser() -> argparse.ArgumentParser:
     # ON BY DEFAULT since 0.144.0 (the walker, 2026-10-05). `--bake-lights`
     # still parses, for the commands already written with it; a bake that
     # cannot run ships the package unbaked and says why in light_bake.json.
-    sp.add_argument("--bake-lights", action=argparse.BooleanOptionalAction, default=True,
+    sp.add_argument("--bake-lights", action=argparse.BooleanOptionalAction,
+                    default=BAKE_LIGHTS_CLI_DEFAULT,
                     help="bake the steady lights into a lightmap -- the default. It needs "
                          "a GPU and a display, opens the Godot editor for about a minute, "
                          "and ships the package unbaked when it cannot; "

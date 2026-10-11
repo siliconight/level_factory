@@ -240,6 +240,16 @@ def _now() -> str:
     return _dt.datetime.now(_dt.timezone.utc).isoformat()
 
 
+#: Whether `export` bakes the lights unless told otherwise (0.178.0, roadmap
+#: 231): the command line's default since 0.144.0, now ONE constant read by
+#: the parser (`apps/cli/main.py`) and by the site spec writer, which tells
+#: Lot the package will bake (`render.lights_baked`) so Lot can cut its
+#: plates for a lightmapped package (Lot 0.115.0's MESH_TILE_BAKED; the
+#: culler pairs no baked light with a lightmapped mesh). `ExportProfile`
+#: itself stays off, as its comment below says.
+BAKE_LIGHTS_CLI_DEFAULT = True
+
+
 @dataclass
 class ExportProfile:
     mode: str = MODE_PORTABLE
