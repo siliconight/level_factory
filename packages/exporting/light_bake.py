@@ -175,6 +175,25 @@ def mark_imports(export_dir: Path, spawned=()) -> dict:
         if new != text:
             sidecar.write_text(new, encoding="utf-8", newline="\n")
         out[bucket].append(rel)
+    # THE PAINT'S MESHES (0.177.1, roadmap 231): Lot 0.114.0 ships a site's road
+    # markings as an OBJ per paint colour beside site.tscn, so that 227 marking
+    # submissions are two and the bake still lights them. The wavefront
+    # importer generates no lightmap UV unless asked -- `generate_lightmap_uv2`,
+    # read off the engine's own sidecar from a one-quad import -- so each
+    # sidecar is asked here and the mesh bakes like a model.
+    for sidecar in sorted(Path(export_dir).rglob("*.obj.import")):
+        if ".godot" in sidecar.parts:
+            continue
+        rel = sidecar.with_suffix("").relative_to(export_dir).as_posix()
+        text = sidecar.read_text(encoding="utf-8")
+        new, k = re.subn(r"^generate_lightmap_uv2=(?:true|false)$",
+                         "generate_lightmap_uv2=true", text, flags=re.M)
+        if k != 1:
+            out["unreadable"].append(rel)
+            continue
+        if new != text:
+            sidecar.write_text(new, encoding="utf-8", newline="\n")
+        out["baked"].append(rel)
     out["spawned_unmatched"] = sorted(wanted - set(out["spawned"]) - set(out["unreadable"]))
     return out
 

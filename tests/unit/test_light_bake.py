@@ -259,3 +259,53 @@ def test_a_bake_reports_its_room_fills(tmp_path, monkeypatch):
     assert r["room_fills"] == 30
     assert json.loads((pkg / LB.REPORT).read_text(encoding="utf-8"))["room_fills"] == 30
     assert any("30 room fill(s)" in s for s in said), said
+
+
+
+_OBJ_SIDECAR = """[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+path="res://.godot/imported/site_marks.obj-0000.mesh"
+
+[deps]
+
+source_file="res://site_marks.obj"
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false
+"""
+
+
+def test_the_paints_obj_meshes_are_asked_for_a_lightmap_uv(tmp_path):
+    """0.177.1: Lot 0.114.0 ships the road paint as an OBJ a colour; the wavefront
+    importer's sidecar (read off the engine) says `generate_lightmap_uv2=false`
+    until asked, and an unasked mesh is not lightmapped."""
+    _glb(tmp_path / "shell.glb", uv2=False)
+    (tmp_path / "shell.glb.import").write_text(_SIDECAR, encoding="utf-8")
+    (tmp_path / "site_marks.obj").write_text("o marks\nv 0 0 0\n", encoding="utf-8")
+    (tmp_path / "site_marks.obj.import").write_text(_OBJ_SIDECAR, encoding="utf-8")
+    got = LB.mark_imports(tmp_path)
+    assert got["baked"] == ["shell.glb", "site_marks.obj"] and got["unreadable"] == []
+    text = (tmp_path / "site_marks.obj.import").read_text(encoding="utf-8")
+    assert "generate_lightmap_uv2=true" in text and "generate_lightmap_uv2=false" not in text
+    assert "generate_lightmap_uv2_texel_size=0.2" in text       # the texel size is left alone
+    # asked twice, the sidecar is left as it is
+    again = LB.mark_imports(tmp_path)
+    assert again["baked"] == got["baked"]
+
+
+def test_an_obj_sidecar_without_the_line_is_said_not_guessed(tmp_path):
+    (tmp_path / "odd.obj").write_text("o odd\n", encoding="utf-8")
+    (tmp_path / "odd.obj.import").write_text("[remap]\nimporter=\"wavefront_obj\"\n", encoding="utf-8")
+    got = LB.mark_imports(tmp_path)
+    assert got["baked"] == [] and got["unreadable"] == ["odd.obj"]
