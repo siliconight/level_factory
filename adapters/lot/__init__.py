@@ -377,7 +377,13 @@ class LotAdapter(BaseAdapter):
         # stage could not load it ("Resource file not found:
         # res://skins/asphalt_delco_albedo.png"), and the export refused the
         # mission on that blocker -- correctly, and one stage late.
-        wanted = (".tscn", ".json", ".csv", ".glb", ".gd", ".png")
+        # .obj joined on 2026-10-12 (0.177.2): Lot 0.114.0 writes the road paint
+        # as one wavefront mesh a colour beside its scene, declared as a Mesh
+        # ext_resource. Cold run 9234 published the scene without them and the
+        # export's closure gate refused the package -- two relative references
+        # resolving to nothing -- correctly, and three stages late. A published
+        # artifact has to be the whole artifact.
+        wanted = (".tscn", ".json", ".csv", ".glb", ".gd", ".png", ".obj")
         return sorted(p for p in work.rglob("*") if p.is_file() and p.suffix in wanted)
 
     def normalize_validation(
