@@ -18,6 +18,7 @@ up where it left off (Phase-1 exit criterion).
 from __future__ import annotations
 
 import datetime as _dt
+import os as _os
 import shutil as _shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -42,9 +43,45 @@ from packages.validation import model
 from packages.validation.job_failure import issues_for_failure
 from packages.validation.model import issue_from_normalized
 
-# Default per-resource-class concurrency caps (TDD 19.2).
+#: How wide the graders were PROVEN to run with every VERDICT unchanged
+#: (0.179.1, the walker's call 2026-10-11). Cold run 9246's graders rerun from
+#: copies of their staged projects: alone, or two at a time as before, every
+#: report identical to its job's in every field; three and six at a time,
+#: every grade, score, summary figure, finding, event count, time, source and
+#: collider identical in every trial, and one to three recorded event
+#: POSITIONS in some reports one rounding step (0.01 m) apart -- the same
+#: values each time, sitting on a rounding boundary, cause not established
+#: (async navigation iterations and the shared worker pool are the suspects).
+#: The walk tests stayed byte-identical at six. Raise this only on a
+#: measurement at the wider load (`docs/findings/grader_speed/` in the factory).
+GODOT_PROVEN_WIDTH = 3
+
+
+def godot_cap(cpu_count) -> int:
+    """How many headless Godot jobs run at once: what the machine allows -- one
+    per physical core, read as half the logical CPUs (the stdlib reports only
+    those), never below the 2 every machine had -- and no wider than the load
+    the graders' verdicts were proven unchanged under (0.179.1).
+
+    MEASURED, NOT CHOSEN. The graders are this class -- each candidate's Laser
+    Tag evaluation and walk test -- and they were 88 % of cold run 9245's job
+    time, queued two at a time on 8 cores and 16 logical CPUs: its shell leg
+    spanned 15.7 minutes, and its longest single evaluation was 10.25 of them.
+    That job bounds the leg at any width, so three recovers nearly all of what
+    six would. A coarser simulation clock was measured too and REFUSED: Godot
+    scales the physics step with `time_scale`, and the reports changed.
+    """
+    try:
+        cpus = int(cpu_count or 0)
+    except (TypeError, ValueError):
+        cpus = 0
+    return min(max(2, cpus // 2), max(2, GODOT_PROVEN_WIDTH))
+
+
+# Default per-resource-class concurrency caps (TDD 19.2). `godot_headless`
+# follows the machine and the proven width since 0.179.1 (`godot_cap`).
 DEFAULT_CONCURRENCY = {
-    "python_cpu": 4, "blender": 1, "godot_headless": 2,
+    "python_cpu": 4, "blender": 1, "godot_headless": godot_cap(_os.cpu_count()),
     "godot_interactive": 1, "io_heavy": 2, "lightweight": 8,
 }
 
