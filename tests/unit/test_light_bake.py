@@ -333,13 +333,63 @@ def test_the_editor_s_output_is_kept_beside_the_package(tmp_path, monkeypatch):
     assert "BAKE hello from the editor" in log.read_text(encoding="utf-8", errors="replace")
     pkg = _package(tmp_path)
     monkeypatch.setattr(LB, "_import", lambda d, g: True)
-    seen = {}
+    seen = []
 
     def fake_editor(cmd, timeout, log_path=None):
-        seen["log"] = log_path
+        seen.append(log_path)
         return None, float(timeout)
     monkeypatch.setattr(LB, "_run", fake_editor)
     r = LB.bake(pkg, "godot.exe", log=lambda *a: None)
-    assert seen["log"] == tmp_path / "LF_t.portable-godot.lightbake.log"
-    assert r["editor_log"] == str(seen["log"])
-    assert not str(seen["log"]).startswith(str(pkg) + os.sep), "the log is not shipped"
+    # 0.178.6: a failed bake is tried once more, and each try keeps its own log
+    assert seen == [tmp_path / "LF_t.portable-godot.lightbake.log",
+                    tmp_path / "LF_t.portable-godot.lightbake.2.log"]
+    assert r["editor_log"] == str(seen[-1])
+    assert not any(str(s).startswith(str(pkg) + os.sep) for s in seen), "no log is shipped"
+
+
+def _baked_editor(work, users=12):
+    (work / LB.RESULT).write_text(json.dumps({"ok": True, "users": users}), encoding="utf-8")
+    (work / "bake.tscn").write_text("[gd_scene format=3]\n", encoding="utf-8")
+    for f in ("bake.lmbake", "bake.exr", "bake.exr.import"):
+        (work / f).write_text("x", encoding="utf-8")
+
+
+def test_a_bake_that_fails_once_is_tried_once_more_on_a_fresh_copy(tmp_path, monkeypatch):
+    """0.178.6, cold run 9243: the bake read its lightmap image back empty and raised a dialog;
+    the same package baked on the next try."""
+    pkg = _package(tmp_path)
+    monkeypatch.setattr(LB, "_import", lambda d, g: True)
+    calls = []
+
+    def flaky_editor(cmd, timeout, log_path=None):
+        work = Path(cmd[cmd.index("--path") + 1])
+        calls.append(log_path)
+        assert not (work / LB.RESULT).exists(), "each try starts from a fresh copy"
+        if len(calls) == 1:
+            (work / LB.RESULT).write_text(json.dumps({"ok": False, "error": "the bake raised a dialog"}),
+                                          encoding="utf-8")
+        else:
+            _baked_editor(work)
+        return 0, 3.0
+    monkeypatch.setattr(LB, "_run", flaky_editor)
+    said = []
+    r = LB.bake(pkg, "godot.exe", log=said.append)
+    assert r["ok"] is True, r
+    assert [a["attempt"] for a in r["attempts"]] == [1, 2]
+    assert r["attempts"][0]["result"]["error"] == "the bake raised a dialog"
+    assert any("baked on attempt 2 of 2" in s for s in said), said
+    assert all((pkg / f).exists() for f in LB.BAKE_FILES)
+
+
+def test_a_bake_that_works_first_time_is_not_tried_again(tmp_path, monkeypatch):
+    pkg = _package(tmp_path)
+    monkeypatch.setattr(LB, "_import", lambda d, g: True)
+    calls = []
+
+    def good_editor(cmd, timeout, log_path=None):
+        calls.append(log_path)
+        _baked_editor(Path(cmd[cmd.index("--path") + 1]))
+        return 0, 3.0
+    monkeypatch.setattr(LB, "_run", good_editor)
+    r = LB.bake(pkg, "godot.exe", log=lambda *a: None)
+    assert r["ok"] is True and len(calls) == 1 and len(r["attempts"]) == 1

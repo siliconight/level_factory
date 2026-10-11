@@ -84,6 +84,11 @@ MAX_TEXTURE = 4096
 #: start and import took ~35 more.
 EDITOR_TIMEOUT_S = 900
 IMPORT_TIMEOUT_S = 1800
+#: Tries at the bake, each on a fresh work copy (0.178.6). Cold run 9243's bake opened the
+#: scene, baked, and read its lightmap image back EMPTY (`src_image_len == 0`, "Failed
+#: creating lightmap images"); the same package baked on the next try. Driving an editor's
+#: GUI is not deterministic, and one more try costs one more editor minute on a failure.
+BAKE_ATTEMPTS = 2
 
 LIGHT_BAKING = "meshes/light_baking"
 STATIC_LIGHTMAPS = 2
@@ -383,26 +388,36 @@ def bake(export_dir, godot_executable, *, log=print, spawned=()) -> dict:
         (export_dir / BAKE_SCENE).write_text(bake_scene_text(), encoding="utf-8", newline="\n")
         if not _import(export_dir, godot_executable):
             raise RuntimeError("the UV2 import pass did not run")
-        if work.exists():
-            shutil.rmtree(work)
-        shutil.copytree(export_dir, work)
-        _forward_plus(work / "project.godot")
-        plugin = work / PLUGIN_DIR
-        plugin.mkdir(parents=True, exist_ok=True)
-        shutil.copy(PLUGIN_SCRIPT, plugin / "light_bake_plugin.gd")
-        (plugin / "plugin.cfg").write_text(
-            '[plugin]\n\nname="lf_light_bake"\ndescription="Bakes bake.tscn and quits."\n'
-            'author="level_factory"\nversion="1"\nscript="light_bake_plugin.gd"\n',
-            encoding="utf-8", newline="\n")
-        # the editor's output, kept beside the package (0.178.5), never inside it
-        editor_log = export_dir.parent / (export_dir.name + ".lightbake.log")
-        code, took = _run([str(godot_executable), "--editor", "--path", str(work),
-                           "--resolution", "1280x720"], EDITOR_TIMEOUT_S,
-                          log_path=editor_log)
-        report["editor_s"] = round(took, 1)
-        report["editor_log"] = str(editor_log)
-        result_p = work / RESULT
-        result = json.loads(result_p.read_text(encoding="utf-8")) if result_p.exists() else None
+        # 0.178.6: up to BAKE_ATTEMPTS tries, each on a fresh copy, each editor's log kept
+        attempts = []
+        for attempt in range(1, BAKE_ATTEMPTS + 1):
+            if work.exists():
+                shutil.rmtree(work)
+            shutil.copytree(export_dir, work)
+            _forward_plus(work / "project.godot")
+            plugin = work / PLUGIN_DIR
+            plugin.mkdir(parents=True, exist_ok=True)
+            shutil.copy(PLUGIN_SCRIPT, plugin / "light_bake_plugin.gd")
+            (plugin / "plugin.cfg").write_text(
+                '[plugin]\n\nname="lf_light_bake"\ndescription="Bakes bake.tscn and quits."\n'
+                'author="level_factory"\nversion="1"\nscript="light_bake_plugin.gd"\n',
+                encoding="utf-8", newline="\n")
+            # the editor's output, kept beside the package (0.178.5), never inside it
+            editor_log = export_dir.parent / (export_dir.name + (
+                ".lightbake.log" if attempt == 1 else ".lightbake.%d.log" % attempt))
+            code, took = _run([str(godot_executable), "--editor", "--path", str(work),
+                               "--resolution", "1280x720"], EDITOR_TIMEOUT_S,
+                              log_path=editor_log)
+            result_p = work / RESULT
+            result = json.loads(result_p.read_text(encoding="utf-8")) if result_p.exists() else None
+            attempts.append({"attempt": attempt, "editor_s": round(took, 1),
+                             "editor_log": str(editor_log), "timed_out": code is None,
+                             "result": result})
+            if code is not None and result and result.get("ok"):
+                break
+        report["attempts"] = attempts
+        report["editor_s"] = attempts[-1]["editor_s"]
+        report["editor_log"] = attempts[-1]["editor_log"]
         report["result"] = result
         report["room_fills"] = (result or {}).get("room_fills")
         if code is None:
@@ -430,6 +445,10 @@ def bake(export_dir, godot_executable, *, log=print, spawned=()) -> dict:
                "no room floor (the level's Lux lays none)" if fills in (None, -1)
                else "%d room fill(s)" % fills,
                result.get("users"), report["editor_s"]))
+        if len(attempts) > 1:
+            log("[export] light bake: baked on attempt %d of %d; the first failed: %s"
+                % (len(attempts), BAKE_ATTEMPTS,
+                   (attempts[0]["result"] or {}).get("error") or "no result written"))
     except Exception as exc:  # any failure ships the package unbaked
         pres.write_bytes(keep_pres)
         (export_dir / "mission.tscn").write_bytes(keep_entry)
