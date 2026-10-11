@@ -61,6 +61,12 @@ LOCK_SCHEMA = "level_factory.tools_lock.v0.1"
 # comes from, and a `contract` string is recorded where the tool publishes a
 # machine-readable one.
 #
+# RE-GROUNDED 2026-10-11 (0.180.0), TWO ROWS: laser_tag 0.26.0 -> 0.27.0 (the
+# navigation map updates on the evaluation's thread, so `--fixed-fps` reads the
+# same report) and zoo 1.101.0 -> 1.102.0 (what a roof carries follows what the
+# building is). Licensed by the real-tool smoke, which read exactly these two
+# rows DRIFT before and all green after.
+#
 # RE-GROUNDED 2026-10-11 (0.179.1), TWO ROWS: deli_counter 0.209.0 -> 0.209.1
 # (a stair's circulation column ends at the top floor it serves) and laser_tag
 # 0.25.0 -> 0.26.0 (an enemy is built and steered as the contract's body).
@@ -161,7 +167,7 @@ LOCK_SCHEMA = "level_factory.tools_lock.v0.1"
 GROUNDED: dict[str, dict] = {
     "deli_counter": {"version": "0.209.1", "source": "VERSION"},
     "lot":          {"version": "0.116.0", "source": "VERSION"},
-    "laser_tag":    {"version": "0.26.0", "source": "VERSION",
+    "laser_tag":    {"version": "0.27.0", "source": "VERSION",
                      "note": "was unpinned until 0.8.0 -- the addon declared a "
                              "version in addons/laser_tag_tool/plugin.cfg but "
                              "the repo had no root VERSION file, which is the "
@@ -184,7 +190,7 @@ GROUNDED: dict[str, dict] = {
                              "HISTORY by 2026-10-10: version.py now derives "
                              "__version__ from VERSION, its _FALLBACK pinned "
                              "to the file by a test, so the two agree"},
-    "zoo":          {"version": "1.101.0", "source": "VERSION",
+    "zoo":          {"version": "1.102.0", "source": "VERSION",
                      "note": "0.30.2 -> 1.1.1 crosses a major, which is why "
                              "this row was the one that finally shouted. The "
                              "0.94 fixtures-index change the adapter was "

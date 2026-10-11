@@ -220,6 +220,22 @@ class LaserTagAdapter(BaseAdapter):
     #: report over it.
     bake_wall_budget_seconds = 120.0
 
+    #: THE CLOCK (0.180.0, factory roadmap 239). Godot paced every evaluation to
+    #: Laser Tag's 4x clock in REAL seconds: measured on cold runs 9245 and 9247,
+    #: each simulated 3.91 to 3.97 times its job's wall time, so most of a
+    #: ten-minute job waited. The engine's `--fixed-fps` makes each frame one
+    #: physics step computed as fast as the processor allows, the step itself
+    #: unchanged; 60 is the staged project's physics tick rate (staging leaves
+    #: Godot's default), so one frame is one step. With Laser Tag 0.27.0's
+    #: navigation updating on the evaluation's thread the report reads the same
+    #: in every field: cold run 9247's seed_9104 593 s -> 21 s, and fourteen
+    #: more candidates the same twice each (`docs/findings/grader_speed/` in the
+    #: factory). Laser Tag cannot see which clock it runs on (the engine leaves
+    #: `--fixed-fps` out of `OS.get_cmdline_args`), so this is the one place the
+    #: clock is chosen; 0 restores the synchronised clock. The budgets above
+    #: stay ceilings for the synchronised case.
+    fixed_fps = 60
+
     def validate_configuration(
         self, job_spec: Mapping[str, object], context: Mapping[str, object]
     ) -> Sequence[str]:
@@ -434,8 +450,11 @@ class LaserTagAdapter(BaseAdapter):
         # --bake-nav matches what Laser Tag's own CI passes. Lot ships the
         # NavigationRegion3D with parameters but no polygons, and without a
         # bake every reachability test in the harness reads as unreachable.
+        # The clock is the ENGINE's, so it goes before `--` (`fixed_fps`).
+        clock = (["--fixed-fps", str(int(self.fixed_fps))]
+                 if self.fixed_fps else [])
         args = [
-            "--headless", "--path", str(project),
+            "--headless", *clock, "--path", str(project),
             "-s", "res://addons/laser_tag_tool/runners/run_map_eval.gd",
             "--",
             "--bake-nav",
