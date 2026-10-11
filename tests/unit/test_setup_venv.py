@@ -126,3 +126,74 @@ def test_the_doctor_points_at_setup_venv(monkeypatch):
     report = doctor.run_doctor({}, {}, registry=AdapterRegistry({}))
     check = [c for c in report.checks if c.name == "tools_python"][0]
     assert "setup --venv" in check.detail
+
+
+# --------------------------------------------------------------------------- #
+# 0.178.1: an environment made from Blender's Python starts without an error
+# --------------------------------------------------------------------------- #
+
+def _blender_layout(tmp_path):
+    """Blender's install as far as its sitecustomize reads it: the interpreter under
+    <root>/5.1/python/bin and `blender.shared` three folders above it."""
+    root = tmp_path / "blender"
+    exe = root / "5.1" / "python" / "bin" / "python.exe"
+    exe.parent.mkdir(parents=True)
+    exe.write_text("stand-in\n", encoding="utf-8")
+    (root / "blender.shared").mkdir()
+    return root, exe
+
+
+def test_an_environment_from_blenders_python_gets_its_own_sitecustomize(tmp_path):
+    root, exe = _blender_layout(tmp_path)
+    fake = _Fake()
+    py, err = interpreter.make_venv(tmp_path / "factory", str(exe), run=fake)
+    assert err == ""
+    shim = tmp_path / "factory" / ".venv" / "Lib" / "site-packages" / "sitecustomize.py"
+    if sys.platform.startswith("win"):
+        text = shim.read_text(encoding="utf-8")
+        assert repr(str(root / "blender.shared")) in text
+        assert "os.add_dll_directory(SHARED)" in text
+        compile(text, str(shim), "exec")                 # it is Python
+    else:
+        assert not shim.exists()                         # Linux keeps Blender's file
+    # written before pip, which is still the second thing run
+    assert fake.calls[1][1:4] == ["-m", "pip", "install"]
+
+
+def test_an_environment_from_any_other_python_gets_none(tmp_path):
+    interpreter.make_venv(tmp_path, "/base/python", run=_Fake())
+    assert not (tmp_path / ".venv" / "Lib" / "site-packages" / "sitecustomize.py").exists()
+    assert interpreter.blender_site_shim(tmp_path / ".venv", "/base/python") is None
+
+
+def _blenders_python():
+    import os
+    exe = Path(os.environ.get("BLENDER") or r"C:\blender\blender.exe")
+    found = sorted(exe.parent.glob("*/python/bin/python.exe")) if exe.parent.is_dir() else []
+    return found[-1] if found else None
+
+
+def test_blenders_real_python_starts_clean_in_its_environment(tmp_path):
+    """Install test 4's twelve errors, on the real thing: an environment made from Blender's
+    own Python (pip not run) starts clean with the shim, and -- the control that proves the
+    instrument can see the difference -- prints Blender's error without it."""
+    import pytest
+    base = _blenders_python() if sys.platform.startswith("win") else None
+    if base is None:
+        pytest.skip("no Blender Python on this machine (BLENDER, or C:\\blender)")
+
+    def run(argv, **kw):
+        if argv[1:3] == ["-m", "venv"]:
+            return subprocess.run(argv, **kw)
+        return SimpleNamespace(returncode=0)         # no network here: pip is not run
+    py, err = interpreter.make_venv(tmp_path, str(base), run=run)
+    assert err == "", err
+    ask = [py, "-c", "print('started')"]
+    clean = subprocess.run(ask, capture_output=True, text=True, timeout=120)
+    assert clean.returncode == 0 and clean.stdout.strip() == "started", clean.stderr
+    assert "Error in sitecustomize" not in clean.stderr, clean.stderr
+    (tmp_path / ".venv" / "Lib" / "site-packages" / "sitecustomize.py").unlink()
+    control = subprocess.run(ask, capture_output=True, text=True, timeout=120)
+    assert "Error in sitecustomize" in control.stderr, (
+        "Blender's own sitecustomize no longer errors in an environment: the shim may be "
+        "moot -- re-read Blender's file before keeping it", control.stderr)
