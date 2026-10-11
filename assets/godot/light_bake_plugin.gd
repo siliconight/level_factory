@@ -5,6 +5,16 @@ extends EditorPlugin
 ## editor's own Bake Lightmaps button (Godot 4.7 exposes no script call),
 ## save, write `res://bake_result.json`, and quit. Every wait is counted in
 ## frames and bounded; a failure writes what it saw and quits all the same.
+##
+## THE EDITOR STAYS AWAKE, AND THE SCENE IS ASKED FOR UNTIL IT OPENS (0.178.5).
+## Cold run 9242's bake wrote `bake.tscn did not open` after 83.7 s, and a
+## re-run of it 371.8 s: an editor whose window has no focus sleeps 100 ms a
+## frame (Godot's unfocused low-processor mode), so 3,180 counted frames came to
+## minutes while the editor's first open -- which re-imports every texture it
+## finds used in 3D -- crawled at the same pace. The same plugin with the mode
+## held off, the open asked once the file scan is idle and again until it
+## lands, and the wait judged on a clock, opened 9242's scene in 21 s and baked
+## it. The bake's own wait (BAKE_LIMIT_MS) was always a clock.
 
 const SCENE := "res://bake.tscn"
 const OUT := "res://light_bake_result.json"
@@ -13,6 +23,9 @@ const BAKE_LIMIT_MS := 800000
 var _phase: int = 0
 var _frames: int = 0
 var _t0: int = 0
+## When the scene was first asked for, and how long it may take to open (0.178.5).
+var _open_t0: int = 0
+const OPEN_LIMIT_MS := 300000
 var _lm: LightmapGI = null
 ## A bake and a save each show a progress bar that pumps the editor's main
 ## loop, which calls `_process` again from inside them; the control run's
@@ -29,6 +42,9 @@ var _fill_count: int = -1
 
 
 func _enter_tree() -> void:
+	# An unfocused editor sleeps between frames; a bake on someone's desktop
+	# rarely has the focus. Held off here and every frame (0.178.5).
+	OS.low_processor_usage_mode = false
 	set_process(true)
 
 
@@ -113,14 +129,17 @@ func _free_room_fill() -> void:
 
 
 func _process(_delta: float) -> void:
+	OS.low_processor_usage_mode = false
 	if _busy:
 		return
 	_frames += 1
 	match _phase:
 		0:
-			if _frames < 180:
+			if _frames < 180 or EditorInterface.get_resource_filesystem().is_scanning():
 				return
 			EditorInterface.open_scene_from_path(SCENE)
+			_open_t0 = Time.get_ticks_msec()
+			print("BAKE asked to open the scene at frame ", _frames)
 			_phase = 1
 			_frames = 0
 		1:
@@ -128,9 +147,17 @@ func _process(_delta: float) -> void:
 				return
 			var root := EditorInterface.get_edited_scene_root()
 			if root == null or root.scene_file_path != SCENE:
-				if _frames > 3000:
-					_done({"ok": false, "error": "bake.tscn did not open"})
+				# asked again until it lands: an open asked during the editor's
+				# first scan or re-import can be dropped
+				if _frames % 300 == 0 and not EditorInterface.get_resource_filesystem().is_scanning():
+					print("BAKE asked again at frame ", _frames)
+					EditorInterface.open_scene_from_path(SCENE)
+				var waited: int = Time.get_ticks_msec() - _open_t0
+				if waited > OPEN_LIMIT_MS:
+					_done({"ok": false, "error": "bake.tscn did not open",
+						"waited_ms": waited, "frames": _frames})
 				return
+			print("BAKE the scene opened after ", Time.get_ticks_msec() - _open_t0, " ms, frame ", _frames)
 			_lm = root.get_node_or_null("Lightmap") as LightmapGI
 			if _lm == null:
 				_done({"ok": false, "error": "no Lightmap node"})

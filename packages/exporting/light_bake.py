@@ -321,11 +321,22 @@ def _forward_plus(project_godot: Path) -> None:
     project_godot.write_text(text, encoding="utf-8", newline="\n")
 
 
-def _run(cmd, timeout):
+def _run(cmd, timeout, log_path=None):
     """Run, bounded; on the bound kill the process TREE (the console
-    launcher's engine is a grandchild). ``(returncode or None, seconds)``."""
+    launcher's engine is a grandchild). ``(returncode or None, seconds)``.
+
+    ``log_path`` keeps the process's output (0.178.5). Cold run 9242's bake
+    failed with this sending it to DEVNULL, and only a re-run that kept it
+    could say why."""
     t0 = time.time()
-    p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    out = open(log_path, "wb") if log_path else subprocess.DEVNULL
+    try:
+        p = subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT if log_path
+                             else subprocess.DEVNULL)
+    except Exception:
+        if log_path:
+            out.close()
+        raise
     try:
         p.wait(timeout=timeout)
         return p.returncode, time.time() - t0
@@ -335,6 +346,9 @@ def _run(cmd, timeout):
         else:
             p.kill()
         return None, time.time() - t0
+    finally:
+        if log_path:
+            out.close()
 
 
 def _import(export_dir: Path, godot) -> bool:
@@ -380,9 +394,13 @@ def bake(export_dir, godot_executable, *, log=print, spawned=()) -> dict:
             '[plugin]\n\nname="lf_light_bake"\ndescription="Bakes bake.tscn and quits."\n'
             'author="level_factory"\nversion="1"\nscript="light_bake_plugin.gd"\n',
             encoding="utf-8", newline="\n")
+        # the editor's output, kept beside the package (0.178.5), never inside it
+        editor_log = export_dir.parent / (export_dir.name + ".lightbake.log")
         code, took = _run([str(godot_executable), "--editor", "--path", str(work),
-                           "--resolution", "1280x720"], EDITOR_TIMEOUT_S)
+                           "--resolution", "1280x720"], EDITOR_TIMEOUT_S,
+                          log_path=editor_log)
         report["editor_s"] = round(took, 1)
+        report["editor_log"] = str(editor_log)
         result_p = work / RESULT
         result = json.loads(result_p.read_text(encoding="utf-8")) if result_p.exists() else None
         report["result"] = result

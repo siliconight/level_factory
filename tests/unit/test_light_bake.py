@@ -3,6 +3,8 @@ that fails ships the package unbaked."""
 from __future__ import annotations
 
 import json
+import os
+import sys
 from pathlib import Path
 
 from packages.exporting import light_bake as LB
@@ -139,7 +141,7 @@ def test_a_bake_that_fails_ships_the_package_unbaked(tmp_path, monkeypatch):
     pres = (pkg / "presentation" / "lux.applied.tscn").read_bytes()
     entry = (pkg / "mission.tscn").read_bytes()
     monkeypatch.setattr(LB, "_import", lambda d, g: True)
-    monkeypatch.setattr(LB, "_run", lambda cmd, timeout: (None, float(timeout)))
+    monkeypatch.setattr(LB, "_run", lambda cmd, timeout, log_path=None: (None, float(timeout)))
     r = LB.bake(pkg, "godot.exe", log=lambda *a: None)
     assert r["ok"] is False and "did not finish" in r["reason"]
     assert (pkg / "presentation" / "lux.applied.tscn").read_bytes() == pres
@@ -152,7 +154,7 @@ def test_a_bake_that_works_ships_the_lightmap_and_points_the_entry_at_it(tmp_pat
     pkg = _package(tmp_path)
     monkeypatch.setattr(LB, "_import", lambda d, g: True)
 
-    def fake_editor(cmd, timeout):
+    def fake_editor(cmd, timeout, log_path=None):
         work = Path(cmd[cmd.index("--path") + 1])
         assert 'renderer/rendering_method="forward_plus"' in (work / "project.godot").read_text(encoding="utf-8")
         assert (work / LB.PLUGIN_DIR / "light_bake_plugin.gd").exists()
@@ -245,7 +247,7 @@ def test_a_bake_reports_its_room_fills(tmp_path, monkeypatch):
     pkg = _package(tmp_path)
     monkeypatch.setattr(LB, "_import", lambda d, g: True)
 
-    def fake_editor(cmd, timeout):
+    def fake_editor(cmd, timeout, log_path=None):
         work = Path(cmd[cmd.index("--path") + 1])
         (work / LB.RESULT).write_text(json.dumps({"ok": True, "users": 12, "room_fills": 30}), encoding="utf-8")
         (work / "bake.tscn").write_text("[gd_scene format=3]\n", encoding="utf-8")
@@ -309,3 +311,35 @@ def test_an_obj_sidecar_without_the_line_is_said_not_guessed(tmp_path):
     (tmp_path / "odd.obj.import").write_text("[remap]\nimporter=\"wavefront_obj\"\n", encoding="utf-8")
     got = LB.mark_imports(tmp_path)
     assert got["baked"] == [] and got["unreadable"] == ["odd.obj"]
+
+
+def test_the_editor_stays_awake_and_the_scene_is_asked_for_until_it_opens():
+    """0.178.5, cold run 9242: `bake.tscn did not open` after 83.7 s, and 371.8 s on a re-run.
+    An unfocused editor sleeps between frames, and the open was asked once and waited on in
+    frames. The same plugin with these three changes opened 9242's scene in 21 s and baked it."""
+    src = LB.PLUGIN_SCRIPT.read_text(encoding="utf-8")
+    assert src.count("OS.low_processor_usage_mode = false") == 2, "held off at start and every frame"
+    assert "_frames > 3000" not in src, "the open's wait is a clock, not a frame count"
+    assert "if waited > OPEN_LIMIT_MS:" in src
+    assert src.count("EditorInterface.open_scene_from_path(SCENE)") == 2, "asked, then asked again"
+    assert src.count("get_resource_filesystem().is_scanning()") == 2
+
+
+def test_the_editor_s_output_is_kept_beside_the_package(tmp_path, monkeypatch):
+    """0.178.5: 9242's bake sent the editor's output to DEVNULL, so the failure said nothing."""
+    log = tmp_path / "out.log"
+    code, _took = LB._run([sys.executable, "-c", "print('BAKE hello from the editor')"], 60, log_path=log)
+    assert code == 0
+    assert "BAKE hello from the editor" in log.read_text(encoding="utf-8", errors="replace")
+    pkg = _package(tmp_path)
+    monkeypatch.setattr(LB, "_import", lambda d, g: True)
+    seen = {}
+
+    def fake_editor(cmd, timeout, log_path=None):
+        seen["log"] = log_path
+        return None, float(timeout)
+    monkeypatch.setattr(LB, "_run", fake_editor)
+    r = LB.bake(pkg, "godot.exe", log=lambda *a: None)
+    assert seen["log"] == tmp_path / "LF_t.portable-godot.lightbake.log"
+    assert r["editor_log"] == str(seen["log"])
+    assert not str(seen["log"]).startswith(str(pkg) + os.sep), "the log is not shipped"
