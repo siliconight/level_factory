@@ -15,8 +15,9 @@ mode), and a bake opens its window on somebody's desktop while they work,
 so 3,180 frames came to minutes while the first open's re-import crawled at
 the same pace. The same plugin with the three changes below opened 9242's
 scene in 21 s and baked it in 49.4 s: 213 steady rigs, 215 room fills and
-3,483 lightmap users -- 9241's 3,518 less the 35 meshes Zoo 1.100.0 merges
-away. The three were tried together; which of them would have been enough
+3,483 lightmap users, where 9241's pipeline bake read 3,518; the copy baked
+the responders' car, which a pipeline bake keeps dynamic, so the difference
+is left to cold run 9243 to measure. The three were tried together; which of them would have been enough
 alone was not isolated.
 
 - **The editor stays awake:** `OS.low_processor_usage_mode = false` at
