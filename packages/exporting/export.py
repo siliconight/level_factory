@@ -1997,16 +1997,12 @@ def export_mission(
         _bake_lights(export_dir, godot_executable,
                      spawned=responder_vehicle_scenes(themed_site_dir))
 
-    # Settle the flag against what shipped, then drop the cache the bake
-    # needed -- before `build_resource_manifest` walks the tree, so the
-    # manifest cannot list a cache entry and the package stays cache-free.
+    # Settle the flag against what shipped. The cache the bake needed stays
+    # until the greybox census has read it, below (0.181.0).
     proj = export_dir / "project.godot"
     proj.write_text(
         set_occlusion_culling(proj.read_text(encoding="utf-8"),
                               occluder_count), encoding="utf-8")
-    if drop_cache(export_dir):
-        print("[export] import cache removed; the package ships sidecars, "
-              "not %s" % ".godot")
 
     # The backstop, read back off the files that are about to be zipped rather
     # than off the counts above. A check written against what the code
@@ -2166,6 +2162,19 @@ def export_mission(
     else:
         print("[export] greybox skin: no Godot in this build, so the census "
               "was not taken and nothing is certified about it")
+
+    # THE CACHE GOES HERE, AFTER THE CENSUS (0.181.0, factory roadmap 239), and
+    # before the closure verdict and `build_resource_manifest` walk the tree,
+    # so neither can meet a cache entry and the package stays cache-free. It
+    # was dropped straight after the bake, and the census then imported the
+    # whole package again to read it: 100.4 of a 430.7 s export, profiled on
+    # cold run 9248's -- the fifth import of the same files in one export.
+    # Nothing between the bake and this line reads the cache's file types
+    # (`.scn`, `.mesh`, `.md5`, `.cfg`): the occlusion audit and the handoff
+    # walk read `*.tscn`, the GLB scan `*.glb`, the rest JSON.
+    if drop_cache(export_dir):
+        print("[export] import cache removed; the package ships sidecars, "
+              "not %s" % ".godot")
 
     # 4.9 Resource-closure VERDICT -- see `_closure_verdict`. LAST, after
     # every step that writes into the package and before the manifests, which

@@ -108,10 +108,11 @@ def measure(export_dir, godot_executable, *, script: Path = CENSUS_SCRIPT,
     if not Path(script).is_file():
         raise GreyboxCensusError(f"census script missing: {script}")
     # LEAVE THE PACKAGE AS THIS FOUND IT, and the cost of not doing so is
-    # why this comment is long. Taking the census needs an import cache; the
-    # exporter has ALREADY removed one by this point ("import cache removed;
-    # the package ships sidecars, not .godot") and the closure verdict three
-    # steps below scans every file in the package. Cold run 9071's export died
+    # why this comment is long. Taking the census needs an import cache. The
+    # exporter keeps the bake's until this has run (0.181.0), so in an export
+    # this finds one and imports nothing; called on a package without one it
+    # imports, and then it must remove what it made, because the closure
+    # verdict below it scans every file in the package. Cold run 9071's export died
     # exit 5 -- EXPORT_CLOSURE_BROKEN on `.godot/editor/project_metadata.cfg`
     # holding an absolute path to the Godot binary -- because the first
     # version of this module re-imported and walked away. The package shipped
