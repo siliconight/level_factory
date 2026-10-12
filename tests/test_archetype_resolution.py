@@ -108,7 +108,9 @@ def test_unresolvable_archetypes_still_hash_DISTINCTLY():
 # building the right one, because nothing looked.
 # ---------------------------------------------------------------------------
 
+import functools
 import json
+import os
 
 #: The tree the corpus lives in: `level_factory/examples`, the recorded cold
 #: runs and `workspaces/`. `parents[2]` named it from a checkout and named
@@ -150,6 +152,40 @@ _KNOWN_UNRESOLVABLE = {
 _SKIP_DIRS = {"_runs", "build", "node_modules", ".git"}
 
 
+def _keep(path):
+    """The corpus predicate, asked of a whole path: a brief is `brief.json` or
+    any JSON in a `briefs` directory, and nothing under `_SKIP_DIRS` is one."""
+    if _SKIP_DIRS & set(path.parts):
+        return False
+    return path.name == "brief.json" or path.parent.name == "briefs"
+
+
+def _corpus_walk(root):
+    """Every path `root.rglob("*.json")` yields that `_keep` keeps -- found
+    without entering a directory in `_SKIP_DIRS`.
+
+    THE SAME LIST, BY CONSTRUCTION. A path below a skipped directory carries
+    that directory's name in its parts, so `_keep` refuses it whether or not
+    the walk went in. `os.walk` neither follows a link into a directory nor
+    stops at one it cannot read, as `rglob` does not; `normcase` gives the
+    extension the platform's case rule, as `rglob`'s match does; and a
+    directory whose name matches is a match, as it is to `rglob`. On the
+    factory (docs/findings/lf_suite_time/, 2026-10-12): 487 briefs both ways,
+    in the same order, 29.95 s against 18.85 s warm -- the skipped directories
+    held 384,372 of the tree's 1,524,870 entries.
+    """
+    out = []
+    for d, dirs, files in os.walk(root):
+        dirs[:] = [x for x in dirs if x not in _SKIP_DIRS]
+        for name in dirs + files:
+            if os.path.normcase(name).endswith(".json"):
+                p = Path(d, name)
+                if _keep(p):
+                    out.append(p)
+    return sorted(out)
+
+
+@functools.lru_cache(maxsize=None)
 def _brief_paths():
     """Every brief in the repo: examples, recorded cold runs, workspaces.
 
@@ -158,18 +194,18 @@ def _brief_paths():
     entirely -- it found 19 of 21 briefs and reported the corpus clean of a
     defect that was sitting in one of the 2. A walk cannot miss a directory
     shape nobody thought of.
+
+    ONCE A SESSION (0.193.2). The three tests below each walked the whole
+    factory: 58.3, 30.4 and 30.1 s of a 443.1 s suite (0.193.1's own run), for
+    487 briefs in a tree of 1.5 million entries that grows with every cold
+    run. The list is read once and shared, as a tuple, so no test can change
+    what the next one reads.
     """
     assert _ROOT is not None, (
         "the factory root is not above %s -- set LF_DC_ROOT. A corpus sweep "
         "with no corpus passes and proves nothing."
         % Path(__file__).resolve().parent)
-    out = []
-    for path in _ROOT.rglob("*.json"):
-        if _SKIP_DIRS & set(path.parts):
-            continue
-        if path.name == "brief.json" or path.parent.name == "briefs":
-            out.append(path)
-    return sorted(out)
+    return tuple(_corpus_walk(_ROOT))
 
 
 def _archetype(path):
@@ -220,3 +256,79 @@ def test_the_known_offenders_are_still_there():
             seen.add(a)
     assert seen == set(_KNOWN_UNRESOLVABLE), (
         "recorded %s, found %s" % (sorted(_KNOWN_UNRESOLVABLE), sorted(seen)))
+
+
+# ---- the walk ----------------------------------------------------------------
+#
+# 0.193.2 walks the corpus once a session and never into a directory it
+# discards. These hold it to what `rglob` found, to not looking where the
+# predicate would refuse anyway, and to walking once.
+
+
+def _tree(root):
+    """A small factory: briefs where the corpus keeps them, a brief under each
+    skipped directory, a `briefs` directory under one, JSON that is not a
+    brief, and a directory named like one in a `briefs` directory."""
+    for rel in ("level_factory/examples/a/brief.json",
+                "docs/cold_runs/cold_1/briefs/mission_one.json",
+                "docs/cold_runs/cold_1/briefs/notes.txt",
+                "workspaces/w-ws/briefs/m.json",
+                "workspaces/w-ws/missions/m/brief.json",
+                "workspaces/w-ws/missions/m/other.json",
+                "_runs/x/brief.json",
+                "_runs/briefs/y.json",
+                "deli_counter/build/briefs/z.json",
+                "zoo/node_modules/p/brief.json",
+                ".git/briefs/q.json",
+                "lot/.git/objects/brief.json"):
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text('{"archetype": "bank"}', encoding="utf-8")
+    (root / "docs" / "briefs" / "folder.json").mkdir(parents=True)
+    return root
+
+
+def test_the_walk_finds_what_rglob_found(tmp_path):
+    root = _tree(tmp_path / "factory")
+    got = _corpus_walk(root)
+    assert got == sorted(p for p in root.rglob("*.json") if _keep(p))
+    assert [p.relative_to(root).as_posix() for p in got] == [
+        "docs/briefs/folder.json",
+        "docs/cold_runs/cold_1/briefs/mission_one.json",
+        "level_factory/examples/a/brief.json",
+        "workspaces/w-ws/briefs/m.json",
+        "workspaces/w-ws/missions/m/brief.json",
+    ]
+
+
+def test_the_walk_never_enters_a_directory_it_discards(tmp_path, monkeypatch):
+    root = _tree(tmp_path / "factory")
+    real = os.scandir
+    listed = []
+
+    def spy(path=".", *args, **kwargs):
+        listed.append(Path(os.fspath(path)))
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "scandir", spy)
+    _corpus_walk(root)
+    assert root in listed, "the walk listed nothing, so this test proves nothing"
+    entered = [p for p in listed if _SKIP_DIRS & set(p.relative_to(root).parts)]
+    assert not entered, entered
+
+
+def test_the_corpus_is_walked_once_a_session(monkeypatch):
+    walks = []
+
+    def counting(root):
+        walks.append(root)
+        return [Path("briefs", "a.json")]
+
+    monkeypatch.setitem(globals(), "_corpus_walk", counting)
+    _brief_paths.cache_clear()
+    try:
+        first, second = _brief_paths(), _brief_paths()
+    finally:
+        _brief_paths.cache_clear()
+    assert walks == [_ROOT]
+    assert first is second and isinstance(first, tuple)
