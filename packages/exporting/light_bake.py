@@ -356,6 +356,34 @@ def _run(cmd, timeout, log_path=None):
             out.close()
 
 
+def _copy_lightmap_import(work: Path, export_dir: Path) -> list:
+    """THE EDITOR'S IMPORT OF THE LIGHTMAP, KEPT (0.183.0, factory roadmap 239).
+
+    The editor that bakes imports what it baked: `bake.exr`, a 1024 x 1024
+    texture array of 16 slices, VRAM-compressed (BPTC) as its sidecar says.
+    The package then imported the same bytes again, and measured on cold run
+    9248's export that second `--import` imported that one file and nothing
+    else, in 49.5 s. This copies the work copy's cache entries for it into the
+    package's cache beside the sidecar `BAKE_FILES` already copies, so the
+    import after finds them current: an entry is named for the file's
+    `res://` path and checked against its source's hash and its parameters,
+    all three the same files in both projects. Returns the names copied;
+    none when either cache is missing, and the import after does the work
+    as it always did."""
+    src = Path(work) / ".godot" / "imported"
+    dst = Path(export_dir) / ".godot" / "imported"
+    if not src.is_dir() or not dst.is_dir():
+        return []
+    copied = []
+    for name in BAKE_FILES:
+        if not name.endswith(".exr"):
+            continue
+        for p in sorted(src.glob(name + "-*")):
+            shutil.copy2(p, dst / p.name)
+            copied.append(p.name)
+    return copied
+
+
 def _import(export_dir: Path, godot) -> bool:
     try:
         subprocess.run([str(godot), "--headless", "--path", str(export_dir), "--import"],
@@ -429,6 +457,8 @@ def bake(export_dir, godot_executable, *, log=print, spawned=()) -> dict:
             if not src.exists():
                 raise RuntimeError(f"the bake wrote no {f}")
             shutil.copy(src, export_dir / f)
+        # the editor's import of the lightmap, kept rather than done again (0.183.0)
+        report["lightmap_import_copied"] = _copy_lightmap_import(work, export_dir)
         report["uids_stripped"] = strip_uids(export_dir / BAKE_SCENE)
         if not retarget_entry(export_dir, BAKE_SCENE):
             raise RuntimeError("mission.tscn does not instance the presentation scene")
