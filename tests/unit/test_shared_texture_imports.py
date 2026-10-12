@@ -131,18 +131,18 @@ def test_a_sidecar_missing_a_key_is_not_given_one(tmp_path):
     assert "compress/mode=0" in text
 
 
-def test_the_extract_cleanup_spares_the_shared_textures():
-    """The cleanup loop must skip `_tex/` by name, not by luck.
+def test_the_sidecar_step_deletes_no_texture():
+    """No pass extracts, so nothing is cleaned up (0.189.0).
 
-    Those PNGs already survived because their folder holds no `.glb` to match
-    the loop's test. A later change that moved the textures next to the GLB,
-    or widened the glob, would have deleted a module's textures with no test
-    to notice.
+    This held the step's cleanup loop -- what extract wrote beside each GLB,
+    deleted before the second pass -- to sparing `_tex/` by name, not by
+    luck. Every model now imports with its images embedded from its first
+    import, so there is no extract and no loop, and a texture the sidecar
+    step deleted would be a texture the package lost.
     """
     import inspect
     src = inspect.getsource(export._write_import_sidecars)
-    cleanup = src.split("Drop what EXTRACT wrote", 1)[1].split("_import_pass")[0]
-    assert "SHARED_TEX_DIR" in cleanup
+    assert 'rglob("*.png")' not in src and "png.unlink" not in src
 
 
 def test_the_folder_name_agrees_with_zoo():

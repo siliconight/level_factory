@@ -120,28 +120,39 @@ class _Godot:
 
 
 def test_a_pass_that_imports_no_model_is_run_again(tmp_path, monkeypatch):
-    """FAILS ON 0.163.0: one pass, nothing checked, 425 models unimported."""
+    """FAILS ON 0.163.0: one pass, nothing checked, 425 models unimported.
+
+    0.189.0: the first pass holds every model, so the models' first pass is
+    the second call -- `short=2` makes it the one that imports nothing -- and
+    the base (`site_base.glb`) is imported by the pass after it.
+    """
     from packages.exporting import export
     pkg = _package(tmp_path)
-    godot = _Godot(short=1)
+    godot = _Godot(short=2)
     monkeypatch.setattr(subprocess, "run", godot)
     export._write_import_sidecars(pkg, "godot.exe")
-    assert godot.calls == 2
+    assert godot.calls == 4
     assert unimported_models(pkg) == []
     log = (pkg.parent / (pkg.name + ".import.log")).read_text(encoding="utf-8")
-    assert "import pass 1" in log and "import pass 2" in log, log
+    assert "import pass 2" in log and "import pass 3" in log and "import pass 4" in log, log
 
 
 def test_an_import_that_never_completes_stops_the_export(tmp_path, monkeypatch):
-    """FAILS ON 0.163.0, which returned and let the occluder bake measure 0."""
+    """FAILS ON 0.163.0, which returned and let the occluder bake measure 0.
+
+    0.189.0: the models' first pass is the one that never completes (the
+    first holds every model), and the base held for the pass after it is put
+    back.
+    """
     from packages.exporting import export
     pkg = _package(tmp_path)
     godot = _Godot(short=99)
     monkeypatch.setattr(subprocess, "run", godot)
     with pytest.raises(export.ExportImportError) as exc:
         export._write_import_sidecars(pkg, "godot.exe")
-    assert godot.calls == export.IMPORT_PASSES
-    assert "2 of 2 model(s)" in str(exc.value)
+    assert godot.calls == 1 + export.IMPORT_PASSES
+    assert "1 of 1 model(s)" in str(exc.value)
+    assert (pkg / "lot" / "b" / "site_base.glb").exists() and not list(pkg.rglob("*.held"))
 
 
 def test_no_godot_is_still_a_setup_problem_not_an_export_failure(tmp_path):

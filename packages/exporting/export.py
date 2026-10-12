@@ -494,7 +494,7 @@ def _filtered_shared_textures(export_dir: Path) -> set:
     return filtered - other
 
 
-def _pin_shared_texture_imports(export_dir: Path) -> int:
+def _pin_shared_texture_imports(export_dir: Path, filtered=None) -> int:
     """Pin `SHARED_TEX_PINS` on the shared textures' sidecars.
 
     Returns how many files were changed, so the caller's second import pass
@@ -510,7 +510,8 @@ def _pin_shared_texture_imports(export_dir: Path) -> int:
     (0.128.0, `_filtered_shared_textures`).
     """
     changed = 0
-    filtered = _filtered_shared_textures(export_dir)
+    if filtered is None:   # 0.189.0: the sidecar step reads it before it holds the models
+        filtered = _filtered_shared_textures(export_dir)
     for sidecar in export_dir.rglob("*.png.import"):
         if sidecar.parent.name != SHARED_TEX_DIR:
             continue
@@ -658,6 +659,82 @@ def _pin_sign_texture_imports(export_dir: Path) -> int:
     return changed
 
 
+#: Where a model waits while an import pass runs without it (0.189.0): an
+#: extension Godot does not import, beside the model it holds.
+HELD_SUFFIX = ".held"
+#: The worldskin's bases (`zoo_worldskin.gd`'s `BASE_PREFIX`): a base skins
+#: its slabs, stairs and ladders from sibling modules it `load()`s, so it is
+#: imported after every other model (0.189.0).
+WORLDSKIN_BASE_PREFIX = "site_base"
+#: `meshes/light_baking` Static: what a model whose own second UV set is
+#: shader data has always shipped with, written for it now that the models'
+#: defaults are Static Lightmaps when the export bakes (0.189.0).
+MODEL_STATIC = 1
+_SCENE_SIDECAR_HEAD = ('[remap]\n\nimporter="scene"\nimporter_version=1\n'
+                       'type="PackedScene"\n\n')
+
+
+def _model_import_defaults(text: str, lightmaps: bool) -> str:
+    """`project.godot`'s text with the models' final settings as its
+    `[importer_defaults] scene` (0.189.0): images embedded uncompressed, and
+    Static Lightmaps when the export bakes. Merged into the block the
+    worldskin's declaration starts, or a new one."""
+    from packages.exporting.light_bake import STATIC_LIGHTMAPS
+    keys = {"gltf/embedded_image_handling": 3}
+    if lightmaps:
+        keys["meshes/light_baking"] = STATIC_LIGHTMAPS
+    lines = ",\n".join('"%s": %s' % (k, v) for k, v in keys.items())
+    section, head = "[importer_defaults]\n", "scene={\n"
+    if section in text and head in text[text.index(section):]:
+        i = text.index(head, text.index(section)) + len(head)
+        j = text.index("}", i)
+        body = text[i:j].rstrip("\n")
+        return (text[:i] + (body + ",\n" if body.strip() else "") + lines + "\n"
+                + text[j:])
+    if section in text:
+        k = text.index(section) + len(section)
+        return text[:k] + "\n" + head + lines + "\n}\n" + text[k:]
+    return text.rstrip("\n") + "\n\n" + section + "\n" + head + lines + "\n}\n"
+
+
+def _own_light_baking_sidecars(models, late, own) -> int:
+    """Write the light baking of every model whose light baking is its own
+    (0.189.0). One held to the last pass gets a WHOLE sidecar -- every
+    `[params]` line of a model the second pass imported, its light baking
+    set -- because a sidecar written by hand is not a new import: the
+    project's defaults reach only a file with no sidecar, and a key the
+    sidecar lacks takes the value an import from before the key existed would
+    have had (`gltf/texture_map_mode=0`, measured, where every new import
+    reads 1). One the second pass imported, there being no other model to
+    copy, has its own sidecar's line set and is imported again. Returns how
+    many it wrote."""
+    donor = next((p for p in models if p not in late and p not in own), None)
+    params = None
+    if donor is not None:
+        text = Path(str(donor) + ".import").read_text(encoding="utf-8")
+        if "[params]" in text and "meshes/light_baking=" in text:
+            params = text[text.index("[params]"):]
+    written = 0
+    for p, value in own.items():
+        side = Path(str(p) + ".import")
+        line = "meshes/light_baking=%d" % value
+        if p in late:
+            if params is None:
+                raise ExportImportError(
+                    "no imported model's sidecar to copy for %s, whose light "
+                    "baking is its own" % p.name)
+            text = _SCENE_SIDECAR_HEAD + re.sub(
+                r"^meshes/light_baking=\d+$", line, params, flags=re.M)
+        elif side.is_file():
+            text = re.sub(r"^meshes/light_baking=\d+$", line,
+                          side.read_text(encoding="utf-8"), flags=re.M)
+        else:
+            continue
+        side.write_text(text, encoding="utf-8", newline="\n")
+        written += 1
+    return written
+
+
 def _write_import_sidecars(export_dir: Path, godot_executable, *,
                            bake_spawned=None) -> int:
     """Run one import pass and keep the `.import` sidecars, not the cache.
@@ -776,6 +853,15 @@ def _write_import_sidecars(export_dir: Path, godot_executable, *,
     output go to `<package>.import.log` beside the package -- not in it,
     where the resource manifest would have to account for it -- and a pass
     that never completes raises `ExportImportError`.
+
+    THREE PASSES OVER THREE SETS, EVERY MODEL IMPORTED ONCE (0.189.0). What
+    the two passes above did by rewriting sidecars and importing again, a
+    model's first import now does with its final settings: the textures go
+    first (a model imported before them embeds a copy of each), the worldskin
+    bases last (they `load()` a sibling module), and a model whose light
+    baking is its own goes last from a whole sidecar. The comment at the
+    passes says what each of those cost when it was got wrong. Mode 3 and
+    the shared textures' pins above still say why those settings are these.
     """
     if not godot_executable:
         return 0
@@ -826,70 +912,87 @@ def _write_import_sidecars(export_dir: Path, godot_executable, *,
             % (len(left), len(package_models(export_dir)), IMPORT_PASSES,
                left[0], log_path))
 
-    _import_pass_verified()
-
-    KEY = "gltf/embedded_image_handling"
-    rewrote = 0
-    for sidecar in export_dir.rglob("*.glb.import"):
-        try:
-            text = sidecar.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        if KEY not in text or f"{KEY}=3" in text:
-            continue
-        sidecar.write_text("\n".join(
-            f"{KEY}=3" if ln.startswith(KEY) else ln
-            for ln in text.splitlines()) + "\n", encoding="utf-8")
-        rewrote += 1
-
-    rewrote += _pin_shared_texture_imports(export_dir)
-    rewrote += _pin_sign_texture_imports(export_dir)
-
-    # THE LIGHT BAKE'S MARKS RIDE THE SECOND PASS (0.187.0). The bake asks
-    # every model for a lightmap UV (`light_bake.mark_imports`) and used to
-    # import the package again for it: every model's third import, 55.0 s of
-    # a 277.6 s re-export of cold run 9252, the shared textures re-imported
-    # with them (1,843 times for 476 models in 9248's), and the pass that
-    # loses their pins (`_repin_after_imports`). Marked here, before a pass
-    # that imports everything anyway, the bake's import finds nothing left
-    # to do: 5.0 s, the export 238.4 s, no pin lost where the control lost 74.
+    # THREE PASSES OVER THREE SETS, EVERY MODEL IMPORTED ONCE (0.189.0).
+    # The step imported the package twice: a first pass with Godot's
+    # defaults, then -- embedded images, the pins and the bake's marks
+    # (0.187.0) written into the sidecars, what extract wrote deleted, the
+    # cache wiped -- every file again: 86 s of a 238 s re-export of cold run
+    # 9254. With its final settings asked for up front, a model's first
+    # import is its only one, and a first import has hazards, each measured
+    # by re-exporting 9254 against itself and digesting every model as Godot
+    # loads it (the factory's docs/findings/grader_speed/sidecar_once_probe.py
+    # and import_digest.gd):
     #
-    # NOT BEFORE THE FIRST PASS, which is the refuted plan (the factory's
-    # `patches/patch_lf_import_once.py`). The worldskin skins a building's
-    # slabs by `load()`ing one of its floor modules, and on a model's first
-    # import that module may not be imported yet: cold run 9251's import
-    # log, pass one left 105 slab meshes greybox and took two reveals from
-    # roof modules; pass two, its sidecars present, skinned every slab from
-    # a floor module. This pass is not a first import.
+    #   * a model imported before the shared textures it names embeds a copy
+    #     of each instead of naming the file -- 1,463 surfaces in 461 models,
+    #     and every gate passed -- so the textures go first, every model held;
+    #   * a worldskin base skins its slabs from a sibling module it `load()`s
+    #     (`WORLDSKIN_BASE_PREFIX`), which a first import cannot promise is
+    #     there -- 105 slab meshes greybox -- so the bases go last;
+    #   * a model imported twice, its textures already imported, is the race
+    #     0.182.0 backstops -- re-importing six models to set their light
+    #     baking back reset two textures' pins and embedded a copy in three --
+    #     so a model whose light baking is its own is held with the bases and
+    #     imported once, from a whole sidecar (`_own_light_baking_sidecars`);
+    #   * the filtered-texture set is read off the models' glTF, and read
+    #     while they were held it was empty: 26 textures went lossless until
+    #     the read-back after the last import. It is read before.
     #
-    # WHAT IT CHANGES (the factory's
-    # `docs/findings/grader_speed/uv_second_pass_probe.py`): the Empties'
-    # merge sees models carrying their lightmap UV and makes one mesh a side
-    # per material, as it was written to -- 236 merged meshes became 148 for
-    # the same 1,061 meshes in, the bake's users 3,491 -> 3,320 (every one of
-    # the 171 a merged mesh of an Empty), the lightmap 16 slices -> 15. The
-    # greybox census, the occluders and the closure verdict identical.
-    if bake_spawned is not None:
-        from packages.exporting.light_bake import mark_imports
-        marks = mark_imports(export_dir, bake_spawned)
-        rewrote += len(marks["baked"]) + len(marks["spawned"])
-
-    if rewrote:
-        # Drop what EXTRACT wrote, so the second pass is measured clean. Only
-        # textures beside a GLB -- the package's own PNGs (Lux's film grain,
-        # the validation overlays) are content and are never touched, and
-        # neither is `_tex/`, which is the module's own texture rather than a
-        # second copy of one. It survived this loop by accident already, its
-        # directory holding no `.glb` to match; an accident is not a rule.
-        for png in list(export_dir.rglob("*.png")):
-            if png.parent.name == SHARED_TEX_DIR:
-                continue
-            if not list(png.parent.glob("*.glb")):
-                continue
-            png.unlink(missing_ok=True)
-            Path(str(png) + ".import").unlink(missing_ok=True)
-        _shutil.rmtree(export_dir / ".godot", ignore_errors=True)
-        _import_pass_verified()
+    # Measured against the export as it was: the sidecar step 86.1 -> 62.2 s,
+    # the export 238.1 -> 214.8 s; every model loading the same (501 of 501),
+    # every gate the same, no pin lost, and the two packages differing only
+    # where two exports of the same code always do.
+    from packages.exporting.light_bake import DYNAMIC, glb_has_uv2, mark_imports
+    lightmaps = bake_spawned is not None
+    models = [p for p in sorted(export_dir.rglob("*.glb")) if ".godot" not in p.parts]
+    own = {}
+    if lightmaps:
+        spawned = set(bake_spawned)
+        for p in models:
+            if p.relative_to(export_dir).as_posix() in spawned:
+                own[p] = DYNAMIC
+            elif glb_has_uv2(p):
+                own[p] = MODEL_STATIC
+    late = {p for p in models if p.name.startswith(WORLDSKIN_BASE_PREFIX)}
+    if any(p not in late and p not in own for p in models):
+        late |= set(own)   # a model the second pass imports, to copy a whole sidecar from
+    filtered = _filtered_shared_textures(export_dir)   # off the models, while they are here
+    proj = export_dir / "project.godot"
+    kept_project = proj.read_bytes() if proj.is_file() else None
+    held = {}
+    try:
+        project_text = (kept_project or b"").decode("utf-8")
+        p_eol = "\r\n" if "\r\n" in project_text else "\n"
+        proj.write_bytes(_model_import_defaults(
+            project_text.replace("\r\n", "\n"), lightmaps
+        ).replace("\n", p_eol).encode("utf-8"))
+        for p in models:
+            q = p.with_name(p.name + HELD_SUFFIX)
+            p.rename(q)
+            held[p] = q
+        _import_pass_verified()      # 1: the textures, and everything not a model
+        _pin_shared_texture_imports(export_dir, filtered)
+        _pin_sign_texture_imports(export_dir)
+        for p in models:
+            if p not in late:
+                held.pop(p).rename(p)
+        _import_pass_verified()      # 2: every model but the late ones
+        for p in models:
+            if p in held:
+                held.pop(p).rename(p)
+        _own_light_baking_sidecars(models, late, own)
+        if lightmaps:
+            # the paint's meshes: every model already carries its light baking
+            mark_imports(export_dir, bake_spawned)
+        _import_pass_verified()      # 3: the bases, and the models with a light baking of their own
+    finally:
+        for p, q in held.items():
+            if q.exists():
+                q.rename(p)
+        if kept_project is None:
+            proj.unlink(missing_ok=True)
+        else:
+            proj.write_bytes(kept_project)
 
     # THE CACHE IS LEFT IN PLACE, and this is the fix for cold run 9065.
     # It used to be removed here -- one line before the occluder bake, which

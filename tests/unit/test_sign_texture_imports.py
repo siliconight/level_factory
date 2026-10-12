@@ -121,6 +121,8 @@ def test_a_manifest_that_cannot_be_read_pins_nothing(tmp_path):
 
 def test_the_export_pins_signs_where_it_pins_the_shared_textures():
     src = (ROOT / "packages" / "exporting" / "export.py").read_text(encoding="utf-8")
-    shared = src.index("    rewrote += _pin_shared_texture_imports(export_dir)\n")
-    signs = src.index("    rewrote += _pin_sign_texture_imports(export_dir)\n")
+    # 0.189.0 pins between the first and second import passes, the filtered
+    # set read before the models were held; the two calls stay side by side.
+    shared = src.index("        _pin_shared_texture_imports(export_dir, filtered)\n")
+    signs = src.index("        _pin_sign_texture_imports(export_dir)\n")
     assert 0 < signs - shared < 80
