@@ -61,6 +61,11 @@ LOCK_SCHEMA = "level_factory.tools_lock.v0.1"
 # comes from, and a `contract` string is recorded where the tool publishes a
 # machine-readable one.
 #
+# RE-GROUNDED 2026-10-12 (0.193.1), ONE ROW: zoo 1.102.0 -> 1.103.0 (a mesh
+# leaves with its faces in one order, the same every build), ahead of the
+# install test that certifies factory 1.39.0. Licensed by the real-tool
+# smoke, which read exactly this row DRIFT before and all green after.
+#
 # RE-GROUNDED 2026-10-11 (0.180.1), ONE ROW: lot 0.116.0 -> 0.117.0 (the walk
 # test's navigation updates on its own thread and walktest.py runs it under
 # `--fixed-fps 60`). Licensed by the real-tool smoke, which read exactly this
@@ -195,7 +200,7 @@ GROUNDED: dict[str, dict] = {
                              "HISTORY by 2026-10-10: version.py now derives "
                              "__version__ from VERSION, its _FALLBACK pinned "
                              "to the file by a test, so the two agree"},
-    "zoo":          {"version": "1.102.0", "source": "VERSION",
+    "zoo":          {"version": "1.103.0", "source": "VERSION",
                      "note": "0.30.2 -> 1.1.1 crosses a major, which is why "
                              "this row was the one that finally shouted. The "
                              "0.94 fixtures-index change the adapter was "
