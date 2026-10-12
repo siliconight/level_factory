@@ -536,6 +536,68 @@ def _pin_shared_texture_imports(export_dir: Path) -> int:
     return changed
 
 
+def _shared_texture_pins_missing(export_dir: Path) -> list:
+    """Every `SHARED_TEX_DIR` sidecar not carrying its pins, as ``(path, key,
+    value found)`` with the first key that is off or absent -- what the
+    package would ship wrong. The cache is not the package and is skipped."""
+    filtered = _filtered_shared_textures(export_dir)
+    out = []
+    for sidecar in sorted(export_dir.rglob("*.png.import")):
+        if sidecar.parent.name != SHARED_TEX_DIR or ".godot" in sidecar.parts:
+            continue
+        pins = dict(SHARED_TEX_PINS)
+        if sidecar.with_name(sidecar.name[:-len(".import")]).resolve() in filtered:
+            pins.update(FILTERED_TEX_PINS)
+        have = {}
+        for ln in sidecar.read_text(encoding="utf-8").splitlines():
+            key, eq, value = ln.partition("=")
+            if eq:
+                have.setdefault(key, value)
+        for key, want in pins.items():
+            if have.get(key) != want:
+                out.append((sidecar.relative_to(export_dir).as_posix(), key, have.get(key)))
+                break
+    return out
+
+
+def _repin_after_imports(export_dir: Path) -> dict:
+    """THE PINS AGAIN, AFTER THE LAST IMPORT, AND READ BACK (0.182.0).
+
+    The pins are written once, between the sidecar step's two passes, and
+    every import after that runs over them. One of those undoes some:
+    measured (factory `docs/findings/texture_pins/`), the light bake's first
+    `--import` -- re-importing every model `mark_imports` moved to static
+    lightmaps -- imported the shared textures 1,843 times for 476 models, the
+    same file again and again with several in flight, and 62 to 86 of 415
+    sidecars came out with Godot's DEFAULTS, which ones varying between runs;
+    nothing before it moved one, nothing after it put one back. Cold run
+    9248 shipped 65 of them so. Pinning `detect_3d/compress_to=0` changed
+    nothing (62, and the same 1,843), so the cause is the engine's import of
+    a scene's textures and not a setting this owns. This is the backstop:
+    the shared and the sign pins applied again over the files that ship,
+    then every shared sidecar read back, and a package that still carries
+    a wrong or a missing pin REFUSED -- a key a sidecar does not carry is
+    not one this writes (`_pin_shared_texture_imports`' rule), so it fails
+    here rather than shipping on the engine's default.
+
+    The cache, gone by the time this runs, was built with the pins the race
+    left; the light bake read those few textures without their mip chain or
+    with the alpha border filled, and nothing it bakes depends on either.
+    ``{"shared_repinned", "sign_repinned", "shared_sidecars"}``."""
+    shared = _pin_shared_texture_imports(export_dir)
+    sign = _pin_sign_texture_imports(export_dir)
+    missing = _shared_texture_pins_missing(export_dir)
+    if missing:
+        raise ExportImportError(
+            "%d shared-texture sidecar(s) do not carry their import pins after "
+            "they were applied again; first: %s (%s=%s)"
+            % (len(missing), missing[0][0], missing[0][1], missing[0][2]))
+    total = sum(1 for s in export_dir.rglob("*.png.import")
+                if s.parent.name == SHARED_TEX_DIR and ".godot" not in s.parts)
+    return {"shared_repinned": shared, "sign_repinned": sign,
+            "shared_sidecars": total}
+
+
 #: The folder Lot copies a dealt business's sign maps into, beside its scene
 #: (Lot 0.69.0) -- and, since Lot 0.105.0, the pack's manifest with them.
 SIGNS_DIR = "signs"
@@ -2175,6 +2237,16 @@ def export_mission(
     if drop_cache(export_dir):
         print("[export] import cache removed; the package ships sidecars, "
               "not %s" % ".godot")
+
+    # THE IMPORT PINS, READ BACK OFF THE FILES THAT SHIP (0.182.0): after the
+    # last import and the cache, before the verdict and the manifest describe
+    # the package. `_repin_after_imports` says why it has to be here.
+    pins = _repin_after_imports(export_dir)
+    print("[export] import pins: %d of %d shared-texture sidecar(s) carry their "
+          "pins; %d re-pinned after an import reset them, %d sign sidecar(s) "
+          "re-pinned"
+          % (pins["shared_sidecars"], pins["shared_sidecars"],
+             pins["shared_repinned"], pins["sign_repinned"]))
 
     # 4.9 Resource-closure VERDICT -- see `_closure_verdict`. LAST, after
     # every step that writes into the package and before the manifests, which
