@@ -671,17 +671,10 @@ class Scheduler:
         self.index.upsert_job(job)
 
         result = None
-        for cmd in planned:
-            log_path = self.jobs_dir / job.job_id / str(job.attempt) / "job.log"
-            result = run_command(
-                cmd.argv(),
-                cwd=cmd.working_directory,
-                env={**cmd.environment, "DELI_OUT": str(work_dir),
-                     "LF_OUT": str(work_dir)},
-                log_path=log_path,
-                timeout_s=cmd.timeout_seconds,
-                cancel=cancel,
-            )
+        log_path = self.jobs_dir / job.job_id / str(job.attempt) / "job.log"
+        for result in self._run_commands(
+                planned, work_dir, log_path, cancel,
+                width=self.concurrency.get(job.resource_class, 1)):
             job.log_path = str(log_path)
             if result.cancelled:
                 return self._fail(job, "cancelled", "job cancelled", exit_code=result.exit_code)
@@ -753,6 +746,62 @@ class Scheduler:
         job.artifact_ids = [a.artifact_id for a in artifacts]
         self.index.upsert_job(job)
         return JobOutcome(job=job, issues=issues, artifacts=artifacts)
+
+    # ------------------------------------------------------------------
+    def _run_commands(self, planned, work_dir: Path, log_path: Path,
+                      cancel, *, width: int = 1):
+        """Each planned command's RunResult, in plan order (0.186.0).
+
+        A run of consecutive `PlannedCommand.parallel` commands goes side by
+        side, up to ``width`` (the job's class cap); every other command goes
+        alone, in turn. Results come back in plan order either way, and a
+        caller that stops at a failure never starts the commands after it.
+
+        `job.log` HOLDS EVERY COMMAND. Each command used to rewrite it, so a
+        job of sixteen composes kept the last building's output and its 1.6 s
+        -- read in 2026-10 as the whole job's command time. A job of one
+        command writes it as before; a job of several writes each to its own
+        part and joins the parts into `job.log` in plan order."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        def env_of(cmd):
+            return {**cmd.environment, "DELI_OUT": str(work_dir),
+                    "LF_OUT": str(work_dir)}
+
+        def run(n, cmd):
+            part = log_path if len(planned) == 1 else log_path.with_name("job.%d.log" % n)
+            return run_command(cmd.argv(), cwd=cmd.working_directory, env=env_of(cmd),
+                               log_path=part, timeout_s=cmd.timeout_seconds,
+                               cancel=cancel)
+
+        def joined(n, res):
+            if len(planned) == 1:
+                return res
+            part = log_path.with_name("job.%d.log" % n)
+            text = part.read_bytes() if part.is_file() else b""
+            with open(log_path, "wb" if n == 0 else "ab") as log:
+                log.write(text)
+            part.unlink(missing_ok=True)
+            res.log_path = log_path
+            return res
+
+        i = 0
+        while i < len(planned):
+            j = i + 1
+            if getattr(planned[i], "parallel", False):
+                while j < len(planned) and getattr(planned[j], "parallel", False):
+                    j += 1
+            batch = list(range(i, j))
+            if len(batch) == 1 or width <= 1:
+                for n in batch:
+                    yield joined(n, run(n, planned[n]))
+            else:
+                with ThreadPoolExecutor(max_workers=min(width, len(batch))) as ex:
+                    futures = [ex.submit(run, n, planned[n]) for n in batch]
+                    results = [f.result() for f in futures]
+                for n, res in zip(batch, results):
+                    yield joined(n, res)
+            i = j
 
     # ------------------------------------------------------------------
     def _advise(self, adapter, job_spec: dict, context: dict, job: Job) -> list:

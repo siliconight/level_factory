@@ -377,7 +377,7 @@ class PresentationAdapter(BaseAdapter):
         # the failure the comment above that loop names. A layer that is not
         # visible at the call site is a layer nobody notices is shared.
         def compose(*, slots, gameplay, greybox, out, bid, scene_rel,
-                    dressing, fixtures, roofprops, modules):
+                    dressing, fixtures, roofprops, modules, parallel=False):
             args = [
                 str(_driver_path()),
                 "--deli-repo", deli_repo,
@@ -409,6 +409,7 @@ class PresentationAdapter(BaseAdapter):
                 executable=Path(str(py)), arguments=tuple(args),
                 working_directory=cwd, expected_outputs=(scene_rel,),
                 resource_class="python_cpu", timeout_seconds=600,
+                parallel=parallel,
             )
 
         # The mission's own shell, always, unchanged. It satisfies the job's
@@ -468,6 +469,11 @@ class PresentationAdapter(BaseAdapter):
                 fixtures=fixtures.get(str(a["id"])),
                 roofprops=roofprops.get(str(a["id"])),
                 modules=modules.get(str(a["id"])),
+                # SIDE BY SIDE (0.186.0): each building clears and writes only
+                # its own folder under the lot's. The mission shell's compose
+                # above is not parallel: Deli Counter's `build_package` clears
+                # its output folder first, and that folder holds these.
+                parallel=True,
             ))
         return cmds
 

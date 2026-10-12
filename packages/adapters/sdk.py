@@ -43,12 +43,17 @@ class PlannedCommand:
     expected_outputs: tuple[str, ...] = ()
     resource_class: str = "lightweight"
     timeout_seconds: int | None = None
+    #: May run side by side with the commands next to it that are also
+    #: parallel (0.186.0): nothing it reads is written by them, nothing it
+    #: writes is read or cleared by them. A run of consecutive parallel
+    #: commands goes at once, up to the job's class width; the rest in turn.
+    parallel: bool = False
 
     def argv(self) -> list[str]:
         return [str(self.executable), *self.arguments]
 
     def as_dict(self) -> dict:
-        return {
+        out = {
             "executable": str(self.executable),
             "arguments": list(self.arguments),
             "working_directory": str(self.working_directory),
@@ -57,6 +62,9 @@ class PlannedCommand:
             "resource_class": self.resource_class,
             "timeout_seconds": self.timeout_seconds,
         }
+        if self.parallel:
+            out["parallel"] = True
+        return out
 
 
 @runtime_checkable
