@@ -393,6 +393,70 @@ def _import(export_dir: Path, godot) -> bool:
         return False
 
 
+#: Where an editor keeps the groups of every scene it has read (0.191.0).
+SCENE_GROUPS_CACHE = ".godot/scene_groups_cache.cfg"
+_NODE_HEAD = re.compile(r'^\[node [^\n]*\]$', re.M)
+_GROUPS = re.compile(r'\bgroups=\[([^\]]*)\]')
+_GROUP_NAME = re.compile(r'&?"((?:[^"\\]|\\.)*)"')
+
+
+def scene_groups(text: str) -> list:
+    """Every group a scene's nodes are put in, in the order each first appears:
+    the `groups=[...]` of its `[node ...]` headers, `"name"` or `&"name"`."""
+    out = []
+    for head in _NODE_HEAD.finditer(text):
+        m = _GROUPS.search(head.group(0))
+        if m:
+            for name in _GROUP_NAME.findall(m.group(1)):
+                if name not in out:
+                    out.append(name)
+    return out
+
+
+def write_scene_groups_cache(export_dir: Path) -> int:
+    """The scene groups cache the bake's editor would otherwise build first (0.191.0).
+
+    TWENTY SECONDS OF THE BAKE'S EDITOR. The export's headless imports write
+    no `scene_groups_cache.cfg`, and a Godot 4.7 editor opened on a project
+    whose `.godot` has none starts by reading every scene's groups: cold run
+    9256's bake editor, run again with `--verbose`, loaded each of the
+    package's 482 models and their textures, its file system saying it was
+    scanning all the while, before the plugin could ask for the bake scene
+    (the factory's `docs/findings/grader_speed/bake_phases_probe.py`).
+    Re-exporting 9256 with a cache an editor had written for the same scenes
+    put in the work copy, the file system had stopped scanning by the first
+    sample, the editor asked for the scene at 13.1 s where it had asked at
+    32.4 and took 68.0 s in all where it had taken 88.0; it opened the scene
+    (14.5 s, 14.7 s) and baked it (35.1 s, 35.7 s) in the same time.
+
+    The cache is the groups of each scene that has any, read off the scenes'
+    own `[node ...]` headers (`scene_groups`). On 9256's 22 scenes that is the
+    editor's own cache: the same three scenes -- the `site.tscn` of
+    `lot/deli_a01`, `lot/office` and `lot/pharmacy_a01` -- with the same
+    groups. A scene with none is not listed, as the editor lists none. Written
+    into the package's `.godot`, so the work copy starts with it and
+    `occluders.keep_cache` takes it, with the rest of that directory, to the
+    walk copy. Returns how many scenes it lists.
+    """
+    export_dir = Path(export_dir)
+    rows = []
+    for scene in sorted(export_dir.rglob("*.tscn")):
+        if ".godot" in scene.parts:
+            continue
+        try:
+            groups = scene_groups(scene.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            continue
+        if groups:
+            rows.append((scene.relative_to(export_dir).as_posix(), groups))
+    path = export_dir / SCENE_GROUPS_CACHE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(
+        '[res://%s]\n\ngroups=[%s]\n' % (rel, ", ".join('&"%s"' % g for g in groups))
+        for rel, groups in rows), encoding="utf-8", newline="\n")
+    return len(rows)
+
+
 def bake(export_dir, godot_executable, *, log=print, spawned=()) -> dict:
     """Bake `export_dir`'s steady lights; see the module docstring. Returns
     the report it also writes to `light_bake.json`."""
@@ -420,6 +484,9 @@ def bake(export_dir, godot_executable, *, log=print, spawned=()) -> dict:
         # caller that did not, and for any sidecar changed above.
         if not _import(export_dir, godot_executable):
             raise RuntimeError("the UV2 import pass did not run")
+        # the groups the editor would load every scene to read before it could
+        # open one (0.191.0), written where the work copy takes them from
+        report["scene_groups_cached"] = write_scene_groups_cache(export_dir)
         # 0.178.6: up to BAKE_ATTEMPTS tries, each on a fresh copy, each editor's log kept
         attempts = []
         for attempt in range(1, BAKE_ATTEMPTS + 1):
