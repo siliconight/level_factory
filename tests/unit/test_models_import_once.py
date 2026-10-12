@@ -22,17 +22,19 @@ from packages.exporting.occluders import CACHE_DIR
 
 H = "195c7f76d71e2b8419448441930805ae"
 TEX_SIDECAR = ('[remap]\n\nimporter="texture"\ntype="CompressedTexture2D"\n\n[params]\n\n'
-               'compress/mode=0\nmipmaps/generate=false\nprocess/fix_alpha_border=true\n')
+               'compress/mode=0\ncompress/normal_map=0\nmipmaps/generate=false\nroughness/mode=0\n'
+               'roughness/src_normal=""\nprocess/fix_alpha_border=true\ndetect_3d/compress_to=1\n')
 WORLDSKIN = '[importer_defaults]\n\nscene={\n"import_script/path": "res://zoo_worldskin.gd"\n}\n'
 
 
-def _glb(path, *, uv2=False, tex=None, linear=False):
-    """A GLB whose JSON chunk says what `glb_has_uv2` and `_filtered_shared_textures` read."""
+def _glb(path, *, uv2=False, tex=None, normal=False):
+    """A GLB whose JSON chunk says what `glb_has_uv2` and `_normal_map_shared_textures` read."""
     doc = {"meshes": [{"primitives": [{"attributes": dict({"POSITION": 0},
                                                           **({"TEXCOORD_1": 1} if uv2 else {}))}]}]}
     if tex:
-        doc.update({"images": [{"uri": tex}], "samplers": [{"magFilter": 9729 if linear else 9728}],
-                    "textures": [{"source": 0, "sampler": 0}]})
+        use = {"normalTexture": {"index": 0}} if normal else {
+            "pbrMetallicRoughness": {"baseColorTexture": {"index": 0}}}
+        doc.update({"images": [{"uri": tex}], "textures": [{"source": 0}], "materials": [use]})
     body = json.dumps(doc).encode("utf-8")
     body += b" " * (-len(body) % 4)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -109,7 +111,7 @@ class _Godot:
 
 def _package(tmp_path):
     pkg = tmp_path / "LF_x.portable-godot"
-    _glb(pkg / "lot" / "a" / "art" / "zoo" / "floor_x.glb", tex="_tex/smooth.png", linear=True)
+    _glb(pkg / "lot" / "a" / "art" / "zoo" / "floor_x.glb", tex="_tex/smooth.png", normal=True)
     _glb(pkg / "lot" / "a" / "art" / "zoo" / "wall_x.glb", tex="_tex/plain.png")
     _glb(pkg / "lot" / "a" / "site_base.glb")
     _glb(pkg / "cover" / "prop_tree.glb", uv2=True)
@@ -168,14 +170,18 @@ def test_the_bakes_own_marking_then_finds_nothing_to_change(tmp_path, monkeypatc
     assert {p: p.read_bytes() for p in pkg.rglob("*.glb.import")} == before
 
 
-def test_a_texture_every_sampler_filters_is_pinned_though_the_models_were_held(tmp_path, monkeypatch):
-    """The filtered set is read off the models' glTF; read while they were held it found none,
-    and 26 textures went lossless until the read-back after the last import (sidecar_once_probe,
-    arms C and E)."""
+def test_a_normal_map_is_pinned_as_one_though_the_models_were_held(tmp_path, monkeypatch):
+    """The normal maps are read off the models' glTF (0.190.0), and so must be read before the
+    models are held: the filtered set read while they were held found none, and 26 textures went
+    lossless until the read-back after the last import (sidecar_once_probe, arms C and E)."""
     pkg, _ = _step(tmp_path, monkeypatch)
     tex = pkg / "lot" / "a" / "art" / "zoo" / "_tex"
-    assert "compress/mode=2" in (tex / "smooth.png.import").read_text(encoding="utf-8")
-    assert "compress/mode=0" in (tex / "plain.png.import").read_text(encoding="utf-8")
+    smooth = (tex / "smooth.png.import").read_text(encoding="utf-8")
+    plain = (tex / "plain.png.import").read_text(encoding="utf-8")
+    assert "compress/normal_map=1" in smooth
+    assert 'roughness/src_normal="res://lot/a/art/zoo/_tex/smooth.png"' in smooth
+    assert "compress/normal_map=0" in plain
+    assert "compress/mode=2" in smooth and "compress/mode=2" in plain   # compressed everywhere
 
 
 def test_project_godot_and_every_model_are_put_back(tmp_path, monkeypatch):

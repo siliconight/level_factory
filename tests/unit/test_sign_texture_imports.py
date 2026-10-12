@@ -1,11 +1,18 @@
-"""A dealt business's sign maps import as their pack asks (0.166.0, roadmap 223).
+"""A dealt business's sign maps import as an editor leaves them (0.166.0, roadmap 223; 0.190.0).
 
 Pixelcoat 0.62.0 letters a business's sign smooth, in Blue Highway, and its pack asks for `linear`
 sampling and a mip chain; a pixel pack asks for `nearest` and neither. Lot copies the maps to
-`signs/` beside its scene and, since Lot 0.105.0, the pack's manifest with them. Before this, the
-export left every sign map at Godot's first-pass defaults -- measured on `LF_gas_block_001`'s
+`signs/` beside its scene and, since Lot 0.105.0, the pack's manifest with them. Before 0.166.0,
+the export left every sign map at Godot's first-pass defaults -- measured on `LF_gas_block_001`'s
 package: `compress/mode=0`, `mipmaps/generate=false` -- so a smooth sign would ship uncompressed,
 6.3 MB of maps where 1.6 MB would do, and shimmer across a street for want of its mips.
+
+0.166.0 compressed and mipped a smooth pack's maps and left a pixel pack's as they were, Godot's
+3D detection on in both. Every editor that opened the package then compressed and mipped every
+sign it saw in use, pixel or smooth. Since 0.190.0 -- the walker's call, compressed everywhere --
+every sign map is pinned as the editor leaves it, whatever its pack asks
+(`export.SURFACE_TEX_PINS`; `tests/unit/test_compressed_everywhere.py` holds it to the editor's
+own sidecar).
 """
 import json
 import sys
@@ -76,6 +83,7 @@ def test_a_smooth_sign_is_compressed_and_mipped(tmp_path):
     for m in ("albedo", "emissive"):
         got = _params((d / f"sign_flappahs_{m}.png.import").read_text(encoding="utf-8"))
         assert got["compress/mode"] == "2" and got["mipmaps/generate"] == "true", (m, got)
+        assert got["detect_3d/compress_to"] == "0", (m, got)
 
 
 def test_nothing_else_in_the_sidecar_moves(tmp_path):
@@ -84,13 +92,18 @@ def test_nothing_else_in_the_sidecar_moves(tmp_path):
     before = _params(SIGN_SIDECAR)
     after = _params((d / "sign_flappahs_albedo.png.import").read_text(encoding="utf-8"))
     assert set(before) == set(after)
-    assert {k for k in before if before[k] != after[k]} == {"compress/mode", "mipmaps/generate"}
+    assert {k for k in before if before[k] != after[k]} == {
+        "compress/mode", "mipmaps/generate", "detect_3d/compress_to"}
 
 
-def test_a_pixel_sign_is_left_as_it_was(tmp_path):
+def test_a_pixel_sign_is_compressed_and_mipped_too(tmp_path):
+    """FAILS ON 0.189.0, which left a pixel pack's maps as they were (0.166.0) -- for an editor
+    to compress and mip."""
     d = _signs(tmp_path, PIXEL)
-    assert export._pin_sign_texture_imports(tmp_path) == 0
-    assert (d / "sign_flappahs_albedo.png.import").read_text(encoding="utf-8") == SIGN_SIDECAR
+    assert export._pin_sign_texture_imports(tmp_path) == 2
+    got = _params((d / "sign_flappahs_albedo.png.import").read_text(encoding="utf-8"))
+    assert (got["compress/mode"], got["mipmaps/generate"], got["detect_3d/compress_to"]) == (
+        "2", "true", "0"), got
 
 
 def test_running_it_twice_reports_nothing_the_second_time(tmp_path):
@@ -121,8 +134,8 @@ def test_a_manifest_that_cannot_be_read_pins_nothing(tmp_path):
 
 def test_the_export_pins_signs_where_it_pins_the_shared_textures():
     src = (ROOT / "packages" / "exporting" / "export.py").read_text(encoding="utf-8")
-    # 0.189.0 pins between the first and second import passes, the filtered
-    # set read before the models were held; the two calls stay side by side.
-    shared = src.index("        _pin_shared_texture_imports(export_dir, filtered)\n")
+    # 0.189.0 pins between the first and second import passes, the models' glTF read before they
+    # were held (since 0.190.0 for the normal maps); the calls stay side by side.
+    shared = src.index("        _pin_shared_texture_imports(export_dir, normals)\n")
     signs = src.index("        _pin_sign_texture_imports(export_dir)\n")
     assert 0 < signs - shared < 80

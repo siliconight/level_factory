@@ -426,22 +426,49 @@ SHARED_TEX_DIR = "_tex"
 
 #: Import parameters pinned on every `.png.import` under `SHARED_TEX_DIR`.
 #: The measurement behind each is in `_write_import_sidecars`'s docstring.
+#:
+#: COMPRESSED, AS EVERY EDITOR LEAVES THEM (0.190.0, the walker's call of
+#: 2026-10-12). These were pinned lossless (`compress/mode=0`, the measurement
+#: in `_write_import_sidecars`' docstring) with Godot's 3D detection left on,
+#: and every editor that opened the package -- the light bake's, the walk copy
+#: opened to be walked, a recipient's -- re-encoded each one it saw in use as
+#: VRAM compressed (the factory's docs/findings/grader_speed/
+#: editor_texture_probe.py: the bake's editor changed 426 texture sidecars of
+#: cold run 9255's package). The lossless pin held only in a headless import,
+#: and a package's textures depended on whether anyone had opened it. Offered
+#: lossless everywhere or VRAM everywhere, the walker chose VRAM: what every
+#: editor had shown, and less texture memory. So these are the editor's own
+#: decisions, read off its sidecars, pinned before any import, the detection
+#: off because nothing is left for it to decide.
 SHARED_TEX_PINS = {
-    "compress/mode": "0",
+    "compress/mode": "2",
     "process/fix_alpha_border": "false",
     "mipmaps/generate": "true",
+    "detect_3d/compress_to": "0",
 }
 
-#: And on the ones every sampler FILTERS (0.128.0): VRAM compression. The
-#: lossless pin above protects pixel art, which is sampled Closest -- every
-#: changed pixel is on screen at its own size. A filtered texture is already
-#: an average of its neighbours on screen, and Zoo 1.46.0's painted atlases
-#: are filtered, three times as dense, and the largest textures a store
-#: holds. Measured (see `_write_import_sidecars`): 7,304,813 B lossless,
-#: 1,374,528 B compressed, for the same three props.
-FILTERED_TEX_PINS = {"compress/mode": "2"}
-#: glTF's `magFilter` for LINEAR. 9728 is NEAREST.
-GLTF_LINEAR = 9729
+#: And on the ones the models' glTF names as a NORMAL map (0.190.0): what the
+#: editor writes when it finds one in use -- red-green compression, and the
+#: roughness limiter Godot 4.7 sets on a normal map, pointed at that map
+#: itself (`roughness/src_normal`, written per file by `_shared_pins_for`).
+#: Read off the editor's sidecars for all 22 of cold run 9255's normal maps,
+#: which are exactly the 22 its models' glTF names as `normalTexture`.
+NORMAL_TEX_PINS = {"compress/normal_map": "1", "roughness/mode": "1"}
+#: On the site's skins and the businesses' signs (0.190.0): what the editor
+#: does to each one it finds in use -- VRAM compression and a mip chain, the
+#: detection then off. `process/fix_alpha_border` stays as Godot writes it,
+#: as the editor leaves it.
+SURFACE_TEX_PINS = {
+    "compress/mode": "2",
+    "mipmaps/generate": "true",
+    "detect_3d/compress_to": "0",
+}
+#: REPLACED (0.190.0): `FILTERED_TEX_PINS` pinned VRAM compression only on a
+#: shared texture every sampler FILTERED (0.128.0, `_filtered_shared_textures`
+#: reading the models' samplers off their glTF), the rest lossless for pixel
+#: art shown at its own size: 7,304,813 B lossless against 1,374,528 B
+#: compressed, for three props. Every shared texture is compressed now, and
+#: no sampler decides.
 
 
 def _glb_json(path: Path):
@@ -458,81 +485,94 @@ def _glb_json(path: Path):
         return None
 
 
-def _filtered_shared_textures(export_dir: Path) -> set:
-    """Every shared texture that EVERY sampler reaching it filters.
+def _normal_map_shared_textures(export_dir: Path) -> set:
+    """Every shared texture a model's glTF names as a material's
+    `normalTexture` (0.190.0): the textures an editor detects as normal maps,
+    22 of 22 on cold run 9255's package.
 
-    Read off the GLBs: a texture names an image and a sampler, and a sampler
-    whose `magFilter` is `GLTF_LINEAR` filters. One Closest use anywhere in
-    the package -- or a use with no sampler, or no `magFilter`, which is the
-    importer's default and not a statement -- keeps the texture lossless,
-    because that use shows its pixels at their own size.
-
-    A GLB this cannot read contributes nothing either way; its textures stay
-    at the lossless pin unless another GLB names them.
+    Read off the GLBs, as the samplers were before it; a GLB this cannot read
+    names none. The sidecar step reads it before it holds the models, for the
+    reason it had to read the samplers so (0.189.0).
     """
-    filtered, other = set(), set()
+    out = set()
     for glb in export_dir.rglob("*.glb"):
         doc = _glb_json(glb)
         if not isinstance(doc, dict):
             continue
         images = doc.get("images") or []
-        samplers = doc.get("samplers") or []
-        for tex in doc.get("textures") or []:
-            src = tex.get("source")
+        textures = doc.get("textures") or []
+        for mat in doc.get("materials") or []:
+            if not isinstance(mat, dict):
+                continue
+            ti = (mat.get("normalTexture") or {}).get("index")
+            if not isinstance(ti, int) or not 0 <= ti < len(textures):
+                continue
+            src = textures[ti].get("source")
             if not isinstance(src, int) or not 0 <= src < len(images):
                 continue
             uri = images[src].get("uri")
             if not uri:
                 continue
             png = (glb.parent / uri).resolve()
-            if png.parent.name != SHARED_TEX_DIR:
-                continue
-            si = tex.get("sampler")
-            linear = (isinstance(si, int) and 0 <= si < len(samplers)
-                      and samplers[si].get("magFilter") == GLTF_LINEAR)
-            (filtered if linear else other).add(png)
-    return filtered - other
+            if png.parent.name == SHARED_TEX_DIR:
+                out.add(png)
+    return out
 
 
-def _pin_shared_texture_imports(export_dir: Path, filtered=None) -> int:
-    """Pin `SHARED_TEX_PINS` on the shared textures' sidecars.
-
-    Returns how many files were changed, so the caller's second import pass
-    runs when this alone had something to do -- a package whose GLBs were
-    already at mode 3 still needs the pass that rebuilds these.
+def _apply_pins(sidecar: Path, pins: dict) -> bool:
+    """Write `pins` on a sidecar's own lines; True when anything changed
+    (0.190.0, the rule the pin functions shared, now one function).
 
     A sidecar missing a key is not written to. The key set is Godot's, read
     off what Godot wrote on the first pass; a file that does not carry one is
-    a file this function has not been shown, and adding the line would be
-    guessing at a schema.
+    a file these were not shown, and adding the line would be guessing at a
+    schema."""
+    try:
+        lines = sidecar.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+    out, hit = [], False
+    for ln in lines:
+        key = ln.split("=", 1)[0]
+        want = pins.get(key)
+        if want is not None and ln != f"{key}={want}":
+            out.append(f"{key}={want}")
+            hit = True
+        else:
+            out.append(ln)
+    if hit:
+        sidecar.write_text("\n".join(out) + "\n", encoding="utf-8")
+    return hit
 
-    A texture every sampler filters takes `FILTERED_TEX_PINS` over these
-    (0.128.0, `_filtered_shared_textures`).
+
+def _shared_pins_for(sidecar: Path, export_dir: Path, normals) -> dict:
+    """The pins a shared texture's sidecar takes: `SHARED_TEX_PINS`, and on a
+    normal map `NORMAL_TEX_PINS` with its own path as `roughness/src_normal`,
+    as the editor writes it (0.190.0)."""
+    pins = dict(SHARED_TEX_PINS)
+    png = sidecar.with_name(sidecar.name[:-len(".import")])
+    if png.resolve() in normals:
+        pins.update(NORMAL_TEX_PINS)
+        pins["roughness/src_normal"] = '"res://%s"' % png.relative_to(export_dir).as_posix()
+    return pins
+
+
+def _pin_shared_texture_imports(export_dir: Path, normals=None) -> int:
+    """Pin the shared textures' sidecars (`_shared_pins_for`, `_apply_pins`).
+
+    Returns how many files were changed, so the caller's next import pass
+    runs when this alone had something to do.
+
+    The normal maps are read off the models (`_normal_map_shared_textures`);
+    the sidecar step reads them before it holds the models (0.189.0).
     """
     changed = 0
-    if filtered is None:   # 0.189.0: the sidecar step reads it before it holds the models
-        filtered = _filtered_shared_textures(export_dir)
+    if normals is None:
+        normals = _normal_map_shared_textures(export_dir)
     for sidecar in export_dir.rglob("*.png.import"):
         if sidecar.parent.name != SHARED_TEX_DIR:
             continue
-        try:
-            lines = sidecar.read_text(encoding="utf-8").splitlines()
-        except OSError:
-            continue
-        pins = dict(SHARED_TEX_PINS)
-        if sidecar.with_name(sidecar.name[:-len(".import")]).resolve() in filtered:
-            pins.update(FILTERED_TEX_PINS)
-        out, hit = [], False
-        for ln in lines:
-            key = ln.split("=", 1)[0]
-            want = pins.get(key)
-            if want is not None and ln != f"{key}={want}":
-                out.append(f"{key}={want}")
-                hit = True
-            else:
-                out.append(ln)
-        if hit:
-            sidecar.write_text("\n".join(out) + "\n", encoding="utf-8")
+        if _apply_pins(sidecar, _shared_pins_for(sidecar, export_dir, normals)):
             changed += 1
     return changed
 
@@ -541,14 +581,12 @@ def _shared_texture_pins_missing(export_dir: Path) -> list:
     """Every `SHARED_TEX_DIR` sidecar not carrying its pins, as ``(path, key,
     value found)`` with the first key that is off or absent -- what the
     package would ship wrong. The cache is not the package and is skipped."""
-    filtered = _filtered_shared_textures(export_dir)
+    normals = _normal_map_shared_textures(export_dir)
     out = []
     for sidecar in sorted(export_dir.rglob("*.png.import")):
         if sidecar.parent.name != SHARED_TEX_DIR or ".godot" in sidecar.parts:
             continue
-        pins = dict(SHARED_TEX_PINS)
-        if sidecar.with_name(sidecar.name[:-len(".import")]).resolve() in filtered:
-            pins.update(FILTERED_TEX_PINS)
+        pins = _shared_pins_for(sidecar, export_dir, normals)
         have = {}
         for ln in sidecar.read_text(encoding="utf-8").splitlines():
             key, eq, value = ln.partition("=")
@@ -584,9 +622,11 @@ def _repin_after_imports(export_dir: Path) -> dict:
     The cache, gone by the time this runs, was built with the pins the race
     left; the light bake read those few textures without their mip chain or
     with the alpha border filled, and nothing it bakes depends on either.
-    ``{"shared_repinned", "sign_repinned", "shared_sidecars"}``."""
+    ``{"shared_repinned", "sign_repinned", "skin_repinned",
+    "shared_sidecars"}`` -- the skins since 0.190.0."""
     shared = _pin_shared_texture_imports(export_dir)
     sign = _pin_sign_texture_imports(export_dir)
+    skin = _pin_skin_texture_imports(export_dir)   # 0.190.0
     missing = _shared_texture_pins_missing(export_dir)
     if missing:
         raise ExportImportError(
@@ -596,32 +636,45 @@ def _repin_after_imports(export_dir: Path) -> dict:
     total = sum(1 for s in export_dir.rglob("*.png.import")
                 if s.parent.name == SHARED_TEX_DIR and ".godot" not in s.parts)
     return {"shared_repinned": shared, "sign_repinned": sign,
-            "shared_sidecars": total}
+            "skin_repinned": skin, "shared_sidecars": total}
 
 
 #: The folder Lot copies a dealt business's sign maps into, beside its scene
 #: (Lot 0.69.0) -- and, since Lot 0.105.0, the pack's manifest with them.
 SIGNS_DIR = "signs"
+#: The folder the export copies the site's skins into, beside the site scene
+#: (`skins/<map>`): Pixelcoat's maps for the ground, the kerbs and the paint
+#: (0.190.0).
+SKINS_DIR = "skins"
 
 
-def _sign_pins(hints: dict) -> dict:
-    """The import pins a sign pack's `import_hints` ask for (0.166.0, roadmap 223).
+#: REPLACED (0.190.0): `_sign_pins` read a pack's `import_hints` (0.166.0) and
+#: compressed and mipped a smooth pack's maps -- `linear` sampling and a mip
+#: chain asked for -- and left a pixel pack's as Godot wrote them, the 3D
+#: detection on in both. Every editor that opened the package compressed and
+#: mipped every sign it saw in use, pixel or smooth. Since the walker's call,
+#: compressed everywhere, every sign map takes `SURFACE_TEX_PINS`, whatever
+#: its pack asks.
 
-    Pixelcoat 0.62.0 letters a business smooth and asks for `linear` sampling
-    and a mip chain. A filtered texture is compressed, as Zoo's filtered ones
-    are (`FILTERED_TEX_PINS`); and a sign seen across a street is minified
-    several times and shimmers without its mips. A pixel pack asks for
-    neither and is left exactly as it was."""
-    pins = {}
-    if hints.get("interpolation") == "linear":
-        pins.update(FILTERED_TEX_PINS)
-    if hints.get("generate_mipmaps"):
-        pins["mipmaps/generate"] = "true"
-    return pins
+
+def _pin_skin_texture_imports(export_dir: Path) -> int:
+    """Pin the site's skins (`SKINS_DIR`) as an editor leaves them (0.190.0):
+    `SURFACE_TEX_PINS`. Unpinned before, they kept Godot's defaults --
+    lossless, no mip chain, the 3D detection on -- and the editor compressed
+    and mipped all eight of cold run 9255's. Returns how many sidecars changed
+    (`_apply_pins`' rule: a key a sidecar does not carry is not given one)."""
+    changed = 0
+    for sidecar in sorted(export_dir.rglob("*.png.import")):
+        if sidecar.parent.name != SKINS_DIR or ".godot" in sidecar.parts:
+            continue
+        if _apply_pins(sidecar, SURFACE_TEX_PINS):
+            changed += 1
+    return changed
 
 
 def _pin_sign_texture_imports(export_dir: Path) -> int:
-    """Pin each sign map's import as its pack's manifest asks (0.166.0).
+    """Pin each sign map a pack's manifest names (0.166.0) as an editor leaves it,
+    whatever the pack asks (0.190.0, `SURFACE_TEX_PINS`).
 
     Measured before this, on `LF_gas_block_001`'s package: a sign map
     imported `compress/mode=0` and `mipmaps/generate=false`, whatever the pack
@@ -636,9 +689,7 @@ def _pin_sign_texture_imports(export_dir: Path) -> int:
             doc = _json.loads(man.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        pins = _sign_pins(doc.get("import_hints") or {})
-        if not pins:
-            continue
+        pins = dict(SURFACE_TEX_PINS)   # whatever its import_hints ask (0.190.0)
         for fname in (doc.get("maps") or {}).values():
             sidecar = man.parent / (str(fname) + ".import")
             if not sidecar.is_file():
@@ -836,6 +887,14 @@ def _write_import_sidecars(export_dir: Path, godot_executable, *,
     other than desktop -- mode 2 imports S3TC here, and a platform without it
     needs its own import flag before this pin means anything there.
 
+    BOTH SUPERSEDED (0.190.0, the walker's call of 2026-10-12): every shared
+    texture is pinned VRAM compressed, Godot's 3D detection off. The lossless
+    pin held only in a headless import -- every editor that opened the
+    package re-encoded the textures it saw in use as VRAM compressed -- so
+    what anyone looked at in an editor was compressed all along, and the
+    package's textures depended on whether it had been opened.
+    `SHARED_TEX_PINS` says how it was found.
+
     Best-effort only where Godot is missing: that is a setup problem, not an
     export failure, and HANDOFF.md tells the recipient what to do either way.
 
@@ -936,7 +995,8 @@ def _write_import_sidecars(export_dir: Path, godot_executable, *,
     #     imported once, from a whole sidecar (`_own_light_baking_sidecars`);
     #   * the filtered-texture set is read off the models' glTF, and read
     #     while they were held it was empty: 26 textures went lossless until
-    #     the read-back after the last import. It is read before.
+    #     the read-back after the last import. It is read before -- and
+    #     since 0.190.0 the set read so is the normal maps.
     #
     # Measured against the export as it was: the sidecar step 86.1 -> 62.2 s,
     # the export 238.1 -> 214.8 s; every model loading the same (501 of 501),
@@ -956,7 +1016,7 @@ def _write_import_sidecars(export_dir: Path, godot_executable, *,
     late = {p for p in models if p.name.startswith(WORLDSKIN_BASE_PREFIX)}
     if any(p not in late and p not in own for p in models):
         late |= set(own)   # a model the second pass imports, to copy a whole sidecar from
-    filtered = _filtered_shared_textures(export_dir)   # off the models, while they are here
+    normals = _normal_map_shared_textures(export_dir)   # off the models, while they are here
     proj = export_dir / "project.godot"
     kept_project = proj.read_bytes() if proj.is_file() else None
     held = {}
@@ -971,8 +1031,9 @@ def _write_import_sidecars(export_dir: Path, godot_executable, *,
             p.rename(q)
             held[p] = q
         _import_pass_verified()      # 1: the textures, and everything not a model
-        _pin_shared_texture_imports(export_dir, filtered)
+        _pin_shared_texture_imports(export_dir, normals)
         _pin_sign_texture_imports(export_dir)
+        _pin_skin_texture_imports(export_dir)
         for p in models:
             if p not in late:
                 held.pop(p).rename(p)
@@ -2394,9 +2455,9 @@ def export_mission(
     pins = _repin_after_imports(export_dir)
     print("[export] import pins: %d of %d shared-texture sidecar(s) carry their "
           "pins; %d re-pinned after an import reset them, %d sign sidecar(s) "
-          "re-pinned"
+          "re-pinned, %d skin sidecar(s) re-pinned"
           % (pins["shared_sidecars"], pins["shared_sidecars"],
-             pins["shared_repinned"], pins["sign_repinned"]))
+             pins["shared_repinned"], pins["sign_repinned"], pins["skin_repinned"]))
 
     # 4.9 Resource-closure VERDICT -- see `_closure_verdict`. LAST, after
     # every step that writes into the package and before the manifests, which
