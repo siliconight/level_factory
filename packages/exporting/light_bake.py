@@ -57,12 +57,15 @@ a lightmap. `light_bake.json` says which.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import struct
 import subprocess
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 _LF_ROOT = Path(__file__).resolve().parents[2]
@@ -384,6 +387,59 @@ def _copy_lightmap_import(work: Path, export_dir: Path) -> list:
     return copied
 
 
+#: Threads copying the package into the bake's work copy (0.193.0).
+COPY_WORKERS = 8
+
+
+def _copy_project(src: Path, dst: Path) -> int:
+    """`shutil.copytree(src, dst)` for a package: its directories first, then
+    its files by `shutil.copy2` across COPY_WORKERS threads. Returns how many
+    files it copied.
+
+    THE WORK COPY, ABOUT 5 SECONDS (0.193.0). The bake copies the package and
+    its import cache before the editor opens it -- cold run 9258's, 6,058 files
+    and 252 MB: `copytree`, a file after a file, 4.7 and 5.3 s; this, 2.1 and
+    2.0 s, the same files. A package is directories and files and nothing else
+    (`os.walk` does not follow a link to a directory, so one would not be
+    copied); a file that fails to copy raises here, as it does in `copytree`.
+    """
+    src, dst = Path(src), Path(dst)
+    jobs = []
+    for root, _dirs, files in os.walk(src):
+        rel = os.path.relpath(root, src)
+        target = dst if rel == "." else dst / rel
+        target.mkdir(parents=True, exist_ok=True)
+        for f in files:
+            jobs.append((Path(root) / f, target / f))
+    with ThreadPoolExecutor(COPY_WORKERS) as pool:
+        list(pool.map(lambda job: shutil.copy2(job[0], job[1]), jobs))
+    return len(jobs)
+
+
+def _remove_later(work: Path):
+    """Remove the bake's work copy while the export goes on (0.193.0).
+
+    Removing it took 2.1 to 2.8 s, after the bake and before anything else in
+    the export could start. It is renamed aside, which is immediate, and
+    removed by a thread the interpreter waits for at its exit, so the export's
+    process still leaves nothing behind it. A copy left aside by an earlier
+    export is removed first; a rename that fails removes the copy here, as
+    before. Returns the thread, or None when there is none."""
+    work = Path(work)
+    trash = work.with_name(work.name + ".old")
+    if trash.exists():
+        shutil.rmtree(trash, ignore_errors=True)
+    try:
+        work.rename(trash)
+    except OSError:
+        shutil.rmtree(work, ignore_errors=True)
+        return None
+    t = threading.Thread(target=shutil.rmtree, args=(trash,), kwargs={"ignore_errors": True},
+                         name="light-bake-work-copy")
+    t.start()
+    return t
+
+
 def _import(export_dir: Path, godot) -> bool:
     try:
         subprocess.run([str(godot), "--headless", "--path", str(export_dir), "--import"],
@@ -492,7 +548,7 @@ def bake(export_dir, godot_executable, *, log=print, spawned=()) -> dict:
         for attempt in range(1, BAKE_ATTEMPTS + 1):
             if work.exists():
                 shutil.rmtree(work)
-            shutil.copytree(export_dir, work)
+            _copy_project(export_dir, work)   # threads (0.193.0)
             _forward_plus(work / "project.godot")
             plugin = work / PLUGIN_DIR
             plugin.mkdir(parents=True, exist_ok=True)
@@ -560,6 +616,6 @@ def bake(export_dir, godot_executable, *, log=print, spawned=()) -> dict:
         log("[export] WARNING light bake failed, the package ships unbaked: %s" % exc)
     finally:
         if work.exists():
-            shutil.rmtree(work, ignore_errors=True)
+            _remove_later(work)   # while the export goes on (0.193.0)
     (export_dir / REPORT).write_text(json.dumps(report, indent=1), encoding="utf-8")
     return report

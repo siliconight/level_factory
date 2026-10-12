@@ -110,5 +110,5 @@ def test_the_bake_writes_it_after_its_import_and_before_its_work_copy():
     code = "\n".join(ln.split("#", 1)[0] for ln in body.splitlines())
     imp = code.find("if not _import(export_dir, godot_executable):")
     cache = code.find("write_scene_groups_cache(export_dir)")
-    copy = code.find("shutil.copytree(export_dir, work)")
+    copy = code.find("_copy_project(export_dir, work)")   # its copy since 0.193.0
     assert -1 < imp < cache < copy, (imp, cache, copy)

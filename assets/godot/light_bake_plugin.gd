@@ -36,6 +36,18 @@ extends EditorPlugin
 ## logged it open at frame 240, the floor itself): the editor draws the opened
 ## level's first frame in about 10 s and the 239 after it in about 4. The
 ## floor is one frame now; an open that has not landed is still asked again.
+##
+## THE EDITOR STOPS DRAWING FOR THE BAKE, AND ONLY FOR THE BAKE (0.193.0).
+## The bake's progress bar pumps the editor's main loop, and with its 3D
+## viewports drawing every pump drew the whole level again. Stopped as Bake is
+## pressed (`_stop_drawing`), cold run 9258's level baked in 31.4 and 31.5 s
+## where it took about 35.8, and byte for byte the same `bake.exr`,
+## `bake.lmbake` and `bake.exr.import` (the factory's
+## docs/findings/grader_speed/README.md). NOT FROM THE START: stopped before
+## the opened scene had ever been drawn, the same level baked 17.5 % darker on
+## average, the outdoor ground most -- the bake reads something only a drawn
+## frame makes (the sky's light is the likely one; not shown). The opened
+## level's first frame is drawn either way.
 
 const SCENE := "res://bake.tscn"
 const OUT := "res://light_bake_result.json"
@@ -88,6 +100,16 @@ func _done(result: Dictionary) -> void:
 	await tree.process_frame
 	await tree.process_frame
 	OS.kill(OS.get_process_id())
+
+
+## The editor's 3D viewports stop drawing for the bake (0.193.0): the bake's
+## progress bar pumps the main loop, and every pump drew the whole level again.
+## Called as Bake is pressed and never before -- the header says why.
+func _stop_drawing() -> void:
+	for i in 4:
+		var vp: SubViewport = EditorInterface.get_editor_viewport_3d(i)
+		if vp != null:
+			vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
 
 
 ## Where the bake writes. A LightmapGI with no data file yet makes the
@@ -205,6 +227,7 @@ func _process(_delta: float) -> void:
 			_fill = _lay_room_fill(EditorInterface.get_edited_scene_root())
 			_t0 = Time.get_ticks_msec()
 			_busy = true
+			_stop_drawing()
 			b.pressed.emit()
 			_busy = false
 			_phase = 3
