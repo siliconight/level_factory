@@ -32,11 +32,13 @@ def test_what_it_cannot_read_refuses_the_run(text):
 
 
 def test_the_command_lines_scheduler_takes_it_and_says_so(monkeypatch, capsys):
-    monkeypatch.setenv(S.CONCURRENCY_ENV, "blender=3")
+    # a width the default is not, whatever the machine makes the default (0.185.0)
+    was = S.DEFAULT_CONCURRENCY["blender"]
+    monkeypatch.setenv(S.CONCURRENCY_ENV, "blender=%d" % (was + 1))
     sch = _scheduler()
-    assert sch.concurrency["blender"] == 3
+    assert sch.concurrency["blender"] == was + 1
     assert sch.concurrency["python_cpu"] == S.DEFAULT_CONCURRENCY["python_cpu"]
-    assert "blender 1 -> 3" in capsys.readouterr().out
+    assert "blender %d -> %d" % (was, was + 1) in capsys.readouterr().out
 
 
 def test_caps_given_to_the_constructor_are_the_callers(monkeypatch):

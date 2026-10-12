@@ -43,6 +43,7 @@ def test_three_candidates_evaluations_run_at_once_where_the_machine_allows():
 
 
 def test_the_other_classes_did_not_move():
+    # `blender` moved in 0.185.0, to its own measured cap (test_blender_cap.py)
     caps = scheduler.DEFAULT_CONCURRENCY
-    assert (caps["python_cpu"], caps["blender"], caps["godot_interactive"],
-            caps["io_heavy"], caps["lightweight"]) == (4, 1, 1, 2, 8)
+    assert (caps["python_cpu"], caps["godot_interactive"],
+            caps["io_heavy"], caps["lightweight"]) == (4, 1, 2, 8)

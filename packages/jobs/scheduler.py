@@ -78,10 +78,36 @@ def godot_cap(cpu_count) -> int:
     return min(max(2, cpus // 2), max(2, GODOT_PROVEN_WIDTH))
 
 
+#: How wide Blender jobs were PROVEN to run with nothing in their outputs
+#: changing that two runs one at a time do not already change (0.185.0).
+#: Cold run 9251 ran with `LF_CONCURRENCY=blender=3` on 9245's lot and seeds:
+#: its Blender window 45.7 s where 9250's one-at-a-time took 114.0, the art
+#: leg's jobs 177.1 s against 251.7, the drive 10.8 minutes against 12.1 -- and
+#: every model the Blender jobs built byte-identical to 9250's or different in
+#: a file that also differs between two runs at one (9248, 9249, 9250): the
+#: order of a mesh's triangles, a merged mesh's vertex order, the weighted
+#: normals of two trash-bag props drifting 1e-4 to 3e-4, Deli Counter's shell
+#: manifest (the factory's `docs/findings/grader_speed/blender_width_compare.py`).
+#: Raise it only on a measurement at the wider load.
+BLENDER_PROVEN_WIDTH = 3
+
+
+def blender_cap(cpu_count) -> int:
+    """How many Blender jobs run at once: half the logical CPUs, never below
+    the 1 TDD 19.2 set, and no wider than `BLENDER_PROVEN_WIDTH` (0.185.0)."""
+    try:
+        cpus = int(cpu_count or 0)
+    except (TypeError, ValueError):
+        cpus = 0
+    return min(max(1, cpus // 2), max(1, BLENDER_PROVEN_WIDTH))
+
+
 # Default per-resource-class concurrency caps (TDD 19.2). `godot_headless`
-# follows the machine and the proven width since 0.179.1 (`godot_cap`).
+# follows the machine and the proven width since 0.179.1 (`godot_cap`), and
+# `blender` since 0.185.0 (`blender_cap`).
 DEFAULT_CONCURRENCY = {
-    "python_cpu": 4, "blender": 1, "godot_headless": godot_cap(_os.cpu_count()),
+    "python_cpu": 4, "blender": blender_cap(_os.cpu_count()),
+    "godot_headless": godot_cap(_os.cpu_count()),
     "godot_interactive": 1, "io_heavy": 2, "lightweight": 8,
 }
 
