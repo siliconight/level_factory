@@ -40,7 +40,10 @@ def test_the_cache_is_dropped_once_after_the_census_and_before_the_verdict():
     and the Empties merge's failures clean up before they raise. The one the package ships
     through is the drop that says so."""
     body = _export_mission_body()
-    drops = _calls(body, "if drop_cache(export_dir):")
+    # 0.188.0 keeps the cache beside the package instead of dropping it, for the
+    # walk copy (`occluders.keep_cache`): the line the package ships through
+    # moved; the order this pins did not.
+    drops = _calls(body, "kept = keep_cache(export_dir)")
     census = _calls(body, "greybox_skin.measure(")
     verdict = _calls(body, "_closure_verdict(export_dir)")
     assert len(drops) == 1, "one drop on the way to shipping, found %d" % len(drops)

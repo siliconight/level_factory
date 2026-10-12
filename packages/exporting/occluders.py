@@ -253,6 +253,49 @@ def drop_cache(export_dir: Path) -> bool:
     return True
 
 
+#: Where the export keeps its import cache once the package is done with it
+#: (0.188.0): beside the package, never in it, for a walk copy to start from
+#: (the factory's `tools/walk_export.py`, which moves it in).
+KEPT_CACHE_SUFFIX = ".import_cache"
+
+
+def kept_cache_dir(export_dir) -> Path:
+    """Where `keep_cache` puts a package's import cache: beside it, named
+    for it."""
+    export_dir = Path(export_dir)
+    return export_dir.parent / (export_dir.name + KEPT_CACHE_SUFFIX)
+
+
+def keep_cache(export_dir) -> Path | None:
+    """Move the import cache out of the package to sit beside it. Where it
+    went, or None if there was no cache.
+
+    The package leaves this as `drop_cache` leaves it: cache-free. The cache
+    is the export's own import of the files it ships, so a walk copy of the
+    package can start from it instead of importing everything again --
+    measured on cold run 9253's package re-exported (the factory's
+    `docs/findings/grader_speed/walk_cache_probe.py`): a walk copy importing
+    from scratch 85.6 and 86.2 s, one started from this cache 9.6 s; every
+    model it imports loading the same (501 of 501 by `import_digest.gd`,
+    whose digest a one-sidecar change moves), and the level the same (20,954
+    nodes, 3,380 meshes, none empty, 242 lights, 3,320 lightmap users).
+
+    A sidecar changed after the cache was made -- the pins read back after
+    it -- is imported again by the walk copy's own pass: that control, one
+    sidecar changed in a copy started from the cache, moved that model's
+    digest and no other's. A kept cache from an earlier export of the same
+    package is replaced, never merged.
+    """
+    cache = Path(export_dir) / CACHE_DIR
+    if not cache.is_dir():
+        return None
+    kept = kept_cache_dir(export_dir)
+    if kept.exists():
+        shutil.rmtree(kept, ignore_errors=True)
+    shutil.move(str(cache), str(kept))
+    return kept
+
+
 def measure(export_dir: Path, godot_executable, *,
             scene: str = f"res://{ENTRY_SCENE}",
             script: Path = BAKE_SCRIPT,

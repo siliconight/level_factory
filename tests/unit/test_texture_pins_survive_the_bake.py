@@ -85,6 +85,7 @@ def test_the_export_reads_them_back_after_its_last_import():
     code = "\n".join(ln.split("#", 1)[0] for ln in body.splitlines())
     repin = code.find("_repin_after_imports(export_dir)")
     assert repin != -1, "the export does not read the pins back"
-    for earlier in ("_bake_lights(", "greybox_skin.measure(", "if drop_cache(export_dir):"):
+    # 0.188.0 keeps the cache beside the package where it dropped it.
+    for earlier in ("_bake_lights(", "greybox_skin.measure(", "kept = keep_cache(export_dir)"):
         assert -1 < code.find(earlier) < repin, earlier
     assert repin < code.find("_closure_verdict(export_dir)")

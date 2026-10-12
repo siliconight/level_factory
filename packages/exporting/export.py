@@ -1632,6 +1632,11 @@ def export_mission(
     export_dir = out_root / export_build_dir_name(mission_id, profile.mode)
     if export_dir.exists():
         shutil.rmtree(export_dir)
+    # A cache kept beside the last package was that package's import, not
+    # this one's (0.188.0, `occluders.keep_cache`): it goes with it, so an
+    # export that stops early leaves no walk copy a stranger's cache.
+    from packages.exporting.occluders import kept_cache_dir
+    shutil.rmtree(kept_cache_dir(export_dir), ignore_errors=True)
     export_dir.mkdir(parents=True, exist_ok=True)
     layers = frozenset(layers or ())
     # THE MANIFEST DESCRIBES THE PACKAGE, NOT THE RUN. `cmd_export`
@@ -2029,7 +2034,8 @@ def export_mission(
     # `run/main_scene` and count what is really in the tree.
     from packages.exporting.occluders import (OccluderDisagreement,
                                               OccluderError, audit,
-                                              drop_cache, emit)
+                                              drop_cache, emit,
+                                              keep_cache)
     occluder_count = 0
     try:
         occ = emit(export_dir, godot_executable)
@@ -2269,9 +2275,15 @@ def export_mission(
     # Nothing between the bake and this line reads the cache's file types
     # (`.scn`, `.mesh`, `.md5`, `.cfg`): the occlusion audit and the handoff
     # walk read `*.tscn`, the GLB scan `*.glb`, the rest JSON.
-    if drop_cache(export_dir):
-        print("[export] import cache removed; the package ships sidecars, "
-              "not %s" % ".godot")
+    #
+    # KEPT BESIDE THE PACKAGE, NOT DELETED (0.188.0): the walk copy starts
+    # from it instead of importing every file again -- 9.6 s against 86 s,
+    # `occluders.keep_cache` says how that was measured. The package leaves
+    # this line as cache-free as it did.
+    kept = keep_cache(export_dir)
+    if kept is not None:
+        print("[export] import cache moved beside the package (%s); the "
+              "package ships sidecars, not %s" % (kept.name, ".godot"))
 
     # THE IMPORT PINS, READ BACK OFF THE FILES THAT SHIP (0.182.0): after the
     # last import and the cache, before the verdict and the manifest describe
