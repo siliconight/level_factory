@@ -185,6 +185,13 @@ def _rewrite_text(path: Path, export_dir: Path, addon_sources: dict[str, Path],
     # fixpoint loop rescans it for ITS references.
     if class_map and path.suffix == ".gd":
         for cname, (tool, rest) in class_map.items():
+            # A name the text does not contain cannot match the pattern below,
+            # and building that pattern and searching the whole script with it
+            # for every name the tools declare was nearly all of this function's
+            # time (0.192.0: 1.67 of 1.69 s a pass over cold run 9257's package,
+            # whose twelve buildings each carry a 95 KB zoo_worldskin.gd).
+            if cname not in new:
+                continue
             target = export_dir / _RUNTIME_DIR / tool / rest
             if target.exists():
                 continue

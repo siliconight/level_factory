@@ -15,6 +15,27 @@ extends EditorPlugin
 ## held off, the open asked once the file scan is idle and again until it
 ## lands, and the wait judged on a clock, opened 9242's scene in 21 s and baked
 ## it. The bake's own wait (BAKE_LIMIT_MS) was always a clock.
+##
+## THE EDITOR'S CLOCK IS STOPPED, AND THE OPEN IS LOOKED FOR AT ONCE (0.192.0).
+## Two exports of one level baked different lightmaps, and the difference was
+## not the bake's. Lux's failing fixtures keep their clocks in this editor too
+## (`_fail_t += delta`) and dim their lenses with their lamps, and a lens's
+## emission is baked: the lightmap kept each failing lens at whatever level it
+## had when Bake was pressed. With `Engine.time_scale` 0 from the start every
+## such clock stays at 0, and cold run 9257's level baked the same `bake.exr`,
+## `bake.lmbake` and `bake.exr.import`, byte for byte, whether Bake was pressed
+## 4.4 s earlier or not -- where two bakes with the clock running differed in
+## all three every time (the factory's docs/findings/grader_speed/README.md).
+## Frames still advance, and every wait here counts frames or reads
+## `Time.get_ticks_msec()`, which is not scaled. Which level a failing lens
+## should bake at is a look, not settled here: at 0 a stuttering tube is at
+## full, a filament at about 0.97, and a cycling streetlight wherever its own
+## seed puts it in its cycle.
+##
+## The scene was open at the first look in every bake (cold runs 9254 to 9257
+## logged it open at frame 240, the floor itself): the editor draws the opened
+## level's first frame in about 10 s and the 239 after it in about 4. The
+## floor is one frame now; an open that has not landed is still asked again.
 
 const SCENE := "res://bake.tscn"
 const OUT := "res://light_bake_result.json"
@@ -26,6 +47,9 @@ var _t0: int = 0
 ## When the scene was first asked for, and how long it may take to open (0.178.5).
 var _open_t0: int = 0
 const OPEN_LIMIT_MS := 300000
+## The frames before the opened scene is first looked for (0.192.0). It was
+## 240, and the scene was open at that first look in every bake.
+const OPEN_FLOOR_FRAMES := 1
 var _lm: LightmapGI = null
 ## A bake and a save each show a progress bar that pumps the editor's main
 ## loop, which calls `_process` again from inside them; the control run's
@@ -45,6 +69,10 @@ func _enter_tree() -> void:
 	# An unfocused editor sleeps between frames; a bake on someone's desktop
 	# rarely has the focus. Held off here and every frame (0.178.5).
 	OS.low_processor_usage_mode = false
+	# Every clock a script keeps from its frames stops here, before the scene
+	# opens: the failing fixtures' lenses bake at one level whenever Bake is
+	# pressed (0.192.0, the header says why).
+	Engine.time_scale = 0.0
 	set_process(true)
 
 
@@ -143,7 +171,7 @@ func _process(_delta: float) -> void:
 			_phase = 1
 			_frames = 0
 		1:
-			if _frames < 240:
+			if _frames < OPEN_FLOOR_FRAMES:
 				return
 			var root := EditorInterface.get_edited_scene_root()
 			if root == null or root.scene_file_path != SCENE:
