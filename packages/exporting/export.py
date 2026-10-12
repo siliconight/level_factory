@@ -658,7 +658,8 @@ def _pin_sign_texture_imports(export_dir: Path) -> int:
     return changed
 
 
-def _write_import_sidecars(export_dir: Path, godot_executable) -> int:
+def _write_import_sidecars(export_dir: Path, godot_executable, *,
+                           bake_spawned=None) -> int:
     """Run one import pass and keep the `.import` sidecars, not the cache.
 
     ROADMAP 25, the half it never covered. Godot cannot load a `.glb` as a
@@ -843,6 +844,35 @@ def _write_import_sidecars(export_dir: Path, godot_executable) -> int:
 
     rewrote += _pin_shared_texture_imports(export_dir)
     rewrote += _pin_sign_texture_imports(export_dir)
+
+    # THE LIGHT BAKE'S MARKS RIDE THE SECOND PASS (0.187.0). The bake asks
+    # every model for a lightmap UV (`light_bake.mark_imports`) and used to
+    # import the package again for it: every model's third import, 55.0 s of
+    # a 277.6 s re-export of cold run 9252, the shared textures re-imported
+    # with them (1,843 times for 476 models in 9248's), and the pass that
+    # loses their pins (`_repin_after_imports`). Marked here, before a pass
+    # that imports everything anyway, the bake's import finds nothing left
+    # to do: 5.0 s, the export 238.4 s, no pin lost where the control lost 74.
+    #
+    # NOT BEFORE THE FIRST PASS, which is the refuted plan (the factory's
+    # `patches/patch_lf_import_once.py`). The worldskin skins a building's
+    # slabs by `load()`ing one of its floor modules, and on a model's first
+    # import that module may not be imported yet: cold run 9251's import
+    # log, pass one left 105 slab meshes greybox and took two reveals from
+    # roof modules; pass two, its sidecars present, skinned every slab from
+    # a floor module. This pass is not a first import.
+    #
+    # WHAT IT CHANGES (the factory's
+    # `docs/findings/grader_speed/uv_second_pass_probe.py`): the Empties'
+    # merge sees models carrying their lightmap UV and makes one mesh a side
+    # per material, as it was written to -- 236 merged meshes became 148 for
+    # the same 1,061 meshes in, the bake's users 3,491 -> 3,320 (every one of
+    # the 171 a merged mesh of an Empty), the lightmap 16 slices -> 15. The
+    # greybox census, the occluders and the closure verdict identical.
+    if bake_spawned is not None:
+        from packages.exporting.light_bake import mark_imports
+        marks = mark_imports(export_dir, bake_spawned)
+        rewrote += len(marks["baked"]) + len(marks["spawned"])
 
     if rewrote:
         # Drop what EXTRACT wrote, so the second pass is measured clean. Only
@@ -1963,7 +1993,12 @@ def export_mission(
     _write_project_godot(export_dir, profile.entry_scene, mission_id,
                          profile.godot_version, profile.weather)
     (export_dir / "HANDOFF.md").write_text(HANDOFF_LANGUAGE, encoding="utf-8")
-    _write_import_sidecars(export_dir, godot_executable)
+    # The light bake's marks go on before the second import pass, so the bake
+    # does not import every model a third time (0.187.0).
+    _write_import_sidecars(
+        export_dir, godot_executable,
+        bake_spawned=(responder_vehicle_scenes(themed_site_dir)
+                      if profile.bake_lights else None))
 
     # Occluders. AFTER the sidecar pass, because the bake measures the GLBs'
     # real extents and cannot until Godot has imported them AND left the

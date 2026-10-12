@@ -414,6 +414,10 @@ def bake(export_dir, godot_executable, *, log=print, spawned=()) -> dict:
         report["primitives"] = add_primitive_uv2(export_dir)
         report["rigs"] = mark_steady_rigs(pres)
         (export_dir / BAKE_SCENE).write_text(bake_scene_text(), encoding="utf-8", newline="\n")
+        # Since 0.187.0 the export writes these marks before its second import
+        # pass, so this one finds nothing left to import (5.0 s where it took
+        # 55.0, cold run 9252's package re-exported). It stays: the net for a
+        # caller that did not, and for any sidecar changed above.
         if not _import(export_dir, godot_executable):
             raise RuntimeError("the UV2 import pass did not run")
         # 0.178.6: up to BAKE_ATTEMPTS tries, each on a fresh copy, each editor's log kept
