@@ -85,6 +85,38 @@ DEFAULT_CONCURRENCY = {
     "godot_interactive": 1, "io_heavy": 2, "lightweight": 8,
 }
 
+#: An override of the caps for ONE invocation, from the environment (0.184.0):
+#: `LF_CONCURRENCY="blender=3,python_cpu=6"`. For measuring a wider width before
+#: it becomes a default -- `godot_headless` is a measurement (`godot_cap`), and
+#: `blender` 1 is TDD 19.2's, never measured, while cold run 9250's art leg ran
+#: 102 s of Blender jobs one after another. A run under one says so in its output;
+#: a class this scheduler does not know, or a width below 1, refuses the run
+#: rather than being ignored.
+CONCURRENCY_ENV = "LF_CONCURRENCY"
+
+
+def concurrency_overrides(text) -> dict:
+    """``{class: width}`` from `CONCURRENCY_ENV`'s ``class=width[,class=width]``;
+    empty for none. Raises ValueError on anything else, naming it."""
+    out = {}
+    for part in (text or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        name, eq, value = part.partition("=")
+        name = name.strip()
+        if not eq or name not in DEFAULT_CONCURRENCY:
+            raise ValueError("%s: %r is not <class>=<width> for a class of %s"
+                             % (CONCURRENCY_ENV, part, sorted(DEFAULT_CONCURRENCY)))
+        try:
+            width = int(value.strip())
+        except ValueError:
+            raise ValueError("%s: %r names no whole width" % (CONCURRENCY_ENV, part)) from None
+        if width < 1:
+            raise ValueError("%s: %r would never run that class" % (CONCURRENCY_ENV, part))
+        out[name] = width
+    return out
+
 MAX_TRANSIENT_RETRIES = 1
 
 
@@ -227,6 +259,15 @@ class Scheduler:
         self.installation = dict(installation)
         self.godot_project = godot_project
         self.concurrency = dict(concurrency or DEFAULT_CONCURRENCY)
+        # caps given to the constructor are the caller's; the environment's
+        # override is for the command line's scheduler (0.184.0)
+        overrides = {} if concurrency else concurrency_overrides(
+            _os.environ.get(CONCURRENCY_ENV))
+        if overrides:
+            print("[scheduler] %s: %s" % (CONCURRENCY_ENV, ", ".join(
+                "%s %d -> %d" % (k, self.concurrency.get(k, 1), v)
+                for k, v in sorted(overrides.items()))))
+            self.concurrency.update(overrides)
 
     # ------------------------------------------------------------------
     def run(
