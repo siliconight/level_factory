@@ -39,8 +39,9 @@ def test_static_lightmaps_on_every_model_but_those_whose_uv2_is_shader_data(tmp_
     _glb(tmp_path / "odd.glb", uv2=False)
     (tmp_path / "odd.glb.import").write_text("[remap]\nimporter=\"scene\"\n", encoding="utf-8")
     got = LB.mark_imports(tmp_path)
+    # the report's `unlit` (0.194.0): a site's wires, none here
     assert got == {"baked": ["shell.glb"], "dynamic": ["grill.glb"], "spawned": [],
-                   "spawned_unmatched": [], "unreadable": ["odd.glb"]}
+                   "spawned_unmatched": [], "unreadable": ["odd.glb"], "unlit": []}
     assert "meshes/light_baking=2" in (tmp_path / "shell.glb.import").read_text(encoding="utf-8")
     assert "meshes/light_baking=1" in (tmp_path / "grill.glb.import").read_text(encoding="utf-8")
 

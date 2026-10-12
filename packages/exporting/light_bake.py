@@ -148,6 +148,15 @@ def glb_has_uv2(path: Path) -> bool:
                for m in doc.get("meshes", []) for p in m.get("primitives", []))
 
 
+#: OBJs a site ships that are NOT lit by the bake (0.194.0): Lot 0.119.0's
+#: overhead wires, `site_wires_*.obj`, unshaded tubes whose nodes take no GI
+#: (`gi_mode = 0`) -- a 2 cm wire unwrapped into the lightmap would spend its
+#: texels on nothing a player sees lit, and its import would make a second UV
+#: for nothing. `mark_imports` lists them under `unlit` and leaves their
+#: sidecars as the engine wrote them.
+UNLIT_PREFIXES = ("site_wires_",)
+
+
 def mark_imports(export_dir: Path, spawned=()) -> dict:
     """Static Lightmaps on every model's sidecar but those whose own second
     UV set is shader data. ``{"baked": [...], "dynamic": [...], ...}``,
@@ -160,7 +169,8 @@ def mark_imports(export_dir: Path, spawned=()) -> dict:
     listed under ``spawned_unmatched``. 0.162.0 baked the car's import static
     like any prop, and a spawned one would have had neither the lightmap nor
     the probes."""
-    out = {"baked": [], "dynamic": [], "spawned": [], "spawned_unmatched": [], "unreadable": []}
+    out = {"baked": [], "dynamic": [], "spawned": [], "spawned_unmatched": [], "unreadable": [],
+           "unlit": []}
     wanted = set(spawned)
     for sidecar in sorted(Path(export_dir).rglob("*.glb.import")):
         if ".godot" in sidecar.parts:
@@ -193,6 +203,9 @@ def mark_imports(export_dir: Path, spawned=()) -> dict:
         if ".godot" in sidecar.parts:
             continue
         rel = sidecar.with_suffix("").relative_to(export_dir).as_posix()
+        if sidecar.name.startswith(UNLIT_PREFIXES):
+            out["unlit"].append(rel)
+            continue
         text = sidecar.read_text(encoding="utf-8")
         new, k = re.subn(r"^generate_lightmap_uv2=(?:true|false)$",
                          "generate_lightmap_uv2=true", text, flags=re.M)
