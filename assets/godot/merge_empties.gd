@@ -13,7 +13,8 @@ extends SceneTree
 ## and instancing a kit module GLB, and `Dressing` (the covers, merged per
 ## side since roadmap 180). For each scene handed in:
 ##   * every slot child whose name gives a side -- `ext_<storey>_<N|E|S|W>_*`,
-##     `parapet_<N|E|S|W>_*`, `roof_*` (side R) -- is taken apart. Its
+##     `parapet_<N|E|S|W>_*`, `roof_*` (side R), `stoop_*` (side S: a
+##     rowhome's stoop, at its front door, 0.196.0) -- is taken apart. Its
 ##     StaticBody3D colliders are copied out whole under `KitCollision`, in
 ##     the root's frame. Every surface of its other MeshInstance3D nodes is
 ##     appended, in the root's frame, to the group keyed by (side, material
@@ -66,6 +67,13 @@ func _side(slot_name: String) -> String:
 		return parts[1]
 	if slot_name.begins_with("ext_") and parts.size() > 2 and parts[2] in ["N", "E", "S", "W"]:
 		return parts[2]
+	# A ROWHOME'S STOOP (0.196.0, Deli Counter 0.211.0): it stands at the front
+	# door, which Deli Counter puts on the S wall (`stoop.front_door`), so its
+	# pieces join the front's groups -- one mesh a material with the rest of that
+	# side -- where each drew as a module of its own: three an Empty, +93 draws at
+	# cold run 9271's worst heading.
+	if slot_name.begins_with("stoop_"):
+		return "S"
 	return ""
 
 

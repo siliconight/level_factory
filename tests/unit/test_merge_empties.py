@@ -137,3 +137,17 @@ def test_the_godot_half_ships_with_the_python_half():
     assert M.MERGE_SCRIPT.is_file()
     text = M.MERGE_SCRIPT.read_text(encoding="utf-8")
     assert re.search(r'^const SCHEMA := "' + re.escape(M.SCHEMA) + '"$', text, re.M)
+
+
+def test_a_rowhome_s_stoop_merges_with_its_front():
+    """0.196.0: Deli Counter 0.211.0's stoop slots (`stoop_landing`, `stoop_tread_<k>`)
+    give no side in their names, and each drew as a module of its own (cold run 9271:
+    +93 draws at its worst heading). `_side` gives them the front's, S, where Deli
+    Counter stands the stoop. The rule runs only inside Godot: this holds its source to
+    it, and a cold run's `merge_empties.json` measures it."""
+    text = M.MERGE_SCRIPT.read_text(encoding="utf-8")
+    side = text[text.index("func _side("):text.index("func _walk(")]
+    rule = side.index('if slot_name.begins_with("stoop_"):')
+    assert side[rule:].split("\n")[1].strip() == 'return "S"'
+    # before the catch-all: a stoop is never left without a side
+    assert rule < side.rindex('return ""')
