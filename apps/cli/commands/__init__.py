@@ -2286,7 +2286,18 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
     if _empty_rows and roads:
         from packages.pipeline import empties as _empties
         from packages.pipeline import street_line as _sl
-        _ext = {r["id"]: _sl.shell_extents(r["glb"]) for r in _empty_rows}
+        # A STOOP STANDS IN THE FRONTAGE (0.195.0): the house's front face on
+        # the line, read without its stoop (`STOOP_COLLIDERS`), and the stoop
+        # in the strip before it -- never past the strip onto the walk.
+        _ext = {r["id"]: _sl.shell_extents(r["glb"], skip=_sl.STOOP_COLLIDERS)
+                for r in _empty_rows}
+        for r in _empty_rows:
+            _reach = _empties.stoop_reach(_sl.shell_extents(r["glb"]), _ext[r["id"]])
+            if _reach and _reach > _empties.FRONTAGE:
+                print(f"  EMPTY_STOOP_PAST_FRONTAGE: {r['id']}'s stoop reaches "
+                      f"{_reach:.2f} m in front of it and the terrace keeps "
+                      f"{_empties.FRONTAGE:.2f} m: it stands on the sidewalk",
+                      file=sys.stderr)
         _row = {r["id"]: r for r in _empty_rows}
         placed_e, need_half = _empties.terrace(
             _empty_rows, _ext, site_variation.stream(int(seed) ^ 0x5E3A11),

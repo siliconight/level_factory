@@ -32,9 +32,21 @@ import math
 from pathlib import Path
 
 
-def shell_extents(glb_path):
+#: Deli Counter 0.211.0's stoop colliders (`Builder._stoop`): the steps in
+#: front of a rowhome Empty's raised door. The terrace stands an Empty's FRONT
+#: FACE on its line and its stoop in the frontage before it -- the 2.0 m strip
+#: a Philadelphia stoop stands in (`empties.FRONTAGE`, factory roadmap 240) --
+#: so it leaves them out of the house's extent, and `empties.stoop_reach` holds
+#: them inside the strip. Named exactly: a twin's `stoop_right` volume is its
+#: own lot's, read with the building as a porch is.
+STOOP_COLLIDERS = ("stoop_landing", "stoop_under_", "stoop_ramp")
+
+
+def shell_extents(glb_path, skip=()):
     """``(x_min, x_max, y_min, y_max)`` of a shell's collider hulls about its
-    own origin, in site metres; None when the geometry cannot be read."""
+    own origin, in site metres; None when the geometry cannot be read.
+    ``skip``: the name prefixes of colliders left out -- a part that stands in
+    front of the house rather than being it (`STOOP_COLLIDERS`, 0.195.0)."""
     try:
         from packages.validation import glb_collision
     except ImportError:                       # pragma: no cover - packaging only
@@ -42,10 +54,14 @@ def shell_extents(glb_path):
     reading = glb_collision.collision_solids(Path(glb_path))
     if not reading.read or not reading.solids:
         return None
-    x0 = min(s.centre[0] - s.size[0] / 2.0 for s in reading.solids)
-    x1 = max(s.centre[0] + s.size[0] / 2.0 for s in reading.solids)
-    z0 = min(s.centre[2] - s.size[2] / 2.0 for s in reading.solids)
-    z1 = max(s.centre[2] + s.size[2] / 2.0 for s in reading.solids)
+    solids = [s for s in reading.solids
+              if not any(s.name.startswith(p) for p in skip)]
+    if not solids:
+        return None
+    x0 = min(s.centre[0] - s.size[0] / 2.0 for s in solids)
+    x1 = max(s.centre[0] + s.size[0] / 2.0 for s in solids)
+    z0 = min(s.centre[2] - s.size[2] / 2.0 for s in solids)
+    z1 = max(s.centre[2] + s.size[2] / 2.0 for s in solids)
     return (x0, x1, -z1, -z0)
 
 

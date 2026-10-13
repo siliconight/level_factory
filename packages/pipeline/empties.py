@@ -20,7 +20,9 @@ WHAT THEY ARE TO LOT: `blockers` (`lot.py`), which Lot instances from a
 shell scene like a building and which no walk, dumpster, field or entry
 gate reads. Placement here is plan metres; a building's street edge is read
 per side off its collider hulls (`street_line.shell_extents`), the same
-measure the near side's building line uses.
+measure the near side's building line uses. A rowhome's STOOP is not its
+edge (0.195.0): it stands in the strip in front of the line, which is what
+the strip is for (`street_line.STOOP_COLLIDERS`, `stoop_reach`).
 
 Pure but for nothing: the extents are measured by the caller.
 """
@@ -149,3 +151,14 @@ def terrace(rows, extents, stream, roads, span_x):
             in_run = 0
             run_len = RUN[0] + next(stream) % (RUN[1] - RUN[0] + 1)
     return out, need
+
+
+def stoop_reach(whole, house):
+    """How far a shell's stoop reaches in front of its house, metres: the
+    street edge (-y, unturned) of every collider (``whole``) less the house's
+    own (``house``, `street_line.STOOP_COLLIDERS` skipped); 0.0 for a shell
+    with none, None when either is unread. The terrace keeps it inside
+    `FRONTAGE` (0.195.0)."""
+    if whole is None or house is None:
+        return None
+    return round(max(0.0, house[2] - whole[2]), 4)
