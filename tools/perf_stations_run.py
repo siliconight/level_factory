@@ -43,6 +43,10 @@ import sys
 from pathlib import Path
 
 EXIT_OK = 0
+#: bytes in a MiB, the unit the memory is printed in (0.199.0)
+MIB = 1024 * 1024
+#: what the probe reads after the warm-up, together (0.199.0)
+MEMORY_KEYS = ("texture_mem_bytes", "buffer_mem_bytes", "video_mem_bytes")
 EXIT_FINDINGS = 1
 #: How many of the over-cap meshes the console names (the report keeps all
 #: the probe listed).
@@ -285,6 +289,21 @@ def main(argv=None) -> int:
                  UNSTABLE_MS, max(spreads), redrawn))
     else:
         print("  passes: one per heading (a report from before 0.141.0)")
+
+    # WHAT THE PACKAGE HOLDS (0.199.0, factory roadmap 238): the engine's
+    # texture, buffer and video memory, read by the probe once every station
+    # was warm. The probe writes the three together; a report from before
+    # carries none and says so, and one with only some prints none of them --
+    # a missing field is never read as a zero.
+    mem = doc.get("geometry") or {}
+    have = [k for k in MEMORY_KEYS if k in mem]
+    if len(have) == len(MEMORY_KEYS):
+        print("  memory after the warm-up: textures %.1f MiB, buffers %.1f MiB, "
+              "video %.1f MiB" % tuple(int(mem[k]) / MIB for k in MEMORY_KEYS))
+    elif have:
+        print("  memory: only %s in this report -- not printed" % ", ".join(have))
+    else:
+        print("  memory: none in this report (a probe from before 0.199.0)")
 
     census = rows[0].get("light_census") or {}
     if census:

@@ -660,6 +660,16 @@ func _run() -> void:
 	print("[perf] warmed %d station(s); worst frame while warming %.1f ms"
 		% [stations.size(), cold_worst])
 	_geometry["cold_worst_ms"] = cold_worst
+	# WHAT THE PACKAGE HOLDS (0.199.0, factory roadmap 238), read once every
+	# station is warm: what a station shows is resident by now, and the
+	# measured passes below revisit what was warmed. The engine's monitors, in
+	# bytes; the runner reports MiB.
+	_geometry["texture_mem_bytes"] = int(Performance.get_monitor(
+		Performance.RENDER_TEXTURE_MEM_USED))
+	_geometry["buffer_mem_bytes"] = int(Performance.get_monitor(
+		Performance.RENDER_BUFFER_MEM_USED))
+	_geometry["video_mem_bytes"] = int(Performance.get_monitor(
+		Performance.RENDER_VIDEO_MEM_USED))
 	print("[perf] %d station(s) x %d heading(s) x %d pass(es), %d frames each after %d warmup"
 		% [stations.size(), HEADINGS, PASSES, WINDOW, WARMUP])
 	_geometry["passes"] = PASSES
