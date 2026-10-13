@@ -33,13 +33,16 @@ from pathlib import Path
 
 
 #: Deli Counter 0.211.0's stoop colliders (`Builder._stoop`): the steps in
-#: front of a rowhome Empty's raised door. The terrace stands an Empty's FRONT
-#: FACE on its line and its stoop in the frontage before it -- the 2.0 m strip
-#: a Philadelphia stoop stands in (`empties.FRONTAGE`, factory roadmap 240) --
-#: so it leaves them out of the house's extent, and `empties.stoop_reach` holds
-#: them inside the strip. Named exactly: a twin's `stoop_right` volume is its
-#: own lot's, read with the building as a porch is.
-STOOP_COLLIDERS = ("stoop_landing", "stoop_under_", "stoop_ramp")
+#: front of a rowhome Empty's raised door, and 0.212.0's railings on them. The
+#: terrace stands an Empty's FRONT FACE on its line and its stoop in the
+#: frontage before it -- the 2.0 m strip a Philadelphia stoop stands in
+#: (`empties.FRONTAGE`, factory roadmap 240) -- so it leaves them out of the
+#: house's extent, and `empties.stoop_reach` holds them inside the strip. Named
+#: exactly: a twin's `stoop_right` volume is its own lot's, read with the
+#: building as a porch is. Read with the house, a railing's flight was its
+#: street edge, 1.41 m in front of its facade (0.197.0).
+STOOP_COLLIDERS = ("stoop_landing", "stoop_under_", "stoop_ramp",
+                   "stoop_rail_")
 
 
 def shell_extents(glb_path, skip=()):

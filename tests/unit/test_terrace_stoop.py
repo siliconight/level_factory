@@ -7,6 +7,9 @@ the stoop's foot would stand on the line and the house 1.74 m behind it, the row
 for nothing. The strip IS where a Philadelphia stoop stands: the house's own extent leaves its stoop
 out (`STOOP_COLLIDERS`), the front face stands on the line as it did, and `stoop_reach` holds the stoop
 inside the strip.
+
+0.197.0: Deli Counter 0.212.0 stands an iron railing on each side of the stoop, its colliders named
+`stoop_rail_*`. They are the stoop's too: read with the house, a flight's slab was its street edge.
 """
 import sys
 from pathlib import Path
@@ -32,6 +35,13 @@ STOOP = [("stoop_landing_col-convcolonly", (-1.5, 0.2417, 6.6), (1.5, 0.5834, 0.
          ("stoop_ramp-convcolonly", (-1.5, 0.2, 7.469), (1.5, 0.6, 0.838))]
 #: the twin's stoop, a volume (`presets.twin`): named `stoop_right`, it is the BUILDING's, as a porch is
 TWIN_STOOP = [("stoop_right_col-convcolonly", (2.0, 0.1, 7.35), (1.8, 0.2, 1.2))]
+#: Deli Counter 0.212.0's railings on that stoop, their hulls as the reader gives them off the built
+#: gs_empty_rowhome_a, whose door is at x -1.5 too (the factory's patches/lf_stoop_railings/
+#: rail_hulls_0196.log): a box along the landing a side, and the box round the slab under each flight
+RAILS = [("stoop_rail_w_level_col-convcolonly", (-2.181, 0.9906, 6.6), (0.038, 0.9144, 0.9)),
+         ("stoop_rail_w_flight_col-convcolonly", (-2.181, 0.9628, 7.0897), (0.038, 0.9699, 0.9382)),
+         ("stoop_rail_e_level_col-convcolonly", (-0.819, 0.9906, 6.6), (0.038, 0.9144, 0.9)),
+         ("stoop_rail_e_flight_col-convcolonly", (-0.819, 0.9628, 7.0897), (0.038, 0.9699, 0.9382))]
 THROUGH = {"a": [-90.0, -27.65], "b": [90.0, -27.65], "width": 10.0, "sidewalk": 3.0}
 
 
@@ -62,7 +72,7 @@ def test_a_stoop_s_reach_is_its_depth_in_front_of_the_house(tmp_path):
 
 def test_only_the_empty_s_stoop_is_left_out(tmp_path):
     # a twin's stoop is a volume of its own lot, read as the building's (the street line keeps a
-    # porch or a canopy off the walk); the skip names Deli Counter 0.211.0's three colliders only
+    # porch or a canopy off the walk); the skip names Deli Counter's stoop and railing colliders only
     twin = write_glb(tmp_path / "twin.glb", WALLS + TWIN_STOOP)
     whole = street_line.shell_extents(twin)
     assert street_line.shell_extents(twin, skip=street_line.STOOP_COLLIDERS) == whole
@@ -87,3 +97,15 @@ def test_the_terrace_stands_the_front_face_on_the_line(tmp_path):
                                       [THROUGH], 60.0)
     assert {p["front"] for p in placed_whole} == {-37.65}
     assert all(abs((a["at"][1] - b["at"][1]) - 1.738) < 1e-6 for a, b in zip(placed, placed_whole))
+
+
+def test_a_stoop_s_railings_are_the_stoop_s_not_the_house_s(tmp_path):
+    plain = street_line.shell_extents(write_glb(tmp_path / "plain.glb", WALLS))
+    railed = write_glb(tmp_path / "railed.glb", WALLS + STOOP + RAILS)
+    house = street_line.shell_extents(railed, skip=street_line.STOOP_COLLIDERS)
+    assert house == plain
+    # the stoop's reach is still its ramp's foot: the railings end inside it
+    assert abs(empties.stoop_reach(street_line.shell_extents(railed), house) - 1.738) < 1e-9
+    # skipping 0.195.0's three only, a flight is the house's street edge: the row 1.41 m back
+    three = street_line.shell_extents(railed, skip=("stoop_landing", "stoop_under_", "stoop_ramp"))
+    assert abs((plain[2] - three[2]) - 1.4088) < 1e-4
