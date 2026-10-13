@@ -8,8 +8,11 @@ Empty -- and 9271's merge report read exactly as 9270's (95 meshes in and 86 col
 
 - **`_side`** gives a `stoop_*` slot the front's side, S. Deli Counter stands the stoop at the front door,
   which it puts on the S wall (`stoop.front_door`). Its pieces join the front's groups and merge by
-  material with the rest of that side. Its colliders are Deli Counter's own, in the greybox base, and
-  unchanged.
+  material with the rest of that side. Deli Counter's colliders -- the ramp, the landing, the block --
+  are in the greybox base and unchanged; the art's modules bring a box collider a piece (Zoo builds a
+  prop module with one), which the merge copies out under `KitCollision` as it does every slot's.
+  They stand under the ramp, as a flight's treads do. (Corrected after the release: the entry first
+  said the stoop's colliders were Deli Counter's alone, and its own merge result counted three more.)
 
 **Merged:** on a mirror of cold run 9271's package -- its Empties merged by 0.195.0, each stoop left as three modules -- 0.196.0's `merge_empties.gd` takes in each rowhome's three stoop meshes (three surfaces) and makes one merged mesh of them, copying the modules' three box colliders out under `KitCollision` as it does every slot's; twelve scenes, no error (the factory's `docs/cold_runs/cold_9271/merge_stoop.sh`)
 
