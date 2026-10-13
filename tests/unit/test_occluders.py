@@ -134,8 +134,8 @@ def test_rendering_block_switches_occlusion_culling_on():
     The engine default is false, verified on 4.7.stable. A package that ships
     occluders and leaves this out ships inert nodes.
     """
-    assert _OCC_SETTING in rendering_block(0, 414)
-    assert _OCC_SETTING in rendering_block(84, 414)
+    assert _OCC_SETTING in rendering_block(0, 414, 0)
+    assert _OCC_SETTING in rendering_block(84, 414, 0)
 
 
 def test_rendering_block_refuses_to_claim_culling_with_no_occluders():
@@ -146,14 +146,14 @@ def test_rendering_block_refuses_to_claim_culling_with_no_occluders():
     about 0.27 ms of CPU a frame at 1280x720 with nothing to cull; switching
     it on for a package with zero occluders buys that cost and nothing else.
     """
-    assert _OCC_OFF in rendering_block(0, 0)
-    assert _OCC_OFF in rendering_block(84, 0)
-    assert _OCC_SETTING not in rendering_block(84, 0)
+    assert _OCC_OFF in rendering_block(0, 0, 0)
+    assert _OCC_OFF in rendering_block(84, 0, 0)
+    assert _OCC_SETTING not in rendering_block(84, 0, 0)
 
 
 def test_the_occlusion_line_is_in_the_rendering_section():
     """It is a `rendering/` setting; under any other header it does nothing."""
-    text = rendering_block(84, 414)
+    text = rendering_block(84, 414, 0)
     head, _, tail = text.partition(_OCC_SETTING)
     assert "[rendering]" in head
     assert "[" not in head.split("[rendering]", 1)[1]
@@ -163,7 +163,7 @@ def test_settling_the_flag_rewrites_the_one_line_in_place(tmp_path):
     """The export writes project.godot before it knows the count, so the line
     is settled afterwards. Appending a second one would leave the engine
     reading whichever came last."""
-    text = "[application]\nx=1\n\n" + rendering_block(84, 0) + "[debug]\ny=2\n"
+    text = "[application]\nx=1\n\n" + rendering_block(84, 0, 0) + "[debug]\ny=2\n"
     on = set_occlusion_culling(text, 414)
     assert on.count(OCCLUSION_KEY) == 1
     assert _OCC_SETTING in on

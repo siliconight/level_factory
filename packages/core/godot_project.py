@@ -60,6 +60,15 @@ scene), and the census is the only number that sees a lamp a rig builds in
 _ready. Absent, unreadable or short of the key, the record contributes
 nothing and the text count stands alone, as it did before -- an older driver
 is not a reason to write a smaller cap than 0.86.1 would have.
+
+THE REFLECTION ATLAS IS DERIVED FROM THE PACKAGE TOO (0.198.0, roadmap 238).
+Godot allocates it the first time any ReflectionProbe renders, at the size
+two settings give it, and the defaults -- 64 slots of 256 x 256 x 6 faces in
+half-float with mips -- are 256 MiB of texture memory: on cold run 9273's
+package, 257 of its 314.6 MiB, for 23 probes, each an interior room's
+ambient (the factory's `docs/findings/texture_memory/`). So the slots are the
+package's probe count rounded up (`reflection_atlas_count`), and the face
+size is the priced `REFLECTION_ATLAS_SIZE`.
 """
 from __future__ import annotations
 
@@ -130,6 +139,53 @@ def package_light_budget(root: Path) -> int:
     text = count_package_lights(root)
     census = lights_reported_by_lux(root)
     return text if census is None else max(text, census)
+
+
+#: THE REFLECTION ATLAS (0.198.0, roadmap 238; module docstring). Fewer slots than
+#: probes is not a lever: at 4 slots for 23 probes the engine raised
+#: `rpi->atlas_index < 0` 113,494 times and the run stalled in its warm-up.
+_PROBE_RE = re.compile(r'type="ReflectionProbe"')
+ENGINE_DEFAULT_REFLECTION_COUNT = 64
+ENGINE_DEFAULT_REFLECTION_SIZE = 256
+#: The face size, priced on cold run 9273's package at its derived stations and
+#: twelve interiors against the 256 it shipped with (the factory's
+#: `docs/findings/texture_memory/atlas_frames.sh`): at 64 no pixel of any frame
+#: moved more than 32 codes and at most 2.7 % moved more than 8, in one drywall
+#: room; texture memory 314.6 -> 73.5 MiB at 64 slots. What 128 or 256 would buy
+#: back is a sharper reflection on a glossy surface, and the interiors measured are
+#: concrete, drywall and brick: the number to raise if a level shows otherwise.
+REFLECTION_ATLAS_SIZE = 64
+
+
+def count_package_probes(root: Path) -> int:
+    """ReflectionProbe nodes across every `.tscn` under `root`, globbed as
+    `count_package_lights` globs lights. On cold run 9273's package the text's 23
+    is the running tree's 23: Lux's room probes ship in its applied scene."""
+    total = 0
+    for scene in sorted(Path(root).rglob("*.tscn")):
+        try:
+            text = scene.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        total += len(_PROBE_RE.findall(text))
+    return total
+
+
+def reflection_atlas_count(probes: int) -> int:
+    """The atlas's slots for `probes` probes: the next power of two at or above
+    the count -- a slot for every probe, and room for one a rig adds at runtime."""
+    n = 1
+    while n < probes:
+        n *= 2
+    return n
+
+
+def reflection_atlas_mib(count: int, size: int) -> float:
+    """What an atlas of `count` slots of `size` costs in texture memory, MiB: six
+    faces of half-float RGBA (8 bytes a texel) with a mip chain (x 4/3). The
+    defaults, 64 x 256, are 256 MiB -- the 257.3 the Warmup's sweep allocated on
+    cold run 9273's package -- and 64 x 64 is 16, the 241.1 that face size took away."""
+    return count * 6 * size * size * 8 * 4.0 / 3.0 / 2 ** 20
 
 
 #: The setting's key inside `[rendering]`. One constant, because the writer
@@ -205,7 +261,7 @@ def shader_globals_block(weather: str | None) -> str:
             f'{WIND_KEY}={{"type": "vec3", "value": Vector3({x:g}, {y:g}, {z:g})}}\n\n')
 
 
-def rendering_block(light_count: int, occluders: int) -> str:
+def rendering_block(light_count: int, occluders: int, probes: int) -> str:
     """The `[rendering]` section, ending with a blank line.
 
     Each cap is written only when the package exceeds the engine's own default
@@ -215,7 +271,8 @@ def rendering_block(light_count: int, occluders: int) -> str:
     package that decided against the culler from one that forgot it.
 
     `occluders` has no default ON PURPOSE. Every caller has to have an answer,
-    and a walk preview's honest answer is 0.
+    and a walk preview's honest answer is 0. Nor has `probes` (0.198.0): the
+    package's ReflectionProbe count, `count_package_probes` of its folder.
     """
     out = ['[rendering]', 'renderer/rendering_method="gl_compatibility"']
 
@@ -245,6 +302,21 @@ def rendering_block(light_count: int, occluders: int) -> str:
             "; package's own light count -- a true upper bound, sufficient by",
             "; construction, with no headroom to pay for.",
             f"limits/opengl/max_renderable_lights={light_count}",
+        ]
+
+    # THE REFLECTION ATLAS (0.198.0, roadmap 238): written only when the
+    # package has a probe -- the atlas is allocated the first time one
+    # renders, so a package with none never pays for it.
+    if probes > 0:
+        out += [
+            "; REFLECTION ATLAS -- sized to this package's reflection probes. Godot's",
+            "; default, 64 slots of 256 x 256 x 6 half-float with mips, is 256 MiB of",
+            "; texture memory the first time any probe renders (cold run 9273's package:",
+            "; 257 of its 314.6 MiB). The slots are this package's probe count,",
+            f"; {probes}, rounded up to a power of two: fewer slots than probes floods",
+            "; the log and stalls the frame. The face size is the priced one.",
+            f"reflections/reflection_atlas/reflection_count={reflection_atlas_count(probes)}",
+            f"reflections/reflection_atlas/reflection_size={REFLECTION_ATLAS_SIZE}",
         ]
 
     # No per-object cap, ON PURPOSE (roadmap 54, closed). Every plate visual
