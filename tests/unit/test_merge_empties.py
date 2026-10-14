@@ -16,6 +16,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from packages.exporting import merge_empties as M  # noqa: E402
+from tests.siblings import not_found, sibling_repo  # noqa: E402
 
 _REPO = Path(__file__).resolve().parents[2]
 
@@ -151,3 +152,36 @@ def test_a_rowhome_s_stoop_merges_with_its_front():
     assert side[rule:].split("\n")[1].strip() == 'return "S"'
     # before the catch-all: a stoop is never left without a side
     assert rule < side.rindex('return ""')
+
+
+def test_a_walk_up_s_fire_escape_merges_with_its_front():
+    """0.209.0: Deli Counter 0.220.0's fire escape slots (`fire_escape_<storey>`,
+    `fire_escape_drop`) give no side in their names, and each drew as a module of its
+    own: four to six a walk-up, 28 on cold run 9303's picked candidate. `_side` gives
+    them the front's, S, where Deli Counter stands the stack. The rule runs only inside
+    Godot: this holds its source to it, and a cold run's `merge_empties.json` measures
+    it."""
+    text = M.MERGE_SCRIPT.read_text(encoding="utf-8")
+    side = text[text.index("func _side("):text.index("func _walk(")]
+    rule = side.index('if slot_name.begins_with("fire_escape_"):')
+    assert side[rule:].split("\n")[1].strip() == 'return "S"'
+    # before the catch-all: no storey of it is left without a side
+    assert rule < side.rindex('return ""')
+
+
+_DC_SCHEMA = "schema/level.schema.json"
+
+
+def test_deli_counter_stands_a_fire_escape_only_on_the_front():
+    """The rule above is right only while the front is the one side Deli Counter
+    stands a fire escape on, which its schema's `fire_escape_stack` enum says. A second
+    side there means the merge must learn to tell the two apart -- a back stack given
+    S would be merged into the front's mesh -- and this fails first. Skipped where
+    Deli Counter cannot be found; a schema without the field fails, since it is not
+    the Deli Counter this rule was written against (0.220.0)."""
+    dc = sibling_repo("deli_counter", marker=_DC_SCHEMA)
+    if dc is None:
+        pytest.skip(not_found("deli_counter", marker=_DC_SCHEMA))
+    props = json.loads((dc / _DC_SCHEMA).read_text(encoding="utf-8")).get("properties") or {}
+    assert "fire_escape_stack" in props, "no fire_escape_stack in %s" % (dc / _DC_SCHEMA)
+    assert props["fire_escape_stack"].get("enum") == ["front", None], props["fire_escape_stack"]

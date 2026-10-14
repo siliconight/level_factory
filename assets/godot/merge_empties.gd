@@ -14,7 +14,8 @@ extends SceneTree
 ## side since roadmap 180). For each scene handed in:
 ##   * every slot child whose name gives a side -- `ext_<storey>_<N|E|S|W>_*`,
 ##     `parapet_<N|E|S|W>_*`, `roof_*` (side R), `stoop_*` (side S: a
-##     rowhome's stoop, at its front door, 0.196.0) -- is taken apart. Its
+##     rowhome's stoop, at its front door, 0.196.0), `fire_escape_*` (side S:
+##     a walk-up's fire escape, on its front, 0.209.0) -- is taken apart. Its
 ##     StaticBody3D colliders are copied out whole under `KitCollision`, in
 ##     the root's frame. Every surface of its other MeshInstance3D nodes is
 ##     appended, in the root's frame, to the group keyed by (side, material
@@ -73,6 +74,13 @@ func _side(slot_name: String) -> String:
 	# side -- where each drew as a module of its own: three an Empty, +93 draws at
 	# cold run 9271's worst heading.
 	if slot_name.begins_with("stoop_"):
+		return "S"
+	# A WALK-UP'S FIRE ESCAPE (0.209.0, Deli Counter 0.220.0): Deli Counter stands
+	# it on the front, the S wall -- `fire_escape_stack.plan` knows no other side --
+	# so its storeys and its drop join the front's groups, one mesh with the rest of
+	# that side's painted steel, where each drew as a module of its own: four to six
+	# a walk-up, 28 on cold run 9303's picked candidate.
+	if slot_name.begins_with("fire_escape_"):
 		return "S"
 	return ""
 
