@@ -779,11 +779,18 @@ EMPTY_PREFIX = "gs_empty_"
 #: family, named out of `EMPTY_PREFIX` so no strip terrace draws them; an
 #: urban brief draws them instead of the rowhomes.
 MIDRISE_PREFIX = "gs_midrise_"
+#: THE CORNER BLOCKS (0.206.0, factory roadmap 241): Deli Counter 0.218.0's
+#: mid-rises whose ground-floor front is a shop. An urban brief draws them
+#: as their own family, and the wall stands one only where a run of it opens
+#: or closes (`empties.terrace`). Not `gs_corner_`: that is
+#: `gs_corner_station`'s, an enterable gas station.
+CORNER_PREFIX = "gs_cornershop_"
 
 
-def empty_rows(build_dir, prefix=EMPTY_PREFIX) -> list[dict]:
+def empty_rows(build_dir, prefix=EMPTY_PREFIX, family="empty") -> list[dict]:
     """Every Empty in a Deli Counter build dir that can be themed, sorted by
-    id: ``{"id", "family", "glb", "gameplay", "slots"}``. An Empty is one
+    id: ``{"id", "family", "glb", "gameplay", "slots"}``, ``family`` as
+    given -- ``empty``, or ``corner`` for the corner blocks (0.206.0). An Empty is one
     Deli Counter says is (`facade` true in its validation manifest) and whose
     id carries `EMPTY_PREFIX`; it has no lights by design (its lit windows
     are paint), so `.lights.json` is not asked for."""
@@ -791,7 +798,7 @@ def empty_rows(build_dir, prefix=EMPTY_PREFIX) -> list[dict]:
     out = []
     for glb in sorted(d.glob(prefix + "*.glb")):
         aid = glb.stem
-        row = {"id": aid, "family": "empty", "glb": str(glb),
+        row = {"id": aid, "family": family, "glb": str(glb),
                "gameplay": str(d / f"{aid}.gameplay.json"),
                "slots": str(d / f"{aid}.slots.json")}
         if not all(Path(row[k]).exists() for k in ("gameplay", "slots")):
@@ -816,5 +823,8 @@ def empties_for_brief(model) -> list[dict]:
     empties = empties_effective(getattr(model, "empties", EMPTIES_ACROSS), library,
                                 getattr(model, "building_count", 1))
     if streetscape_effective(getattr(model, "streetscape", ""), empties):
-        return empty_rows(library, MIDRISE_PREFIX)
+        # and the corner blocks (0.206.0, roadmap 241), as their own family:
+        # the wall stands them only where a run of it opens or closes
+        return (empty_rows(library, MIDRISE_PREFIX)
+                + empty_rows(library, CORNER_PREFIX, family="corner"))
     return empty_rows(library)

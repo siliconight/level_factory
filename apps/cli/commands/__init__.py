@@ -2340,6 +2340,13 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         if _urban and _action is not None:
             print(f"[site] the urban wall's heights by cause: lowest across from x {_action:.1f}, "
                   f"rising to the plate's ends")
+        # CORNER SHOPS (0.206.0, roadmap 241): which shop opens and closes each run
+        _corners = [p["archetype"] for p in placed_e if _row[p["archetype"]].get("family") == "corner"]
+        if _corners:
+            print(f"[site] the urban wall's runs open and close on corner shops: {', '.join(_corners)}")
+        elif _urban and not any(r.get("family") == "corner" for r in _empty_rows):
+            print("  URBAN_WITHOUT_CORNERS: the lot library holds no gs_cornershop_* Empty -- the "
+                  "wall's runs open and close on mid-rises", file=sys.stderr)
         # THE NEAR SIDE (0.201.0, roadmap 241): an urban street fills the near
         # frontage between the mission's own buildings, a passage kept beside
         # each (`empties.infill`). A strip brief places nothing here.

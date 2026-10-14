@@ -127,6 +127,106 @@ def _by_height(bag, extents, heights, x, x_end, centre, reach, lo, hi, prev):
     return None if best is None else best[1]
 
 
+def _width(extents, rid):
+    """A shell's width along the street once turned to face it (rot 180), metres."""
+    tx0, tx1, _ty0, _ty1 = _turned(extents[rid], 180)
+    return tx1 - tx0
+
+
+def _runs(x0, x1, blocked):
+    """The stretches of ``[x0, x1]`` that the ``blocked`` intervals leave, west to east: the faces of the blocks
+    an urban wall stands along."""
+    runs, a = [], x0
+    for b0, b1 in blocked:
+        if b1 <= a or b0 >= x1:
+            continue
+        if b0 > a:
+            runs.append((a, b0))
+        a = max(a, b1)
+    if x1 > a:
+        runs.append((a, x1))
+    return runs
+
+
+def _corner_at(bag, extents, room, widest=False, not_id=None):
+    """The index on ``bag`` of a corner block no wider than ``room``: the next dealt that fits, or with
+    ``widest`` the widest, passing over ``not_id`` while another fits. None when none fits."""
+    fits = [i for i in range(len(bag) - 1, -1, -1) if _width(extents, bag[i]["id"]) <= room]
+    fits = [i for i in fits if bag[i]["id"] != not_id] or fits
+    if not fits:
+        return None
+    if widest:
+        return max(fits, key=lambda i: (_width(extents, bag[i]["id"]), i))
+    return fits[0]
+
+
+def _cornered(usable, corners, extents, stream, roads, span_x, action=None, heights=None):
+    """`terrace` for an urban wall with corner blocks to stand (0.206.0, factory roadmap 241).
+
+    The comps: "Corners carry the life. The corner building has the shop at grade (lit, awning), homes above.
+    The middle of the block is residential." Each run of the wall -- between two roads crossing the far side,
+    or a road and the plate's end, so one block face -- OPENS on the next corner block dealt that fits it and
+    CLOSES on the widest one left on the corner bag that fits, not the one it opened on while another fits.
+    Between them the wall is dealt as `terrace` deals it, heights by cause where given, and keeps clear before
+    the run's end the narrowest closing block's width, so the run can close. The wall's remainder stays where
+    it always stood, at the run's end. A run no corner block fits is dealt plainly."""
+    edge, line = _far_side(roads[0])
+    x0 = -float(span_x) / 2.0 + CLEARANCE
+    x1 = float(span_x) / 2.0 - CLEARANCE
+    by_cause = bool(action is not None and heights
+                    and all(heights.get(r["id"]) is not None for r in usable))
+    if by_cause:
+        lo = min(heights[r["id"]] for r in usable)
+        hi = max(heights[r["id"]] for r in usable)
+        reach = max(float(action) - x0, x1 - float(action))
+    out, need, prev, bag, cbag = [], 0.0, None, [], []
+
+    def place(pick, x):
+        nonlocal need
+        tx0, tx1, ty0, ty1 = _turned(extents[pick["id"]], 180)
+        at_y = line - ty1                              # the street edge on the line
+        out.append({"id": f"e{len(out)}", "archetype": pick["id"],
+                    "at": [round(x - tx0, 3), round(at_y, 3)], "rot": 180,
+                    "size_x": round(tx1 - tx0, 3), "size_y": round(ty1 - ty0, 3),
+                    "front": round(at_y + ty1, 3)})
+        need = max(need, -(at_y + ty0))
+        return tx1 - tx0
+
+    for a, b in _runs(x0, x1, _blocked(roads, edge)):
+        x, end, opened = a, b, None
+        if not cbag:
+            cbag = _deal(corners, stream)
+        at = _corner_at(cbag, extents, b - a)
+        if at is not None:
+            pick = cbag.pop(at)
+            opened = pick["id"]
+            x += place(pick, x)
+            others = [_width(extents, r["id"]) for r in corners if r["id"] != opened]
+            end = b - min(others or [_width(extents, opened)])
+        while True:
+            if not bag:
+                bag = _deal(usable, stream, prev)
+            if by_cause:
+                i = _by_height(bag, extents, heights, x, end, float(action), reach, lo, hi, prev)
+            else:
+                i = len(bag) - 1 if x + _width(extents, bag[-1]["id"]) <= end else None
+            if i is None:
+                break                                  # nothing on the bag fits before the closing corner
+            pick = bag.pop(i)
+            prev = pick["id"]
+            x += place(pick, x)
+        if opened is None:
+            continue
+        at = _corner_at(cbag, extents, b - x, widest=True, not_id=opened)
+        if at is None or cbag[at]["id"] == opened:
+            # a spent corner bag is not a closed run: a fresh deal behind what is left
+            cbag = _deal(corners, stream, opened) + cbag
+            at = _corner_at(cbag, extents, b - x, widest=True, not_id=opened)
+        if at is not None:
+            place(cbag.pop(at), x)
+    return out, need
+
+
 def terrace(rows, extents, stream, roads, span_x, continuous=False, action=None, heights=None):
     """The Empties of one site: a list of ``{"id", "archetype", "at", "rot",
     "size_x", "size_y", "front"}`` (plan metres; ``front`` the y of the
@@ -152,10 +252,21 @@ def terrace(rows, extents, stream, roads, span_x, continuous=False, action=None,
     8 storeys from west to east, as the deal fell. Every design is still dealt
     once a bag, and a block that does not fit before the plate's end gives way
     to the nearest-height one that does. Without either, or on the strip's
-    terrace, the deal decides alone, exactly as before."""
+    terrace, the deal decides alone, exactly as before.
+
+    CORNER SHOPS (0.206.0, roadmap 241). A row of the ``corner`` family (Deli
+    Counter's `gs_cornershop_*`, `building_library.CORNER_PREFIX`) is never
+    dealt along the wall. On a continuous wall with one, each run between the
+    roads crossing the far side and the plate's ends opens and closes on a
+    corner block (`_cornered`). Without one, or on the strip's terrace, every
+    wall is the one 0.205.0 stood."""
     usable = [r for r in rows if extents.get(r["id"]) is not None]
+    corners = [r for r in usable if r.get("family") == "corner"]
+    usable = [r for r in usable if r.get("family") != "corner"]
     if not usable or not roads:
         return [], 0.0
+    if continuous and corners:
+        return _cornered(usable, corners, extents, stream, roads, span_x, action, heights)
     edge, line = _far_side(roads[0])
     blocked = _blocked(roads, edge)
     x = -float(span_x) / 2.0 + CLEARANCE
@@ -268,7 +379,8 @@ def infill(rows, extents, stream, roads, span_x, buildings):
     narrower one on the bag is tried. Where nothing left on the bag fits and some design does, a fresh
     deal goes behind what was left (0.203.0). A room no design fits stays open, a gap the street keeps.
     """
-    usable = [r for r in rows if extents.get(r["id"]) is not None]
+    # no corner block (0.206.0): the near side's corners are the mission's own buildings
+    usable = [r for r in rows if extents.get(r["id"]) is not None and r.get("family") != "corner"]
     if not usable or not roads:
         return [], 0.0
     _edge, line = _near_side(roads[0])
