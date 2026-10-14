@@ -2299,6 +2299,15 @@ def export_mission(
                   % (len(rows), sum(r["meshes_in"] for r in rows),
                      sum(r["surfaces_in"] for r in rows),
                      sum(r["merged"] for r in rows), sum(r["colliders"] for r in rows)))
+            # THE MODULES ONLY MERGED SLOTS INSTANCED (0.210.0, roadmap 249) go
+            # before the light bake, which imports every model it finds for a
+            # lightmap; the closure verdict and the resource manifest, written
+            # after both, see the folder as it ships.
+            from packages.exporting.merge_empties import drop_merged_modules
+            dropped = drop_merged_modules(export_dir, mreport)
+            print("[export] merged Empties' modules no file names: %d removed (%.1f MB), "
+                  "%d named and kept" % (len(dropped["dropped"]), dropped["bytes"] / 1e6,
+                                         dropped["kept"]))
 
     # THE LIGHT BAKE (0.131.0), opt-in. After the occluder bake, which leaves
     # the import cache this needs, and before the cache is dropped; it points

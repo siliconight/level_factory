@@ -26,6 +26,11 @@ into its merged mesh. The unit is one side of one Empty -- the largest thing
 that enters and leaves view as one (CLAUDE.md, the draw-call rules). Never
 across Empties.
 
+WHAT GOES AFTER IT (0.210.0, roadmap 249): a merged Empty's kit modules that
+no file of the package names any longer, with their sidecars --
+`drop_merged_modules`, which the export calls before the light bake imports
+every model it finds.
+
 The Godot half (`assets/godot/merge_empties.gd`) does what only Godot can;
 this half finds the scenes, runs it, and believes its report rather than its
 exit code. An unrecognised report FAILS.
@@ -157,3 +162,54 @@ def merge(export_dir: Path, godot_executable, *, script: Path = MERGE_SCRIPT,
     except (OSError, ValueError) as exc:
         raise MergeError(f"report unreadable: {exc}") from exc
     return check(report, asked)
+
+
+#: What can name a file in a package: a scene or a resource by `path="res://..."`, a script, a manifest or a config
+#: by its path or its bare file name (0.210.0).
+NAMING_SUFFIXES = (".tscn", ".tres", ".gd", ".json", ".cfg", ".godot")
+#: The package's own lists of every file it carries: they name a module and never load one.
+FILE_LISTS = frozenset({"portable_resource_manifest.json", "light_bake.json"})
+
+
+def drop_merged_modules(export_dir: Path, report: dict) -> dict:
+    """The kit modules only merged slots instanced, out of the package (0.210.0, factory roadmap 249).
+
+    `merge` folds an Empty's sided slots into `lot/<id>/merged/<side>_<n>.res` and removes the slot children
+    that instanced `lot/<id>/art/zoo/*.glb`. The modules stayed, and the light bake set each to Static Lightmaps
+    and unwrapped it at import. Measured on cold run 9304's package: 286 module GLBs in its Empties named by no
+    scene, and 315 of the bake's 632 model imports files no scene named (the factory's
+    `docs/findings/fire_escape/unreferenced_glbs.py`). A merged mesh names no module: its materials are
+    duplicates pointing at the textures under `art/zoo/_tex/`, which stay.
+
+    For each Empty the report merged, an `art/zoo/*.glb` that no file of the package names by its file name --
+    a scene, resource, script, manifest or config (`NAMING_SUFFIXES`; the import cache and `FILE_LISTS` aside)
+    -- is removed with its `.import` and `.unwrap_cache`. A bare name is matched, not a path, so a module that
+    shares its name with one another lot's scene instances is kept: the rule errs toward shipping a file.
+    Nothing outside a merged Empty's `art/zoo/` is touched -- the responders' car under `cover/` is loaded by
+    path. Returns `{"dropped": [package-relative paths], "bytes": n, "kept": n}`."""
+    export_dir = Path(export_dir)
+    lots = set()
+    for row in (report or {}).get("scenes") or []:
+        m = re.fullmatch(r"res://(lot/[^/]+)/site\.tscn", str(row.get("scene", "")))
+        if m and row.get("error") is None and int(row.get("merged") or 0) > 0:
+            lots.add(m.group(1))
+    out = {"dropped": [], "bytes": 0, "kept": 0}
+    if not lots:
+        return out
+    texts = []
+    for p in sorted(export_dir.rglob("*")):
+        if (p.suffix in NAMING_SUFFIXES and p.name not in FILE_LISTS
+                and ".godot" not in p.relative_to(export_dir).parts and p.is_file()):
+            texts.append(p.read_text(encoding="utf-8", errors="replace"))
+    named = "\n".join(texts)
+    for lot in sorted(lots):
+        for glb in sorted((export_dir / lot / "art" / "zoo").glob("*.glb")):
+            if glb.name in named:
+                out["kept"] += 1
+                continue
+            for f in (glb, glb.with_name(glb.name + ".import"), glb.with_name(glb.name + ".unwrap_cache")):
+                if f.is_file():
+                    out["bytes"] += f.stat().st_size
+                    f.unlink()
+            out["dropped"].append(glb.relative_to(export_dir).as_posix())
+    return out
