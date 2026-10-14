@@ -168,8 +168,10 @@ def _cornered(usable, corners, extents, stream, roads, span_x, action=None, heig
     or a road and the plate's end, so one block face -- OPENS on the next corner block dealt that fits it and
     CLOSES on the widest one left on the corner bag that fits, not the one it opened on while another fits.
     Between them the wall is dealt as `terrace` deals it, heights by cause where given, and keeps clear before
-    the run's end the narrowest closing block's width, so the run can close. The wall's remainder stays where
-    it always stood, at the run's end. A run no corner block fits is dealt plainly."""
+    the run's end the narrowest closing block's width, so the run can close. Where nothing left on the bag fits
+    before that room and some design does, a fresh deal goes behind what is left (0.206.1), as `infill`'s
+    does. The wall's remainder stays where it always stood, at the run's end, less than the narrowest design.
+    A run no corner block fits is dealt plainly."""
     edge, line = _far_side(roads[0])
     x0 = -float(span_x) / 2.0 + CLEARANCE
     x1 = float(span_x) / 2.0 - CLEARANCE
@@ -180,6 +182,12 @@ def _cornered(usable, corners, extents, stream, roads, span_x, action=None, heig
         hi = max(heights[r["id"]] for r in usable)
         reach = max(float(action) - x0, x1 - float(action))
     out, need, prev, bag, cbag = [], 0.0, None, [], []
+
+    def fit(bag, x, end):
+        """The index on ``bag`` of the next block to stand at ``x`` before ``end``, or None."""
+        if by_cause:
+            return _by_height(bag, extents, heights, x, end, float(action), reach, lo, hi, prev)
+        return next((i for i in range(len(bag) - 1, -1, -1) if x + _width(extents, bag[i]["id"]) <= end), None)
 
     def place(pick, x):
         nonlocal need
@@ -206,12 +214,16 @@ def _cornered(usable, corners, extents, stream, roads, span_x, action=None, heig
         while True:
             if not bag:
                 bag = _deal(usable, stream, prev)
-            if by_cause:
-                i = _by_height(bag, extents, heights, x, end, float(action), reach, lo, hi, prev)
-            else:
-                i = len(bag) - 1 if x + _width(extents, bag[-1]["id"]) <= end else None
+            i = fit(bag, x, end)
+            if i is None and any(x + _width(extents, r["id"]) <= end for r in usable):
+                # A SPENT BAG IS NOT A CLOSED RUN (0.206.1): nothing left on the bag fits
+                # and some design does, so a fresh deal goes behind what is left, as
+                # `infill`'s (0.203.0). Cold run 9295's seed_9003 stopped with 18.70 m
+                # to fill, one 19.8 m block on the bag, and closed 12.70 m short.
+                bag = _deal(usable, stream, prev) + bag
+                i = fit(bag, x, end)
             if i is None:
-                break                                  # nothing on the bag fits before the closing corner
+                break                                  # no design fits before the closing corner
             pick = bag.pop(i)
             prev = pick["id"]
             x += place(pick, x)

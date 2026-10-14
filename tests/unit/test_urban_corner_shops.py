@@ -80,12 +80,24 @@ def test_a_run_s_two_corners_are_two_shops():
 
 
 def test_the_wall_s_own_rule_still_holds_between_the_corners():
-    """Every mid-rise design stands, and no two neighbours are alike, as 0.204.0's wall."""
+    """Every mid-rise design stands, and no two neighbours are alike while another design fits: `_by_height`'s
+    rule, and `infill`'s. CORRECTED (0.206.1): this asserted no two neighbours alike at all, which 0.206.0 met by
+    stopping short of its corner instead. With the fresh deal a room only the block just placed fits takes it
+    again (on these walls, seed 2 with the action at x 55 stands `a` at x 47.5 and 62.5); on the factory's
+    thirteen built widths, 20 of 600 walls stand a narrow block beside itself, every one where no other design
+    fits (the factory root's
+    `patches/lf_corner_fill/measure_remainder.py`)."""
+    x1 = 180.0 / 2.0 - empties.CLEARANCE
+    width = {k: v[1] - v[0] for k, v in ALL_EXT.items()}
     for seed, action in WALLS:
         placed = _wall(seed, action)
         assert {p["archetype"] for p in placed[1:-1]} == set(EXT), (seed, action)
+        end = x1 - min(w for k, w in width.items() if k in CORNER_EXT and k != placed[0]["archetype"])
         for a, b in zip(placed, placed[1:]):
-            assert a["archetype"] != b["archetype"], (seed, action, a, b)
+            if a["archetype"] == b["archetype"]:
+                x = b["at"][0] - b["size_x"] / 2.0
+                others = [k for k in EXT if k != a["archetype"] and x + width[k] <= end + 1e-9]
+                assert not others, (seed, action, a, b, others)
 
 
 def _digest(rows):
@@ -141,3 +153,36 @@ def test_an_urban_brief_draws_the_corners_as_their_own_family(tmp_path):
     assert [(r["id"], r["family"]) for r in strip] == [("gs_empty_rowhome_a", "empty")]
     assert [(r["id"], r["family"]) for r in urban] == [("gs_midrise_a", "empty"), ("gs_midrise_b", "empty"),
                                                       ("gs_cornershop_a", "corner"), ("gs_cornershop_b", "corner")]
+
+
+#: The factory's thirteen designs at their built widths and heights (storeys x 3.1 m plus the parapet, as
+#: `street_line.shell_top` reads them), as cold run 9295 stood them: nine mid-rises, the narrowest 6.6 m, and the
+#: four corner blocks.
+BUILT = {"gs_midrise_a": (15.3, 16.5), "gs_midrise_b": (18.3, 19.8), "gs_midrise_c": (21.3, 22.7),
+         "gs_midrise_d": (16.8, 26.2), "gs_midrise_e": (24.3, 32.5), "gs_midrise_f": (19.8, 38.7),
+         "gs_midrise_g": (12.3, 19.6), "gs_midrise_h": (10.3, 16.5), "gs_midrise_i": (6.6, 13.2),
+         "gs_cornershop_a": (15.3, 19.6), "gs_cornershop_b": (18.3, 26.0), "gs_cornershop_c": (12.3, 16.5),
+         "gs_cornershop_d": (16.8, 23.1)}
+
+
+def test_a_run_closes_within_the_narrowest_design_of_its_end():
+    """FAILS ON 0.206.0: its fill stopped when nothing LEFT ON THE BAG fit before the closing corner's room, and
+    cold run 9295's seed_9003 closed its wall 12.70 m short of the run's end, one 19.8 m block left on the bag with
+    18.70 m to fill (the factory root's `patches/lf_corner_fill/replay_9003.py`). Over these 600 walls -- the three
+    candidates' plates, no action and four, seeds 1-40 -- 0.206.0 stopped more than the narrowest design short on
+    171; with a fresh deal behind the remainder, as `infill`'s, on none, the worst 4.10 m."""
+    ext = {k: (-w / 2.0, w / 2.0, -7.65, 7.65) for k, (w, _t) in BUILT.items()}
+    tops = {k: t for k, (_w, t) in BUILT.items()}
+    rows = [{"id": k, "family": "corner" if k.startswith("gs_cornershop_") else "empty"} for k in BUILT]
+    narrowest = min(w for k, (w, _t) in BUILT.items() if not k.startswith("gs_cornershop_"))
+    for span in (171, 173, 181):
+        through = {"a": [-span / 2.0, -21.665], "b": [span / 2.0, -21.665], "width": 10.0, "sidewalk": 3.0}
+        for action in (None, -2.5, -28.5, -27.0, 30.0):
+            for seed in range(1, 41):
+                placed, _ = empties.terrace(rows, ext, site_variation.stream(seed), [through], float(span),
+                                            continuous=True, action=action,
+                                            heights=tops if action is not None else None)
+                short = span / 2.0 - empties.CLEARANCE - (placed[-1]["at"][0] + placed[-1]["size_x"] / 2.0)
+                assert placed[0]["archetype"].startswith("gs_cornershop_"), (span, action, seed)
+                assert placed[-1]["archetype"].startswith("gs_cornershop_"), (span, action, seed)
+                assert short < narrowest, (span, action, seed, round(short, 2))
