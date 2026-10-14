@@ -196,6 +196,13 @@ def _hits(r, s):
     return r[0] < s[1] and s[0] < r[1] and r[2] < s[3] and s[2] < r[3]
 
 
+def _fitting(bag, extents, room):
+    """Indices into ``bag`` of the shells no wider than ``room``, from its end -- the next dealt --
+    back."""
+    return [i for i in range(len(bag) - 1, -1, -1)
+            if _turned(extents[bag[i]["id"]], 0)[1] - _turned(extents[bag[i]["id"]], 0)[0] <= room + 1e-9]
+
+
 def infill(rows, extents, stream, roads, span_x, buildings):
     """The urban street's NEAR side: Empties along the near building line, filling the frontage between the
     mission's own buildings, every front on the line and facing the road (rot 0). A list like `terrace`'s,
@@ -205,7 +212,8 @@ def infill(rows, extents, stream, roads, span_x, buildings):
     clear on both sides; every road but the through road keeps its band and frontage clear (a side street,
     the service lane); the plate's ends keep `CLEARANCE`. Between those the shells are DEALT as the far side
     deals them (`_deal`), and where the next one is wider than the room left before an obstacle, the next
-    narrower one on the bag is tried; a room no shell fits stays open, a gap the street keeps.
+    narrower one on the bag is tried. Where nothing left on the bag fits and some design does, a fresh
+    deal goes behind what was left (0.203.0). A room no design fits stays open, a gap the street keeps.
     """
     usable = [r for r in rows if extents.get(r["id"]) is not None]
     if not usable or not roads:
@@ -232,8 +240,16 @@ def infill(rows, extents, stream, roads, span_x, buildings):
         room = min([x_end] + [s[0] for s in stops if s[0] > x]) - x
         if not bag:
             bag = _deal(usable, stream, prev)
-        fits = [i for i in range(len(bag) - 1, -1, -1)
-                if _turned(extents[bag[i]["id"]], 0)[1] - _turned(extents[bag[i]["id"]], 0)[0] <= room + 1e-9]
+        fits = _fitting(bag, extents, room)
+        # A SPENT BAG IS NOT A FULL STREET (0.203.0, roadmap 241). The deal shows every design once
+        # before a new bag, and a room the bag's remainder was too wide for stayed open though the
+        # next bag held a design that fits: cold run 9289's seed_9104 kept a 6.70 m room its 6.6 m
+        # block fits. So where nothing left fits and some design does, a fresh deal goes behind the
+        # remainder, which still shows first where it fits; a room no design fits asks nothing of
+        # the stream, and the bag never grows by a deal that could not help.
+        if not fits and _fitting(usable, extents, room):
+            bag = _deal(usable, stream, prev) + bag
+            fits = _fitting(bag, extents, room)
         # no two neighbours the same shell, as across the street, unless only the same one fits
         fits.sort(key=lambda i: bag[i]["id"] == prev)
         placed = None
