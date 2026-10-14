@@ -366,6 +366,21 @@ func _initialize() -> void:
 		print("[lux] rain: %d drop(s); %s" % [rain_drops, rain_msg])
 		await process_frame
 
+	# EVERY ANIMATED RIG AT REST BEFORE THE SCENE IS PACKED (0.208.0, factory
+	# roadmap 247). A failing or flickering fixture and a cycling stage light
+	# animate from their own clocks on every frame this script awaits -- seven
+	# before this point, each a wall-clock delta -- and pack() saves whatever
+	# they had reached: across cold runs 9295 to 9300 eleven lights'
+	# `light_energy` in this file differed in every pair. Lux 0.77.0's rigs
+	# answer `rest()`, every lamp back at what its rebuild gave it and every
+	# clock at zero; a Lux without it packs as before, and the count says 0.
+	var rested := 0
+	for rig_node in get_nodes_in_group(&"lux_light_rig"):
+		if rig_node.has_method("rest"):
+			rig_node.call("rest")
+			rested += 1
+	print("[lux] %d rig(s) at rest before the scene is packed" % rested)
+
 	# Save the applied presentation scene.
 	var applied := PackedScene.new()
 	if applied.pack(scene) != OK:
