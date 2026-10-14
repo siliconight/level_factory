@@ -306,7 +306,8 @@ class ExportResult:
 
 def _copy_tree(src: Path, dst: Path, *, skip: set[str] = frozenset(),
                skip_dirs: set[str] = frozenset(),
-               skip_rel: set[str] = frozenset()) -> None:
+               skip_rel: set[str] = frozenset(),
+               skip_lot: set[str] = frozenset()) -> None:
     dst.mkdir(parents=True, exist_ok=True)
     for item in src.rglob("*"):
         if item.is_dir():
@@ -314,6 +315,11 @@ def _copy_tree(src: Path, dst: Path, *, skip: set[str] = frozenset(),
         if item.name in skip or item.name.endswith(".provenance.json"):
             continue
         rel = item.relative_to(src)
+        # `skip_lot` (0.207.0) names `lot/<id>/` packages no scene stands
+        # (`_standing_lot_ids`): by a relative path's first two parts, never
+        # by a name, which would match anywhere in the tree
+        if skip_lot and len(rel.parts) > 2 and rel.parts[0] == "lot" and rel.parts[1] in skip_lot:
+            continue
         # `skip_rel` matches a RELATIVE PATH, which `skip` cannot: the note
         # below already says `skip` matches names, and a composed root holds
         # `site.tscn` at its root AND one per building under `lot/<id>/`.
@@ -341,6 +347,31 @@ _ROOT_SITE_REF = re.compile(r'^\[ext_resource[^\]]*path="res://site\.tscn"',
 #: `_write_site_spec` put there -- a literal "shell" on the single-shell branch,
 #: an archetype id on the varied one -- so this reads it rather than assuming.
 _LOT_SITE_REF = re.compile(r'path="(lot/([^"/]+)/site\.tscn)"')
+
+
+def _standing_lot_ids(themed_site_dir):
+    """The `lot/<id>/` packages the ASSEMBLY scene stands (0.207.0): every
+    `lot/<id>/site.tscn` it names (`_LOT_SITE_REF`), as a set -- or None where
+    there is no assembly scene to ask, or it names none, and then every
+    composed package ships, as before. Absence of evidence decides toward
+    including.
+
+    WHY. The compose stage themes every Empty the brief was given, and an
+    urban brief is given every corner block and mid-rise; a candidate stands
+    some. Cold run 9297's package carried sixteen `lot/` packages and its
+    assembly named thirteen: `gs_cornershop_a`, `_b` and `gs_midrise_g` --
+    12.2 MB, and 95 of the 711 model imports `light_bake.mark_imports` sets
+    to Static Lightmaps, each unwrapped for a lightmap at import -- shipped
+    and imported for scenes nothing instanced."""
+    if not themed_site_dir:
+        return None
+    scene = Path(themed_site_dir) / "site.tscn"
+    try:
+        text = scene.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    ids = {m.group(2) for m in _LOT_SITE_REF.finditer(text)}
+    return ids or None
 
 
 #: THE COMPOSER'S ROOT PAIR, kept or dropped TOGETHER (see the `skip_rel` at
@@ -2029,6 +2060,18 @@ def export_mission(
         # `building_rel` means the whole composed root moves under
         # `lot/<id>/` where the assembly names it. The base's fate is the
         # scene's fate in all three.
+        # ONLY THE PACKAGES A SCENE STANDS (0.207.0, `_standing_lot_ids`): a
+        # varied lot's composed root holds a `lot/<id>/` for every building
+        # the brief was given, and the assembly names the ones this candidate
+        # stands. A single-shell mission moves the root itself under
+        # `lot/<id>/` and has no packages of its own to leave out.
+        standing = None if building_rel else _standing_lot_ids(themed_site_dir)
+        lot_root = Path(composed_root) / "lot"
+        idle = (sorted({d.name for d in lot_root.iterdir() if d.is_dir()} - standing)
+                if standing is not None and lot_root.is_dir() else [])
+        if idle:
+            print("[export] %d composed building(s) no scene stands, left out: %s"
+                  % (len(idle), ", ".join(idle)))
         _copy_tree(composed_root, dest,
                    skip={"project.godot", "HANDOFF.md",
                          "portable_resource_manifest.json",
@@ -2036,7 +2079,8 @@ def export_mission(
                          "site_main.tscn"},
                    skip_rel=(set() if (wanted or building_rel)
                              else set(_COMPOSED_ROOT_PAIR)),
-                   skip_dirs={".godot", "addons"})
+                   skip_dirs={".godot", "addons"},
+                   skip_lot=set(idle))
 
     # 2.5 THE ASSEMBLY SCENE.
     #
