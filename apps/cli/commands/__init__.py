@@ -2291,6 +2291,12 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
     _urban = bool(library) and bool(_se(getattr(model, "streetscape", ""),
                                        _ee(getattr(model, "empties", "across"), library,
                                            getattr(model, "building_count", 1))))
+    # THE SITE SAYS WHAT ITS STREET IS (0.205.0, roadmap 241): Lot 0.123.0
+    # plants a city block's trees on an urban street, one every 30 ft
+    # (`site_furniture.urban_tree_stations`); a strip writes nothing, so its
+    # spec is byte for byte what it was.
+    if _urban:
+        spec["streetscape"] = "urban"
     if _urban and not _empty_rows:
         print("  URBAN_WITHOUT_MIDRISES: the brief asks for an urban street and the lot "
               "library holds no gs_midrise_* Empty -- no wall stands across the street",
