@@ -157,6 +157,113 @@ def terrace(rows, extents, stream, roads, span_x, continuous=False):
     return out, need
 
 
+#: THE NEAR SIDE'S PASSAGE (0.201.0, factory roadmap 241): clear ground kept on each side of every one of the
+#: mission's own buildings when the urban street fills the near frontage -- `site_variation.CLEARANCE`, "a
+#: street you can move down", so a side door, a side wall's dumpster and the way round to the back stay open.
+NEAR_PASSAGE = 4.0
+
+
+def building_rect(at, rot, footprint):
+    """``(x0, x1, y0, y1)`` of a building as `site_variation` measures it: its footprint (width, depth),
+    symmetric about ``at``, turned a quarter at a time."""
+    w, d = float(footprint[0]), float(footprint[1])
+    if int(round(float(rot or 0))) % 180 == 90:
+        w, d = d, w
+    x, y = float(at[0]), float(at[1])
+    return (x - w / 2.0, x + w / 2.0, y - d / 2.0, y + d / 2.0)
+
+
+def _near_side(through):
+    """The y of the near sidewalk's back edge, and the y of the near building line."""
+    y_road = (float(through["a"][1]) + float(through["b"][1])) / 2.0
+    edge = y_road + float(through["width"]) / 2.0 + float(through.get("sidewalk") or 0.0)
+    return edge, edge + FRONTAGE
+
+
+def _road_band(road):
+    """``(x0, x1, y0, y1)`` of a road's band -- carriageway, sidewalks and the frontage either side -- for an
+    axis-aligned road; None for one that is not."""
+    (ax, ay), (bx, by) = road["a"], road["b"]
+    half = float(road["width"]) / 2.0 + float(road.get("sidewalk") or 0.0) + FRONTAGE
+    if abs(float(ay) - float(by)) < 1e-6:
+        return (min(float(ax), float(bx)), max(float(ax), float(bx)), float(ay) - half, float(ay) + half)
+    if abs(float(ax) - float(bx)) < 1e-6:
+        return (float(ax) - half, float(ax) + half, min(float(ay), float(by)), max(float(ay), float(by)))
+    return None
+
+
+def _hits(r, s):
+    return r[0] < s[1] and s[0] < r[1] and r[2] < s[3] and s[2] < r[3]
+
+
+def infill(rows, extents, stream, roads, span_x, buildings):
+    """The urban street's NEAR side: Empties along the near building line, filling the frontage between the
+    mission's own buildings, every front on the line and facing the road (rot 0). A list like `terrace`'s,
+    with ids ``n0``..., and the y the plate must reach north of the origin to carry their backs.
+
+    ``buildings`` are the mission's buildings as plan rects (`building_rect`). Each keeps `NEAR_PASSAGE`
+    clear on both sides; every road but the through road keeps its band and frontage clear (a side street,
+    the service lane); the plate's ends keep `CLEARANCE`. Between those the shells are DEALT as the far side
+    deals them (`_deal`), and where the next one is wider than the room left before an obstacle, the next
+    narrower one on the bag is tried; a room no shell fits stays open, a gap the street keeps.
+    """
+    usable = [r for r in rows if extents.get(r["id"]) is not None]
+    if not usable or not roads:
+        return [], 0.0
+    _edge, line = _near_side(roads[0])
+    bands = [b for b in (_road_band(r) for r in roads[1:]) if b is not None]
+    deepest = max(_turned(extents[r["id"]], 0)[3] - _turned(extents[r["id"]], 0)[2] for r in usable)
+    stops = []
+    for (x0, x1, y0, y1) in buildings:
+        if y1 > line and y0 < line + deepest:
+            stops.append((x0 - NEAR_PASSAGE, x1 + NEAR_PASSAGE))
+    for (x0, x1, y0, y1) in bands:
+        if y1 > line and y0 < line + deepest and (x1 - x0) < (y1 - y0):
+            stops.append((x0, x1))                   # a road running north across the frontage
+    stops.sort()
+    x = -float(span_x) / 2.0 + CLEARANCE
+    x_end = float(span_x) / 2.0 - CLEARANCE
+    out, prev, bag, need = [], None, [], 0.0
+    while x < x_end:
+        hit = next((s for s in stops if s[0] <= x < s[1]), None)
+        if hit is not None:
+            x = hit[1]
+            continue
+        room = min([x_end] + [s[0] for s in stops if s[0] > x]) - x
+        if not bag:
+            bag = _deal(usable, stream, prev)
+        fits = [i for i in range(len(bag) - 1, -1, -1)
+                if _turned(extents[bag[i]["id"]], 0)[1] - _turned(extents[bag[i]["id"]], 0)[0] <= room + 1e-9]
+        # no two neighbours the same shell, as across the street, unless only the same one fits
+        fits.sort(key=lambda i: bag[i]["id"] == prev)
+        placed = None
+        for i in fits:
+            tx0, tx1, ty0, ty1 = _turned(extents[bag[i]["id"]], 0)
+            rect = (x, x + (tx1 - tx0), line, line + (ty1 - ty0))
+            if any(_hits(rect, b) for b in bands):
+                continue                             # its back would stand in the lane
+            placed = (i, tx0, tx1, ty0, ty1)
+            break
+        if placed is None:
+            nxt = [s[1] for s in stops if s[0] > x]
+            if not nxt:
+                break
+            x = min(s[0] for s in stops if s[0] > x)   # this room stays open: on to the next obstacle
+            continue
+        i, tx0, tx1, ty0, ty1 = placed
+        pick = bag.pop(i)
+        width = tx1 - tx0
+        at_x, at_y = x - tx0, line - ty0               # the street edge (-y, unturned) on the line
+        out.append({"id": f"n{len(out)}", "archetype": pick["id"],
+                    "at": [round(at_x, 3), round(at_y, 3)], "rot": 0,
+                    "size_x": round(width, 3), "size_y": round(ty1 - ty0, 3),
+                    "front": round(at_y + ty0, 3)})
+        need = max(need, at_y + ty1)
+        prev = pick["id"]
+        x += width
+    return out, need
+
+
 def stoop_reach(whole, house):
     """How far a shell's stoop reaches in front of its house, metres: the
     street edge (-y, unturned) of every collider (``whole``) less the house's

@@ -2313,8 +2313,18 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         placed_e, need_half = _empties.terrace(
             _empty_rows, _ext, site_variation.stream(int(seed) ^ 0x5E3A11),
             roads, spec["ground"]["size_x"], continuous=_urban)
+        # THE NEAR SIDE (0.201.0, roadmap 241): an urban street fills the near
+        # frontage between the mission's own buildings, a passage kept beside
+        # each (`empties.infill`). A strip brief places nothing here.
+        placed_n, need_north = [], 0.0
+        if _urban:
+            _rects_n = [_empties.building_rect(b["at"], b["rot"], fp)
+                        for b, fp in zip(buildings, fp_list) if fp]
+            placed_n, need_north = _empties.infill(
+                _empty_rows, _ext, site_variation.stream(int(seed) ^ 0x2A11E5),
+                roads, spec["ground"]["size_x"], _rects_n)
         blockers = []
-        for p in placed_e:
+        for p in placed_e + placed_n:
             aid = p["archetype"]
             scene = (themed_map or {}).get(aid)
             if scene:
@@ -2331,11 +2341,13 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
             spec["blockers"] = blockers
             # the plate reaches past the row's backs by the clearance the
             # row's own ends keep
-            half_y = need_half + _empties.CLEARANCE
+            half_y = max(need_half, need_north) + _empties.CLEARANCE
             if spec["ground"]["size_y"] / 2.0 < half_y:
                 spec["ground"]["size_y"] = int(math.ceil(2.0 * half_y))
-            print(f"[site] {len(blockers)} Empt{'y' if len(blockers) == 1 else 'ies'} "
-                  f"across the street{' (an urban wall)' if _urban else ''}, "
+            _near_say = (f"{len(placed_n)} on the near side between the mission's buildings, "
+                         if _urban else "")
+            print(f"[site] {len(placed_e)} Empt{'y' if len(placed_e) == 1 else 'ies'} "
+                  f"across the street{' (an urban wall)' if _urban else ''}, {_near_say}"
                   f"{len({b['archetype'] for b in blockers})} "
                   f"shell(s), {'themed' if themed_map else 'greybox'}")
     # Self-check before the spec leaves the building. This can only fire if the
