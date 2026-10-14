@@ -68,6 +68,21 @@ def shell_extents(glb_path, skip=()):
     return (x0, x1, -z1, -z0)
 
 
+def shell_top(glb_path):
+    """The top of a shell's collider hulls above its own floor, metres (glTF y
+    is up); None when the geometry cannot be read (0.204.0). The urban wall
+    draws its heights by it (`empties.terrace`): the factory's mid-rises read
+    13.2 m at four storeys to 38.7 m at twelve, about 3.3 m a storey."""
+    try:
+        from packages.validation import glb_collision
+    except ImportError:                       # pragma: no cover - packaging only
+        return None
+    reading = glb_collision.collision_solids(Path(glb_path))
+    if not reading.read or not reading.solids:
+        return None
+    return max(s.centre[1] + s.size[1] / 2.0 for s in reading.solids)
+
+
 def south_reach(extents, rot):
     """How far the building reaches from its origin toward the street (-y)
     once turned by ``rot`` degrees; None when ``extents`` is."""

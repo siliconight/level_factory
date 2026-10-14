@@ -2311,9 +2311,29 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
                       f"{_empties.FRONTAGE:.2f} m: it stands on the sidewalk",
                       file=sys.stderr)
         _row = {r["id"]: r for r in _empty_rows}
+        # HEIGHTS BY CAUSE (0.204.0, roadmap 241): an urban wall stands its lowest
+        # blocks across from the action and rises with distance from it. The
+        # action's centre is the middle of the span the spawn, objective and
+        # extraction buildings cover along the street; the heights are read off
+        # the shells. A strip brief reads neither.
+        _action, _heights = None, None
+        if _urban:
+            _ids = {spec.get(k) for k in ("spawn", "objective", "extraction")} - {None}
+            _act = [_empties.building_rect(b["at"], b["rot"], fp)
+                    for b, fp in zip(buildings, fp_list) if fp and b.get("id") in _ids]
+            if _act:
+                _action = (min(r[0] for r in _act) + max(r[1] for r in _act)) / 2.0
+            _heights = {r["id"]: _sl.shell_top(r["glb"]) for r in _empty_rows}
+            if _action is None or any(v is None for v in _heights.values()):
+                print("  URBAN_HEIGHTS_UNREAD: the action's centre or a mid-rise's height could "
+                      "not be read -- the wall is dealt without heights by cause", file=sys.stderr)
         placed_e, need_half = _empties.terrace(
             _empty_rows, _ext, site_variation.stream(int(seed) ^ 0x5E3A11),
-            roads, spec["ground"]["size_x"], continuous=_urban)
+            roads, spec["ground"]["size_x"], continuous=_urban,
+            action=_action, heights=_heights)
+        if _urban and _action is not None:
+            print(f"[site] the urban wall's heights by cause: lowest across from x {_action:.1f}, "
+                  f"rising to the plate's ends")
         # THE NEAR SIDE (0.201.0, roadmap 241): an urban street fills the near
         # frontage between the mission's own buildings, a passage kept beside
         # each (`empties.infill`). A strip brief places nothing here.

@@ -100,7 +100,34 @@ def _deal(usable, stream, avoid=None):
     return bag
 
 
-def terrace(rows, extents, stream, roads, span_x, continuous=False):
+def _target(x, centre, reach, lo, hi):
+    """The height a block standing at ``x`` is drawn toward (0.204.0): ``lo``
+    across from the action's centre, rising in proportion to the distance from
+    it, to ``hi`` at ``reach`` metres and beyond."""
+    if reach <= 0:
+        return lo
+    return lo + (hi - lo) * min(1.0, abs(x - centre) / reach)
+
+
+def _by_height(bag, extents, heights, x, x_end, centre, reach, lo, hi, prev):
+    """The index on ``bag`` of the shell whose height is nearest the height a
+    block standing at its own centre is drawn toward (`_target`), among those
+    that fit before ``x_end``; not ``prev`` while another fits. Ties go to the
+    deal's order, the end of the bag first. None when nothing fits."""
+    best = None
+    for i in range(len(bag) - 1, -1, -1):
+        tx0, tx1, _ty0, _ty1 = _turned(extents[bag[i]["id"]], 180)
+        width = tx1 - tx0
+        if x + width > x_end:
+            continue
+        miss = abs(heights[bag[i]["id"]] - _target(x + width / 2.0, centre, reach, lo, hi))
+        key = (bag[i]["id"] == prev, miss)
+        if best is None or key < best[0]:
+            best = (key, i)
+    return None if best is None else best[1]
+
+
+def terrace(rows, extents, stream, roads, span_x, continuous=False, action=None, heights=None):
     """The Empties of one site: a list of ``{"id", "archetype", "at", "rot",
     "size_x", "size_y", "front"}`` (plan metres; ``front`` the y of the
     Empty's street edge) and the half-depth of plate the row needs south of
@@ -111,7 +138,21 @@ def terrace(rows, extents, stream, roads, span_x, continuous=False):
 
     ``continuous`` (0.200.0, factory roadmap 241): the urban street's wall,
     with no alley between runs -- one row broken only where a road crosses
-    the far side. Off, the terrace draws exactly as it did."""
+    the far side. Off, the terrace draws exactly as it did.
+
+    HEIGHTS BY CAUSE (0.204.0, roadmap 241). ``action`` is the x of the
+    action's centre along the street, ``heights`` {archetype: top, metres}
+    (`street_line.shell_top`). Given both on a continuous wall, each block is
+    the one on the bag whose height is nearest the height a block standing at
+    its centre is drawn toward (`_target`): the shortest design's across from
+    the action, rising with the distance from it to the tallest's at the
+    plate's farther end -- the comps' "the tallest stand furthest away" (the
+    factory root's `docs/reference/URBAN_MIDRISE_COMPS.md`), never jitter.
+    Before it, cold run 9291's seed_9104 stood 5, 7, 5, 10, 8, 6, 4, 12, 6 and
+    8 storeys from west to east, as the deal fell. Every design is still dealt
+    once a bag, and a block that does not fit before the plate's end gives way
+    to the nearest-height one that does. Without either, or on the strip's
+    terrace, the deal decides alone, exactly as before."""
     usable = [r for r in rows if extents.get(r["id"]) is not None]
     if not usable or not roads:
         return [], 0.0
@@ -123,6 +164,12 @@ def terrace(rows, extents, stream, roads, span_x, continuous=False):
     run_len = RUN[0] + next(stream) % (RUN[1] - RUN[0] + 1)
     need = 0.0
     bag: list = []
+    by_cause = bool(continuous and action is not None and heights
+                    and all(heights.get(r["id"]) is not None for r in usable))
+    if by_cause:
+        lo = min(heights[r["id"]] for r in usable)
+        hi = max(heights[r["id"]] for r in usable)
+        reach = max(float(action) - x, x_end - float(action))
     while True:
         # A DEAL, NOT A DRAW (0.142.0): the next house off a shuffled bag of
         # every design, refilled when empty (`_deal`). A pick a road turns
@@ -130,7 +177,13 @@ def terrace(rows, extents, stream, roads, span_x, continuous=False):
         # placed is dealt.
         if not bag:
             bag = _deal(usable, stream, prev)
-        pick = bag[-1]
+        if by_cause:
+            at = _by_height(bag, extents, heights, x, x_end, float(action), reach, lo, hi, prev)
+            if at is None:
+                break                              # nothing on the bag fits before the plate's end
+        else:
+            at = len(bag) - 1
+        pick = bag[at]
         tx0, tx1, ty0, ty1 = _turned(extents[pick["id"]], 180)
         width = tx1 - tx0
         if x + width > x_end:
@@ -146,7 +199,7 @@ def terrace(rows, extents, stream, roads, span_x, continuous=False):
                     "size_x": round(width, 3), "size_y": round(ty1 - ty0, 3),
                     "front": round(at_y + ty1, 3)})
         need = max(need, -(at_y + ty0))
-        bag.pop()
+        bag.pop(at)
         prev = pick["id"]
         x += width
         in_run += 1
