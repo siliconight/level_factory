@@ -24,6 +24,10 @@ frame that looks south. The asset ids carry the side (`<module>__N`) and the fou
 share one extracted mesh, so the draws are modules times sides (24 for Lot's six modules) plus
 the tower, and never the houses (about 300).
 
+THE GROUND UNDER IT (0.211.0). One dark plane under the whole backdrop, `GROUND_MARGIN` past its pieces and
+`GROUND_Y` under the plate, which covers it wherever both stand: without it the pieces stood on nothing, and
+the walker at urban_row_001's east fence saw "the bottom of the level just disappears". One draw.
+
 WHAT IS NOT HERE. No collision (every order says so, and `dressing_scene.check_manifest`
 refuses otherwise), no navmesh, no lightmap: a backdrop is seen and never reached. The kit
 build that made the modules is the site kit Lot's `cover_modules` names, so a package whose
@@ -33,6 +37,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import shutil
 from pathlib import Path
 
@@ -47,6 +52,12 @@ BACKDROP_DIR = "backdrop"
 REPORT_NAME = "backdrop_layer.json"
 SPACE = "spec/Blender Z-up raw coords"
 SIDES = ("N", "S", "E", "W")
+#: The ground under the backdrop (0.211.0): a tenth of a metre under the plate, so the plate covers it
+#: wherever both stand -- cold run 9305's plate reaches x +-99 past fences at +-94.75 -- and this far past
+#: the pieces.
+GROUND_Y = -0.10
+GROUND_MARGIN = 30.0
+GROUND_RGB = (0.045, 0.045, 0.05)
 
 
 def module_stem(species: str, dims, theme: str, style: int = 1) -> str:
@@ -106,6 +117,34 @@ def pieces_by_side(orders) -> dict:
     `backdrop_rowhome` orders alone."""
     return {s: sum(1 for o in orders if o["side"] == s and o["species"] != "water_tower")
             for s in SIDES}
+
+
+def with_ground(text: str, orders) -> tuple:
+    """The backdrop scene with one ground plane under it, and what was laid (`None` with no orders).
+
+    0.211.0, the walker at urban_row_001's east fence: "the bottom of the level just disappears". The plane spans
+    the pieces' extent and `GROUND_MARGIN` past it, at `GROUND_Y`, the spec's (x, y) Godot's (x, -z) as
+    `dressing_scene` maps it. Two resources and one node; `load_steps` counts the two."""
+    if not orders:
+        return text, None
+    xs = [float(o["pos"][0]) for o in orders]
+    ys = [float(o["pos"][1]) for o in orders]
+    x0, x1 = min(xs) - GROUND_MARGIN, max(xs) + GROUND_MARGIN
+    y0, y1 = min(ys) - GROUND_MARGIN, max(ys) + GROUND_MARGIN
+    w, d = round(x1 - x0, 3), round(y1 - y0, 3)
+    cx, cy = round((x0 + x1) / 2.0, 3), round((y0 + y1) / 2.0, 3)
+    subs = ('[sub_resource type="PlaneMesh" id="BackdropGround_mesh"]\nsize = Vector2(%s, %s)\n\n'
+            '[sub_resource type="StandardMaterial3D" id="BackdropGround_mat"]\n'
+            'albedo_color = Color(%s, %s, %s, 1)\nroughness = 1.0\n\n') % (w, d, *GROUND_RGB)
+    node = ('\n[node name="BackdropGround" type="MeshInstance3D" parent="."]\n'
+            'transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, %s, %s, %s)\n'
+            'mesh = SubResource("BackdropGround_mesh")\n'
+            'material_override = SubResource("BackdropGround_mat")\n'
+            'cast_shadow = 0\n') % (cx, GROUND_Y, -cy)
+    first = text.index("\n[node ")
+    text = text[:first + 1] + subs + text[first + 1:]
+    text = re.sub(r"load_steps=(\d+)", lambda m: "load_steps=%d" % (int(m.group(1)) + 2), text, count=1)
+    return text.rstrip("\n") + "\n" + node, {"size": [w, d], "y": GROUND_Y, "centre": [cx, cy], "draw_calls": 1}
 
 
 def ship_backdrop(export_dir: Path, drawn_path, godot_executable, *,
@@ -183,11 +222,13 @@ def ship_backdrop(export_dir: Path, drawn_path, godot_executable, *,
         report["reasons"].append(f"dressing_scene refused: {exc}")
         return _done()
     scene_name = f"{site_id}_backdrop.tscn"
+    text, ground = with_ground(text, manifest["orders"])
     (export_dir / scene_name).write_text(text, encoding="utf-8", newline="\n")
     report.update(summarise(manifest, "multimesh"))
     report.update({
         "shipped": True, "scene": scene_name, "modules": modules, "mesh_paths": mesh_paths,
         "by_side": pieces_by_side(manifest["orders"]),
         "towers": sum(1 for o in manifest["orders"] if o["species"] == "water_tower"),
+        "ground": ground,
     })
     return _done()
