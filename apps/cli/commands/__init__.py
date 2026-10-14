@@ -286,8 +286,9 @@ def cmd_pick(args) -> int:
     if args.json:
         print(pretty_dumps({
             "mission_id": args.mission_id, "candidate": chosen, "every_out": every_out,
-            "candidates": [{"seed": r.seed, "major": r.major, "route_completion": r.completion,
-                            "out": r.out} for r in rows]}))
+            "candidates": [{"seed": r.seed, "major": r.major, "not_counted": r.not_counted,
+                            "route_completion": r.completion, "score": r.score,
+                            "grade": r.grade, "out": r.out} for r in rows]}))
         return EXIT_OK
     for r in rows:
         print(f"  {r.line()}")
