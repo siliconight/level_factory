@@ -63,6 +63,21 @@ class Batch:
 #: the far side of the through road to the plate's edge.
 EMPTIES_ACROSS = "across"
 
+#: THE URBAN STREET (0.200.0, factory roadmap 241): the brief's word for mid-rise
+#: street walls. Any other word, the empty string included, is today's strip.
+STREETSCAPE_URBAN = "urban"
+
+
+def streetscape_effective(streetscape, empties) -> str:
+    """What a brief GETS: `STREETSCAPE_URBAN` when it asks for it and a terrace
+    stands (`empties`, `empties_effective`'s answer) -- the urban street's
+    first cut is the terrace's family and its continuity, so with no terrace
+    there is nothing for it to change -- and `""` otherwise. One rule, read by
+    `MissionBrief.functional_signature` and `building_library`."""
+    if str(streetscape or "").strip().lower() != STREETSCAPE_URBAN:
+        return ""
+    return STREETSCAPE_URBAN if empties else ""
+
 
 def empties_effective(empties, lot_library, building_count) -> str:
     """What a brief GETS, not what it says: `EMPTIES_ACROSS` when it asks
@@ -150,6 +165,12 @@ class MissionBrief:
     #: `lot_library`, or one building, stands no terrace whatever it says:
     #: `empties_effective` is the one rule.
     empties: str = EMPTIES_ACROSS
+    #: THE STREETSCAPE (0.200.0, factory roadmap 241): `"urban"` stands the far
+    #: side as a continuous wall of Deli Counter's mid-rise Empties
+    #: (`gs_midrise_*`), the walker's urban level type of 2026-10-11. Empty, or
+    #: any other word, is today's strip: the rowhome terrace with its alleys.
+    #: `streetscape_effective` is the one rule for what a brief gets.
+    streetscape: str = ""
     #: THE ENCOUNTER, which the brief could not previously express at all.
     #:
     #: Every mission Level Factory has ever evaluated was graded against Laser
@@ -225,6 +246,11 @@ class MissionBrief:
         empties = empties_effective(self.empties, self.lot_library, self.building_count)
         if empties:
             sig["empties"] = empties
+        # the same care for the streetscape (0.200.0): keyed only where it
+        # changes the site, so every strip brief keeps the lock it has.
+        streetscape = streetscape_effective(self.streetscape, empties)
+        if streetscape:
+            sig["streetscape"] = streetscape
         return sig
 
 

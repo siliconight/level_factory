@@ -2283,6 +2283,17 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
     import math
     from packages.pipeline import building_library as _bl
     _empty_rows = _bl.empties_for_brief(model) if library else []
+    # THE URBAN STREET (0.200.0, roadmap 241): the mid-rise wall, no alleys.
+    # Asked with the rule `empties_for_brief` asks, so the rows it drew and the
+    # wall they stand as cannot disagree.
+    from packages.core.models import empties_effective as _ee, streetscape_effective as _se
+    _urban = bool(library) and bool(_se(getattr(model, "streetscape", ""),
+                                       _ee(getattr(model, "empties", "across"), library,
+                                           getattr(model, "building_count", 1))))
+    if _urban and not _empty_rows:
+        print("  URBAN_WITHOUT_MIDRISES: the brief asks for an urban street and the lot "
+              "library holds no gs_midrise_* Empty -- no wall stands across the street",
+              file=sys.stderr)
     if _empty_rows and roads:
         from packages.pipeline import empties as _empties
         from packages.pipeline import street_line as _sl
@@ -2301,7 +2312,7 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         _row = {r["id"]: r for r in _empty_rows}
         placed_e, need_half = _empties.terrace(
             _empty_rows, _ext, site_variation.stream(int(seed) ^ 0x5E3A11),
-            roads, spec["ground"]["size_x"])
+            roads, spec["ground"]["size_x"], continuous=_urban)
         blockers = []
         for p in placed_e:
             aid = p["archetype"]
@@ -2324,7 +2335,8 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
             if spec["ground"]["size_y"] / 2.0 < half_y:
                 spec["ground"]["size_y"] = int(math.ceil(2.0 * half_y))
             print(f"[site] {len(blockers)} Empt{'y' if len(blockers) == 1 else 'ies'} "
-                  f"across the street, {len({b['archetype'] for b in blockers})} "
+                  f"across the street{' (an urban wall)' if _urban else ''}, "
+                  f"{len({b['archetype'] for b in blockers})} "
                   f"shell(s), {'themed' if themed_map else 'greybox'}")
     # Self-check before the spec leaves the building. This can only fire if the
     # placement and the plate in site_variation have drifted apart, which is

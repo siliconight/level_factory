@@ -44,7 +44,7 @@ from pathlib import Path
 # from the candidate seed and the cache fingerprint depends on re-deriving
 # exactly what the builder derived; a second stream here would make two modules
 # disagree about what seed 5421 means.
-from packages.core.models import EMPTIES_ACROSS, empties_effective
+from packages.core.models import EMPTIES_ACROSS, empties_effective, streetscape_effective
 from packages.pipeline.site_variation import stream
 
 #: `deli_a01` -> `deli`. Deli Counter's own naming: an archetype plus a
@@ -775,9 +775,13 @@ def has_roof_slot(entry) -> bool:
 #: prefix it gives them. `gs_facade_rowhome` and `gs_facade_storefront`, the
 #: two sealed boxes from before, do not carry it and are not offered.
 EMPTY_PREFIX = "gs_empty_"
+#: THE MID-RISE EMPTIES (0.200.0, factory roadmap 241): Deli Counter 0.213.0's
+#: family, named out of `EMPTY_PREFIX` so no strip terrace draws them; an
+#: urban brief draws them instead of the rowhomes.
+MIDRISE_PREFIX = "gs_midrise_"
 
 
-def empty_rows(build_dir) -> list[dict]:
+def empty_rows(build_dir, prefix=EMPTY_PREFIX) -> list[dict]:
     """Every Empty in a Deli Counter build dir that can be themed, sorted by
     id: ``{"id", "family", "glb", "gameplay", "slots"}``. An Empty is one
     Deli Counter says is (`facade` true in its validation manifest) and whose
@@ -785,7 +789,7 @@ def empty_rows(build_dir) -> list[dict]:
     are paint), so `.lights.json` is not asked for."""
     d = Path(str(build_dir))
     out = []
-    for glb in sorted(d.glob(EMPTY_PREFIX + "*.glb")):
+    for glb in sorted(d.glob(prefix + "*.glb")):
         aid = glb.stem
         row = {"id": aid, "family": "empty", "glb": str(glb),
                "gameplay": str(d / f"{aid}.gameplay.json"),
@@ -809,4 +813,8 @@ def empties_for_brief(model) -> list[dict]:
     if not empties_effective(getattr(model, "empties", EMPTIES_ACROSS), library,
                              getattr(model, "building_count", 1)):
         return []
+    empties = empties_effective(getattr(model, "empties", EMPTIES_ACROSS), library,
+                                getattr(model, "building_count", 1))
+    if streetscape_effective(getattr(model, "streetscape", ""), empties):
+        return empty_rows(library, MIDRISE_PREFIX)
     return empty_rows(library)

@@ -100,14 +100,18 @@ def _deal(usable, stream, avoid=None):
     return bag
 
 
-def terrace(rows, extents, stream, roads, span_x):
+def terrace(rows, extents, stream, roads, span_x, continuous=False):
     """The Empties of one site: a list of ``{"id", "archetype", "at", "rot",
     "size_x", "size_y", "front"}`` (plan metres; ``front`` the y of the
     Empty's street edge) and the half-depth of plate the row needs south of
     the origin. ``rows`` are the library's Empties (`building_library.
     empty_rows`), ``extents`` {archetype: (x0, x1, y0, y1)} unturned,
     ``stream`` a `site_variation.stream`, ``roads`` the site's road dicts with
-    the through road first."""
+    the through road first.
+
+    ``continuous`` (0.200.0, factory roadmap 241): the urban street's wall,
+    with no alley between runs -- one row broken only where a road crosses
+    the far side. Off, the terrace draws exactly as it did."""
     usable = [r for r in rows if extents.get(r["id"]) is not None]
     if not usable or not roads:
         return [], 0.0
@@ -146,7 +150,7 @@ def terrace(rows, extents, stream, roads, span_x):
         prev = pick["id"]
         x += width
         in_run += 1
-        if in_run >= run_len:
+        if not continuous and in_run >= run_len:
             x += ALLEY
             in_run = 0
             run_len = RUN[0] + next(stream) % (RUN[1] - RUN[0] + 1)

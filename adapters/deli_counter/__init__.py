@@ -48,7 +48,8 @@ _DC_HARD_CODES = {
 _VALID_PRESETS = {
     "auto_shop", "bank", "card_shop", "casino_tower", "compound",
     "convenience_store",
-    "corner_deli", "empty_rowhome", "facade_industrial", "facade_rowhome",
+    "corner_deli", "empty_midrise", "empty_rowhome", "facade_industrial",
+    "facade_rowhome",
     "facade_storefront", "gas_station", "hospital", "office",
     "parking_garage", "pawn_shop", "police_station", "rowhome",
     "strip_club", "suburban_safehouse", "twin", "video_store", "warehouse",
