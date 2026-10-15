@@ -55,6 +55,10 @@ SIDES = ("N", "S", "E", "W")
 #: The ground under the backdrop (0.211.0): a tenth of a metre under the plate, so the plate covers it
 #: wherever both stand -- cold run 9305's plate reaches x +-99 past fences at +-94.75 -- and this far past
 #: the pieces.
+#: UNSHADED (0.215.0, the factory's roadmap 252): shaded, this plane is reached by every lamp on the
+#: level, and on cold run 9308's package it cost +1 to +7 draws a heading and +7.20 ms on the p95 at the
+#: heaviest heading; unshaded, +1 draw everywhere and at most +0.52 ms. The lamps' pools past the fence
+#: are what the shaded one bought (`docs/findings/walk_2026-10-14/ground_frames/`).
 GROUND_Y = -0.10
 GROUND_MARGIN = 30.0
 GROUND_RGB = (0.045, 0.045, 0.05)
@@ -135,7 +139,7 @@ def with_ground(text: str, orders) -> tuple:
     cx, cy = round((x0 + x1) / 2.0, 3), round((y0 + y1) / 2.0, 3)
     subs = ('[sub_resource type="PlaneMesh" id="BackdropGround_mesh"]\nsize = Vector2(%s, %s)\n\n'
             '[sub_resource type="StandardMaterial3D" id="BackdropGround_mat"]\n'
-            'albedo_color = Color(%s, %s, %s, 1)\nroughness = 1.0\n\n') % (w, d, *GROUND_RGB)
+            'albedo_color = Color(%s, %s, %s, 1)\nshading_mode = 0\nroughness = 1.0\n\n') % (w, d, *GROUND_RGB)
     node = ('\n[node name="BackdropGround" type="MeshInstance3D" parent="."]\n'
             'transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, %s, %s, %s)\n'
             'mesh = SubResource("BackdropGround_mesh")\n'
@@ -144,7 +148,8 @@ def with_ground(text: str, orders) -> tuple:
     first = text.index("\n[node ")
     text = text[:first + 1] + subs + text[first + 1:]
     text = re.sub(r"load_steps=(\d+)", lambda m: "load_steps=%d" % (int(m.group(1)) + 2), text, count=1)
-    return text.rstrip("\n") + "\n" + node, {"size": [w, d], "y": GROUND_Y, "centre": [cx, cy], "draw_calls": 1}
+    return text.rstrip("\n") + "\n" + node, {"size": [w, d], "y": GROUND_Y, "centre": [cx, cy],
+                                             "draw_calls": 1, "shaded": False}
 
 
 def ship_backdrop(export_dir: Path, drawn_path, godot_executable, *,

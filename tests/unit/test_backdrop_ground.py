@@ -29,7 +29,7 @@ def test_one_plane_spans_the_backdrop_and_its_margin_below_the_plate():
     m = B.GROUND_MARGIN
     want_w, want_d = (150.0 - -120.0) + 2 * m, (70.0 - -60.0) + 2 * m
     assert ground == {"size": [round(want_w, 3), round(want_d, 3)], "y": B.GROUND_Y,
-                      "centre": [15.0, 5.0], "draw_calls": 1}
+                      "centre": [15.0, 5.0], "draw_calls": 1, "shaded": False}
     size = re.search(r'\[sub_resource type="PlaneMesh" id="BackdropGround_mesh"\]\nsize = Vector2\(([^)]*)\)', text)
     assert size and [float(v) for v in size.group(1).split(",")] == [want_w, want_d]
     # the spec's (x, y) is Godot's (x, -z), as `dressing_scene` maps it; the plane sits under the plate
@@ -46,6 +46,18 @@ def test_the_ground_is_after_the_root_and_the_load_steps_count_it():
     assert text.index('id="BackdropGround_mesh"]') < text.index('[node name="site_backdrop"')
     assert 'cast_shadow = 0' in text[text.index('[node name="BackdropGround"'):]
     assert text.count("MultiMeshInstance3D") == SCENE.count("MultiMeshInstance3D")
+
+
+def test_the_ground_takes_no_light():
+    """0.215.0 (the factory's roadmap 252): shaded, the plane cost up to +7 draws and +7.20 ms a heading on
+    cold run 9308's package; unshaded, +1 draw. The line stands where the priced arm put it, ahead of the
+    roughness, so the scene is the priced one byte for byte. Fails on 0.214.0."""
+    text, ground = B.with_ground(SCENE, ORDERS)
+    mat = re.search(r'\[sub_resource type="StandardMaterial3D" id="BackdropGround_mat"\]\n(.*?)\n\n',
+                    text, re.S)
+    assert mat and mat.group(1).split("\n") == [
+        "albedo_color = Color(%s, %s, %s, 1)" % B.GROUND_RGB, "shading_mode = 0", "roughness = 1.0"]
+    assert ground["shaded"] is False
 
 
 def test_no_orders_no_ground():
