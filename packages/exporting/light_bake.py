@@ -219,13 +219,23 @@ def mark_imports(export_dir: Path, spawned=()) -> dict:
     return out
 
 
-def add_primitive_uv2(export_dir: Path) -> dict:
+def add_primitive_uv2(export_dir: Path, only=None) -> dict:
     """`add_uv2 = true` on every inline primitive mesh in the package's
-    scenes. ``{scene: count}``."""
+    scenes. ``{scene: count}``.
+
+    ONLY WHAT THE BAKE DRAWS (0.212.0, the factory's roadmap 251). The
+    export passes `only=baked_scenes(export_dir)`. This wrote every scene,
+    and the log summed every count as "lightmapped": cold run 9308's 225 was
+    the presentation's 112, the content scene's same 112 again, and the
+    backdrop's ground, which no bake draws. `only=None` is every scene, as
+    before."""
     out = {}
+    keep = None if only is None else set(only)
     pat = re.compile(r'^\[sub_resource type="(?:%s)" id="[^"]*"\]$' % "|".join(PRIMITIVES), re.M)
     for scene in sorted(Path(export_dir).rglob("*.tscn")):
         if ".godot" in scene.parts or scene.name == BAKE_SCENE:
+            continue
+        if keep is not None and scene.relative_to(export_dir).as_posix() not in keep:
             continue
         text = scene.read_text(encoding="utf-8")
         count = 0
@@ -242,6 +252,27 @@ def add_primitive_uv2(export_dir: Path) -> dict:
             scene.write_text(new, encoding="utf-8", newline="\n")
             out[scene.relative_to(export_dir).as_posix()] = count
     return out
+
+
+_PACKED = re.compile(r'^\[ext_resource type="PackedScene"[^\]\n]*\bpath="res://([^"]+\.tscn)"', re.M)
+
+
+def baked_scenes(export_dir: Path) -> list:
+    """The scenes the bake draws, package-relative and sorted: the
+    presentation scene `bake.tscn` instances (`bake_scene_text`) and every
+    scene it instances, transitively. The content scene `site.tscn`, which
+    the presentation was applied from, and `site_backdrop.tscn`, which
+    `mission.tscn` loads at run time, are not among them (0.212.0)."""
+    export_dir = Path(export_dir)
+    seen, todo = set(), [PRESENTATION]
+    while todo:
+        rel = todo.pop()
+        p = export_dir / rel
+        if rel in seen or not p.is_file():
+            continue
+        seen.add(rel)
+        todo.extend(_PACKED.findall(p.read_text(encoding="utf-8")))
+    return sorted(seen)
 
 
 def _cycling_rigs(blocks: list) -> set:
@@ -544,7 +575,7 @@ def bake(export_dir, godot_executable, *, log=print, spawned=()) -> dict:
     work = export_dir.parent / (export_dir.name + ".lightbake")
     try:
         report["imports"] = mark_imports(export_dir, spawned)
-        report["primitives"] = add_primitive_uv2(export_dir)
+        report["primitives"] = add_primitive_uv2(export_dir, only=baked_scenes(export_dir))
         report["rigs"] = mark_steady_rigs(pres)
         (export_dir / BAKE_SCENE).write_text(bake_scene_text(), encoding="utf-8", newline="\n")
         # Since 0.187.0 the export writes these marks before its second import
