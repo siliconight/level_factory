@@ -8,7 +8,7 @@ absorb").
 
 **This package implements the full TDD delivery plan (Phases 1-5), grounded
 against the real tool CLIs.** From a CLI and a PySide6 desktop app it produces a
-**Graybox** base and two independent, optional layers — **Art** and **Gameplay** —
+**Graybox** base and three independent, optional layers — **Art**, **Light** and **Gameplay** —
 in any combination (see *Output layers* below). It runs the candidate pipeline
 (Deli Counter x N -> Lot -> Laser Tag), the PS2 art pass (Pixelcoat -> Zoo ->
 Patina -> Lux), and the Dispatch `shell-handoff`, with a parallel scheduler
@@ -39,10 +39,12 @@ The deliverable is a **Graybox** base plus optional layers, chosen per run. The
 layers are independent — the models stay a shell the gameplay team fills.
 
 ```
-run <mission>                  → graybox            DC greybox + collision, assembled by Lot (+ Laser Tag nav QA)
-run <mission> --art            → graybox + art      Zoo swaps + props/dressing, Pixelcoat, Patina, Lux
-run <mission> --gameplay       → graybox + gameplay Dispatch objective/nav/spawn suggestions (advisory)
-run <mission> --art --gameplay → full stack         art pass + Dispatch over the art scene
+run <mission>                     → graybox                DC greybox + collision, assembled by Lot (+ Laser Tag nav QA)
+run <mission> --art               → graybox + art + light  Zoo swaps + props/dressing, Pixelcoat, Patina; then Lux, the light
+run <mission> --art --unlit       → graybox + art          the same art pass with no light: for a runtime that lights it itself
+run <mission> --gameplay          → graybox + gameplay     Dispatch objective/nav/spawn suggestions (advisory)
+run <mission> --art --gameplay    → full stack             art + light, and Dispatch over the art scene
+export <mission> --mode art-unlit → the lit build shipped without its light, the art and its fixtures unchanged
 ```
 
 - **Graybox** is always the base. Deli Counter builds the greybox building *with*
@@ -50,13 +52,20 @@ run <mission> --art --gameplay → full stack         art pass + Dispatch over t
   buildings into a walkable site with nav. No Zoo needed here.
 - **Art** is the swap/decoration pass over the locked greybox: Zoo fills DC's slots
   with themed modules *at the same transform* (and adds non-collision props +
-  dressing), Pixelcoat skins, Patina cohesion, Lux the runtime look. It never
+  dressing), Pixelcoat skins, Patina cohesion. It never
   creates collision — swaps match or inherit DC's (`docs/ASSET_SWAP_CONTRACT.md`).
+- **Light** is Lux's apply pass alone -- the lights, the exposure, the baked
+  lightmap: the render decisions, which are separate from what the level is
+  made of. `--art` includes it; `--unlit` leaves it out, and `export --mode
+  art-unlit` ships a lit build without it. The light *fixtures* stay in Art
+  (Zoo builds the hardware from the locked shell, `lux_fixture_gate` checks
+  it), with their `LuxEmit` markers, so another lighting system reads them as
+  a contract rather than a guess (0.35.0, 0.36.0; `docs/RENDER_PASS_SPLIT.md`).
 - **Gameplay** is Dispatch's advisory objective layer (spawns, objectives, nav
   hints, beat graph, ownership), built on the art scene when `--art` is on, else
   on the graybox directly.
 
-`--art`/`--gameplay` are independent flags; bare `run` is graybox. The legacy
+`--art`, `--unlit` and `--gameplay` are independent flags; bare `run` is graybox. The legacy
 `--target` still works as an alias (`functional-lock` = graybox, `dispatch-handoff`
 = +gameplay, `presentation` = +art+gameplay); `--art`/`--gameplay` take precedence.
 

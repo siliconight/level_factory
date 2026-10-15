@@ -65,6 +65,53 @@ def ships_lux(mode: str) -> bool:
     """
     return mode not in UNLIT_MODES
 
+
+def output_layers_record(layers) -> dict:
+    """`output_layers.json`: the layers this package carries, and its label in
+    ONE spelling, the planner's (0.213.0, the factory's roadmap 257). This file
+    spelled the label from `("art", "gameplay")` alone while
+    `planner.label_for_layers` spelled the whole set, so a package carrying
+    the light said `graybox+art+gameplay` of itself."""
+    from packages.pipeline.planner import label_for_layers
+    layers = sorted(layers or ())
+    return {"schema": "level_factory.output_layers.v0.1", "layers": layers,
+            "label": label_for_layers(layers)}
+
+
+def handoff_layers_text(layers, mode: str) -> str:
+    """HANDOFF.md's last paragraph (0.213.0, the factory's roadmap 257): what
+    this package is made of, layer by layer, and that the light is Lux's
+    result, a layer apart from the art it lights. `output_layers.json` and
+    `LF_MANIFEST.json` carry the same names."""
+    from packages.pipeline.planner import LAYER_ART, LAYER_GAMEPLAY, LAYER_LIGHT
+    layers = frozenset(layers or ())
+    parts = ["the graybox base (Deli Counter's shells with their collision, "
+             "assembled by Lot, with navigation)"]
+    if LAYER_ART in layers:
+        parts.append("the ART layer (Zoo's themed modules, props and dressing, "
+                     "Pixelcoat's skins, Patina's cohesion -- and the light "
+                     "FIXTURES, which are geometry whoever lights them, with "
+                     "their `LuxEmit` markers)")
+    if LAYER_LIGHT in layers:
+        parts.append("the LIGHT layer (Lux's applied scene and its baked "
+                     "lightmap: the render decisions)")
+    if LAYER_GAMEPLAY in layers:
+        parts.append("the GAMEPLAY layer (Dispatch's advisory objectives, "
+                     "spawns and navigation hints)")
+    text = "WHAT THIS PACKAGE IS MADE OF: " + "; ".join(parts) + ". "
+    text += "THE LIGHT IS A LAYER OF ITS OWN, APART FROM THE ART. "
+    if LAYER_LIGHT in layers:
+        text += ("This package carries it. The same build exports without it as "
+                 "`--mode art-unlit` -- the art and its fixtures unchanged -- for "
+                 "a runtime that brings its own lighting.")
+    elif mode == MODE_ART_UNLIT:
+        text += ("This package was exported `art-unlit`: the art and its fixtures "
+                 "with no Lux result. Light it yourself, or export the same build "
+                 "`portable-godot` for Lux's.")
+    else:
+        text += "This package carries no light layer."
+    return text + " `output_layers.json` and `LF_MANIFEST.json` name the layers.\n"
+
 LUX_LOCALIZED = "localized"
 LUX_BAKED = "baked"
 
@@ -2208,7 +2255,8 @@ def export_mission(
     # 4. project.godot, HANDOFF.md, manifests.
     _write_project_godot(export_dir, profile.entry_scene, mission_id,
                          profile.godot_version, profile.weather)
-    (export_dir / "HANDOFF.md").write_text(HANDOFF_LANGUAGE, encoding="utf-8")
+    (export_dir / "HANDOFF.md").write_text(
+        HANDOFF_LANGUAGE + handoff_layers_text(layers, profile.mode), encoding="utf-8")
     # The light bake's marks go on before the second import pass, so the bake
     # does not import every model a third time (0.187.0).
     _write_import_sidecars(
@@ -2545,11 +2593,12 @@ def export_mission(
         pretty_dumps(license_manifest), encoding="utf-8")
     (export_dir / "export_profile.json").write_text(
         pretty_dumps(profile.as_dict()), encoding="utf-8")
-    parts = ["graybox"] + [x for x in ("art", "gameplay") if x in layers]
-    (export_dir / "output_layers.json").write_text(pretty_dumps({
-        "schema": "level_factory.output_layers.v0.1",
-        "layers": sorted(layers), "label": "+".join(parts),
-    }), encoding="utf-8")
+    record = output_layers_record(layers)
+    (export_dir / "output_layers.json").write_text(pretty_dumps(record), encoding="utf-8")
+    # `LAYER_LIGHT` is "light" (pinned by test_layers_shown); the record carries strings
+    print("[export] layers: %s (%s); the light is Lux's result, a layer apart from the art%s"
+          % (", ".join(record["layers"]) or "none, the graybox alone", record["label"],
+             "" if "light" in record["layers"] else " -- this package carries none"))
 
     # 4.96 THE RESOURCE MANIFEST. Everything written above this line is in it;
     # the two files written below are named in its `unlisted` block with the

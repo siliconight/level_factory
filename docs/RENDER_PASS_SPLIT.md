@@ -1,6 +1,11 @@
 # Roadmap: split Lux out of `--art` into a `--render` pass
 
-**Raised 2026-08-05.** Not implemented; captured so it does not get lost.
+**Raised 2026-08-05. BUILT in 0.35.0 and 0.36.0, the other way round:** light is
+a layer a run DECLINES (`--unlit`), not one it adds (`--render`). `LAYER_LIGHT`
+is `lux_apply` alone, `--art` still lights the level by default, and `export
+--mode art-unlit` ships a lit build without Lux's result; the fixtures stay in
+the art. Kept below as it was proposed. The README's Output layers section says
+what shipped (0.213.0, the factory's roadmap 257).
 
 ## The problem
 
