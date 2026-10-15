@@ -44,7 +44,8 @@ def test_the_environment_is_made_from_the_base_and_given_the_pins(tmp_path):
     assert fake.calls[0] == ["/base/python", "-m", "venv", "--system-site-packages",
                              str(tmp_path / ".venv")]
     assert fake.calls[1][0] == py and fake.calls[1][1:4] == ["-m", "pip", "install"]
-    assert sorted(fake.calls[1][5:]) == sorted(f"{d}=={v}" for d, v in interpreter.PINNED.items())
+    assert fake.calls[1][5:7] == ["-c", str(tmp_path / ".venv" / interpreter.CONSTRAINTS)]
+    assert sorted(fake.calls[1][7:]) == sorted(f"{d}=={v}" for d, v in interpreter.PINNED.items())
     assert Path(py).is_file() and Path(py).is_relative_to(tmp_path / ".venv")
 
 
@@ -197,3 +198,27 @@ def test_blenders_real_python_starts_clean_in_its_environment(tmp_path):
     assert "Error in sitecustomize" in control.stderr, (
         "Blender's own sitecustomize no longer errors in an environment: the shim may be "
         "moot -- re-read Blender's file before keeping it", control.stderr)
+
+
+# --------------------------------------------------------------------------- #
+# 0.214.0: what the three pins bring is held too (the factory's roadmap 256)
+# --------------------------------------------------------------------------- #
+
+def test_the_constraints_file_holds_every_distribution_setup_may_install(tmp_path):
+    fake = _Fake()
+    interpreter.make_venv(tmp_path, "/base/python", run=fake)
+    path = tmp_path / ".venv" / interpreter.CONSTRAINTS
+    lines = path.read_text(encoding="utf-8").split()
+    held = {**interpreter.PINNED, **interpreter.CONSTRAINED}
+    # sorted by NAME, as the writer sorts: as strings, "jsonschema-specifications==..." would
+    # sort before "jsonschema==..." ("-" is below "="), two spellings of one order
+    assert lines == [f"{d}=={v}" for d, v in sorted(held.items())]
+    assert len(lines) == 12 and not set(interpreter.PINNED) & set(interpreter.CONSTRAINED)
+    # written before pip runs, which is still the second thing run, and pip is told where it is
+    assert fake.calls[1][1:4] == ["-m", "pip", "install"] and fake.calls[1][5:7] == ["-c", str(path)]
+
+
+def test_what_the_pins_bring_is_the_set_install_test_9_installed():
+    brought = {"dataclasses-json", "deprecated", "jsonschema-specifications", "marshmallow",
+               "mypy-extensions", "referencing", "rpds-py", "typing-inspect", "wrapt"}
+    assert set(interpreter.CONSTRAINED) == brought

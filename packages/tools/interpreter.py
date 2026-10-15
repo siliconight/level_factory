@@ -56,6 +56,17 @@ _ASK = (
 #: and resampler, so an unpinned one would make texture packs nobody here has looked at.
 PINNED = {"pillow": "12.3.0", "pygltflib": "1.16.5", "jsonschema": "4.26.0"}
 VENV = ".venv"
+#: What the three bring, held at the versions install test 9 ran (0.214.0, the factory's
+#: roadmap 256). pip resolved these afresh at every `setup --venv`, and two installs two days
+#: apart took wrapt 2.5.0 and 2.5.1 from one package. Written to the environment's
+#: `constraints.txt` and passed with `-c`: a constraint fixes a version without asking for
+#: the package, so what the base already carries (attrs, packaging and typing-extensions,
+#: from Blender's own Python) stays the base's.
+CONSTRAINED = {"dataclasses-json": "0.6.7", "deprecated": "3.0.0",
+               "jsonschema-specifications": "2025.9.1", "marshmallow": "3.26.2",
+               "mypy-extensions": "1.1.0", "referencing": "0.37.0", "rpds-py": "2026.9.1",
+               "typing-inspect": "0.9.0", "wrapt": "2.5.1"}
+CONSTRAINTS = "constraints.txt"
 
 
 def venv_python(venv: Path) -> Path | None:
@@ -124,8 +135,18 @@ def blender_site_shim(venv: Path, base: str) -> Path | None:
     return shim
 
 
+def write_constraints(venv: Path) -> Path:
+    """`<venv>/constraints.txt`: every distribution `setup --venv` may install, one `==`
+    line each -- `PINNED` and `CONSTRAINED`, sorted (0.214.0). Returns its path."""
+    path = Path(venv) / CONSTRAINTS
+    lines = [f"{d}=={v}" for d, v in sorted({**PINNED, **CONSTRAINED}.items())]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
 def make_venv(root: Path, base: str, *, run=subprocess.run, timeout: int = 1800) -> tuple[str, str]:
-    """Make `<root>/.venv` from `base` and install `PINNED` into it. ``(its python, "")``, or
+    """Make `<root>/.venv` from `base` and install `PINNED` into it, what they bring held at
+    `CONSTRAINED` by a constraints file (0.214.0). ``(its python, "")``, or
     ``("", what failed)``.
 
     `--system-site-packages`, so the environment keeps what `base` already carries -- numpy,
@@ -149,7 +170,9 @@ def make_venv(root: Path, base: str, *, run=subprocess.run, timeout: int = 1800)
         return "", f"{venv} has no interpreter after `-m venv`"
     blender_site_shim(venv, base)
     pins = [f"{dist}=={ver}" for dist, ver in PINNED.items()]
-    got = run([str(py), "-m", "pip", "install", "--disable-pip-version-check", *pins],
+    constraints = write_constraints(venv)
+    got = run([str(py), "-m", "pip", "install", "--disable-pip-version-check",
+               "-c", str(constraints), *pins],
               timeout=timeout, stdin=subprocess.DEVNULL)
     if got.returncode != 0:
         return "", f"pip install {' '.join(pins)} exited {got.returncode} (its output is above)"
