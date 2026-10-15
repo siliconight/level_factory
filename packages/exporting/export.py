@@ -112,6 +112,14 @@ def handoff_layers_text(layers, mode: str) -> str:
         text += "This package carries no light layer."
     return text + " `output_layers.json` and `LF_MANIFEST.json` name the layers.\n"
 
+
+def handoff_text(layers, mode: str) -> str:
+    """HANDOFF.md whole (0.215.1): `HANDOFF_LANGUAGE`, a blank line, the layers
+    paragraph. 0.213.0 appended the paragraph straight after the language,
+    whose last line ends with one newline, so it landed inside the paragraph
+    before it (cold run 9314's package)."""
+    return HANDOFF_LANGUAGE.rstrip("\n") + "\n\n" + handoff_layers_text(layers, mode)
+
 LUX_LOCALIZED = "localized"
 LUX_BAKED = "baked"
 
@@ -2255,8 +2263,7 @@ def export_mission(
     # 4. project.godot, HANDOFF.md, manifests.
     _write_project_godot(export_dir, profile.entry_scene, mission_id,
                          profile.godot_version, profile.weather)
-    (export_dir / "HANDOFF.md").write_text(
-        HANDOFF_LANGUAGE + handoff_layers_text(layers, profile.mode), encoding="utf-8")
+    (export_dir / "HANDOFF.md").write_text(handoff_text(layers, profile.mode), encoding="utf-8")
     # The light bake's marks go on before the second import pass, so the bake
     # does not import every model a third time (0.187.0).
     _write_import_sidecars(

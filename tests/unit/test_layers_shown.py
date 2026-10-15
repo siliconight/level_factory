@@ -42,8 +42,18 @@ def test_the_handoff_says_what_the_package_carries_and_keeps_the_light_apart():
 def test_the_export_writes_the_record_and_the_paragraph():
     src = Path(EX.__file__).read_text(encoding="utf-8")
     assert "record = output_layers_record(layers)" in src
-    assert "HANDOFF_LANGUAGE + handoff_layers_text(layers, profile.mode)" in src
+    assert 'write_text(handoff_text(layers, profile.mode), encoding="utf-8")' in src
+    assert "HANDOFF_LANGUAGE + handoff_layers_text" not in src
     assert '"label": "+".join(parts)' not in src
+
+
+def test_the_layers_paragraph_stands_on_its_own():
+    """0.215.1: cold run 9314's HANDOFF.md carried the paragraph as the last line of the one before it.
+    Fails on 0.215.0, which has no handoff_text."""
+    text = EX.handoff_text({LAYER_ART, LAYER_GAMEPLAY, LAYER_LIGHT}, EX.MODE_PORTABLE)
+    assert text.startswith(EX.HANDOFF_LANGUAGE.rstrip("\n") + "\n\n")
+    assert "\n\nWHAT THIS PACKAGE IS MADE OF" in text and "\n\n\n" not in text
+    assert text.endswith("name the layers.\n") and not text.endswith("\n\n")
 
 
 def test_the_readme_and_the_design_doc_show_the_light_layer():
