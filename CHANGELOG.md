@@ -1,3 +1,25 @@
+## [0.218.2] - the ground-contact pre-flight reads a scene's transforms as Godot does
+
+**One of a class, found in the factory's roadmap 177.** `ground_contact._transform` read a `.tscn` `Transform3D`'s
+nine basis numbers as columns and built the transpose. Godot 4.7 writes and parses them as rows, measured three
+times: Deli Counter off the engine on cold run 9013, Lot's `str_to_var` on 2026-09-13, and the factory's
+`tools/module_pose_census.py` on cold run 9324's deli_a01. The same belief in Deli Counter's z-fight gate reported
+roadmap 177's last two pairs, both false (Deli Counter 0.230.0), and Lot's collision reader held it until Lot
+0.72.1. Here a quarter-turned building's floor boxes off its own origin landed mirrored about it; boxes at other
+angles are already reported opaque, and a box centred on its building's origin lands the same either way.
+
+### Fixed
+- `_transform` reads rows; the refuted reading is kept in its docstring. `spawn_placement` and `tactical` read
+  scenes through it and inherit the fix.
+
+### Measured
+- On cold run 9324's three candidates' walk scenes, about 6,000 boxes each: 0 problems and 0 box centres moved
+  either way, every building unturned (the factory's `docs/findings/zfight_rows_177/ground_contact_rows.py`). The
+  fix is for the first level that turns one.
+
+### Added
+- `tests/unit/test_ground_contact_rows.py` (2, both fail on 0.218.1).
+
 ## [0.218.1] - the z-fight gate says WARN, which is what the pipeline does with it
 
 **Factory roadmap 177's decision, made 2026-10-19 and meant to be changed: warn now, block once the library

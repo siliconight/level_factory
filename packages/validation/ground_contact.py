@@ -180,8 +180,22 @@ def _node_path(name: str, parent: str) -> str:
 def _transform(body: str):
     """The node's own transform as a 3x4 matrix; a missing one is the identity.
 
-    Godot writes ``Transform3D`` as the three basis columns followed by the
-    origin, so the row-major matrix this reader uses is a transpose away.
+    Godot 4.7 writes ``Transform3D`` as the basis's three ROWS followed by the
+    origin, which is the row-major matrix this reader uses, number for number
+    (0.218.2). Measured three times: Deli Counter off the engine on cold run
+    9013 (`tscn_export.godot_basis`), Lot's `str_to_var` on 2026-09-13 (at 30
+    degrees local +X lands on (0.866, 0, -0.5); `lot/site_furniture.
+    plate_facing`), and the factory's `tools/module_pose_census.py` on cold
+    run 9324's deli_a01.
+
+    REFUTED, KEPT: until 0.218.1 this said "the three basis columns followed by
+    the origin, so the row-major matrix this reader uses is a transpose away"
+    and built the transpose. A pure 90-degree turn read that way turns the
+    other way, so a quarter-turned building's floor boxes off its own origin
+    landed mirrored about it. Nothing measured had met it: cold run 9324's
+    candidates read about 6,000 boxes each the same either way, every building
+    unturned. Deli Counter's z-fight gate held the same belief and reported
+    two false pairs from it (Deli Counter 0.230.0, the factory's roadmap 177).
     """
     match = _TRANSFORM.search(body)
     if match is None:
@@ -189,7 +203,7 @@ def _transform(body: str):
     values = _floats(match.group(1))
     if len(values) != 12:
         return _IDENTITY
-    return tuple(tuple(values[3 * col + row] for col in range(3))
+    return tuple(tuple(values[3 * row + col] for col in range(3))
                  + (values[9 + row],) for row in range(3))
 
 
