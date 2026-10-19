@@ -184,6 +184,22 @@ const SLAB_COLLISION_MARK: String = "col"
 ## slabs in `gb_floor`.
 const SLAB_REVEAL_FAMILY: Array = ["floor_", "roof_"]
 
+## VAULT LEDGES (0.217.0). Deli Counter builds a waist-height ledge inside a
+## floor (`_vault_ledges`: `VAULTLEDGE_<n>`) as a box in the FLOOR role, so it
+## arrived in `gb_floor`. No kit module stands in for it -- it is the base's
+## own geometry, as a slab, a flight and a ladder are -- and on cold run 9321's
+## package three of them, 49.7 m2, were the only greybox left in a themed
+## build. 204 of Deli Counter's 446 specs declare one.
+##
+## WHAT IT WEARS IS A CALL, made 2026-10-19 and meant to be changed: a ledge
+## inside a floor reads as a short partition, so it takes the building's
+## interior DRYWALL wall first (`wall_*_mdrywall*`, which each mission building
+## on cold run 9321 ships), then any wall module, then the floor family the
+## slabs take, so it is never left grey while the building has a kit. The list
+## is the dial: each row is [file prefix, a substring the file name carries].
+const VAULT_LEDGE_PREFIX: String = "VAULTLEDGE_"
+const VAULT_LEDGE_FAMILIES: Array = [["wall_", "_mdrywall"], ["wall_", ""], ["floor_", ""]]
+
 ## LADDERS -- rusted outside, clean inside (roadmap 169), and the walker's
 ## call with two reference photographs.
 ##
@@ -929,6 +945,10 @@ func _post_import(scene: Node) -> Object:
 				% [base, int(ld["ladder_surfaces"]), int(ld["ladder_meshes"]),
 					int(ld["exterior_meshes"]), int(ld["unskinned_meshes"]),
 					String(ld["note"])])
+			var vl: Dictionary = _skin_vault_ledges(scene, get_source_file().get_base_dir())
+			print("[worldskin] %s  vault ledges: %d surface(s) skinned on %d mesh(es), %d mesh(es) left flat%s"
+				% [base, int(vl["ledge_surfaces"]), int(vl["ledge_meshes"]),
+					int(vl["unskinned_meshes"]), String(vl["note"])])
 			return scene
 		print("[worldskin] %s  not a kit module, left alone" % base)
 		return scene
@@ -1669,12 +1689,16 @@ func _skin_stairs(scene: Node, base_dir: String) -> Dictionary:
 ## its own family and cannot begin with `floor_`, `wall_` or `wallEnd_`. The
 ## 0.72.0 version needed one because it scanned all of `KIT_PREFIXES`.
 func _family_material(art: String, dir: DirAccess, families: Array,
-		part: String) -> Array:
+		part: String, contains: String = "") -> Array:
 	var files: PackedStringArray = dir.get_files()
 	files.sort()
 	for fam in families:
 		for f in files:
 			if not f.ends_with(".glb") or not f.begins_with(String(fam)):
+				continue
+			# a family narrowed by a substring of the file's name (0.217.0: the
+			# vault ledge's drywall, `wall_*_mdrywall*`); "" narrows nothing
+			if contains != "" and not f.contains(contains):
 				continue
 			var ps: PackedScene = load(art.path_join(f)) as PackedScene
 			if ps == null:
@@ -2037,4 +2061,76 @@ func _assign_ladders(n: Node, rail: Material, rung: Material,
 		flat += int(sub[3])
 		ext_n += int(sub[4])
 	return [fs, fm, seen, flat, ext_n]
+
+
+## Skin every vault ledge in the base (0.217.0; see VAULT_LEDGE_FAMILIES).
+func _skin_vault_ledges(scene: Node, base_dir: String) -> Dictionary:
+	var out: Dictionary = {"ledge_surfaces": 0, "ledge_meshes": 0,
+		"unskinned_meshes": 0, "note": ""}
+	# One definition of a visual ledge for the census and the work, as the
+	# slab pass has: a null material counts instead of assigning.
+	var present: Array = _assign_vault_ledges(scene, null)
+	var ledges: int = int(present[2])
+	if ledges == 0:
+		out["note"] = "; no vault ledge in this base, nothing to skin"
+		return out
+	var art: String = base_dir.path_join("art").path_join("zoo")
+	var dir := DirAccess.open(art)
+	if dir == null:
+		out["unskinned_meshes"] = ledges
+		out["note"] = "; NO art/zoo BESIDE THE BASE -- %d vault ledge mesh(es) left in the greybox material" % ledges
+		push_error("[worldskin] %s%s" % [get_source_file(), String(out["note"])])
+		return out
+	var found: Array = []
+	for row in VAULT_LEDGE_FAMILIES:
+		found = _family_material(art, dir, [String(row[0])], "vault_ledge", String(row[1]))
+		if not found.is_empty():
+			break
+	if found.is_empty():
+		out["unskinned_meshes"] = ledges
+		# `%` binds tighter than `+`, so the formatted piece is built whole.
+		out["note"] = ("; NO MODULE UNDER art/zoo IN FAMILIES %s -- %d vault ledge mesh(es) left in the greybox material"
+			% [str(VAULT_LEDGE_FAMILIES), ledges])
+		push_error("[worldskin] %s%s" % [get_source_file(), String(out["note"])])
+		return out
+	var counts: Array = _assign_vault_ledges(scene, found[0] as Material)
+	out["ledge_surfaces"] = int(counts[0])
+	out["ledge_meshes"] = int(counts[1])
+	out["unskinned_meshes"] = int(counts[3])
+	out["note"] = "; from %s" % String(found[1])
+	return out
+
+
+## A mesh named for a vault ledge that is DRAWN rather than collided with.
+## Godot's `-convcolonly` import deletes the collider's visual, so a collider
+## never reaches the pass; the `col` test is a second line over that.
+func _is_visual_vault_ledge(nm: String) -> bool:
+	return nm.begins_with(VAULT_LEDGE_PREFIX) and not nm.contains(SLAB_COLLISION_MARK)
+
+
+## Assign the ledge material; a null `mat` counts instead (see `_assign_slabs`).
+##
+## Returns [ledge_surfaces, ledge_meshes, ledge_seen, unskinned_meshes].
+func _assign_vault_ledges(n: Node, mat: Material) -> Array:
+	var fs: int = 0
+	var fm: int = 0
+	var seen: int = 0
+	var flat: int = 0
+	var mi: MeshInstance3D = n as MeshInstance3D
+	if mi != null and mi.mesh != null and _is_visual_vault_ledge(String(mi.name)):
+		seen += 1
+		if mat == null:
+			flat += 1
+		else:
+			for i in range(mi.mesh.get_surface_count()):
+				mi.mesh.surface_set_material(i, mat)
+				fs += 1
+			fm += 1
+	for c in n.get_children():
+		var sub: Array = _assign_vault_ledges(c, mat)
+		fs += int(sub[0])
+		fm += int(sub[1])
+		seen += int(sub[2])
+		flat += int(sub[3])
+	return [fs, fm, seen, flat]
 

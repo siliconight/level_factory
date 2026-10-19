@@ -211,8 +211,12 @@ def test_the_snow_grain_is_read_off_the_picture_not_assumed():
 #: 0.136.0: `_assign_ladders`, the ladder skin (roadmap 169), which puts a
 #: building's own metal on a ladder's rails and rungs as the stairs and slabs
 #: passes put its floor on theirs.
+#: 0.217.0: `_assign_vault_ledges`, the vault ledge skin, chosen for the slab
+#: pass's reason: Deli Counter's ledge is a greybox box with no UVs, so its
+#: `gb_floor` is swapped for the building's drywall, world-triplanar
+#: (`test_worldskin_vault_ledges.py`).
 MATERIAL_REPLACERS = {"_assign_stairs", "_assign_slabs", "_shutters", "_turning_parts", "_sway_crowns",
-                      "_assign_ladders", "_signal_lenses"}
+                      "_assign_ladders", "_signal_lenses", "_assign_vault_ledges"}
 
 
 def test_nothing_elses_material_class_changes():

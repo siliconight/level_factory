@@ -1,3 +1,28 @@
+## [0.217.0] - a vault ledge is skinned: the building's drywall, then any wall, then its floor
+
+**Found re-measuring factory roadmap 169 on cold run 9321's package.** With the ladders skinned, the only greybox
+left in the themed package was three `VAULTLEDGE_n` surfaces on `gb_floor`, 49.7 m2. Deli Counter builds a
+waist-height ledge inside a floor (`_vault_ledges`) as a box in the floor role, no kit module stands in for it,
+and `zoo_worldskin.gd` dresses the base's own geometry one pass per kind -- slabs, flights, ladders -- with none
+for a ledge. 204 of Deli Counter's 446 specs declare one. The greybox census reported them and did not refuse.
+
+**What it wears is a call, made 2026-10-19 and meant to be changed.** A ledge inside a floor reads as a short
+partition, so `VAULT_LEDGE_FAMILIES` tries the building's interior drywall wall first (`wall_*_mdrywall*`; every
+mission building on 9321 ships one), then any wall module, then the floor family the slabs take.
+
+### Added
+- `_skin_vault_ledges`, `_is_visual_vault_ledge`, `_assign_vault_ledges` on the slab pass's shape, and one
+  `[worldskin] ... vault ledges:` line after the ladders'. No art, or no module in any family, is a `push_error`
+  that says how many ledges stay grey.
+- `_family_material` takes an optional `contains` filter on the file name; the default narrows nothing, so the
+  stair and slab passes are unchanged.
+- `tests/unit/test_worldskin_vault_ledges.py` (8, all fail on 0.216.1; through a real Godot import), and
+  `_assign_vault_ledges` joins `test_worldskin_crt_motion`'s MATERIAL_REPLACERS with its reason.
+
+### Not here
+Platform decks (`PLATFORM_<id>`) are the same shape of defect, in the one spec that has one (warehouse.json). No
+package carrying one has been measured, so the pass does not claim them.
+
 ## [0.216.1] - the declared drops reach Dispatch: the staging carries vertical links
 
 **Found by 0.216.0's own gate on its first export** (the factory's cold run 9320). The drop-edge census refused
