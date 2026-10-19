@@ -1,3 +1,46 @@
+## [0.216.0] - the gate over undeclared drops: a body walks off an edge only where the level says it may
+
+**Factory roadmap 173's last step.** Every other gate in this exporter measures traversal correctness or
+resource closure; none asked whether a body can FALL somewhere nobody meant. On cold run 9072's package the
+instrument found, from physics, a stairwell the walker had found first; run on cold run 9317's package it
+found the office's stair pit -- a landing open 6.67 m over its well, a flight's inner side open over the flight
+beside it, 12 edges no gate had seen -- and Deli Counter 0.225.0 fixed them at the source. Then the declared set
+was made to ship in the package (Deli Counter 0.226.0, Lot 0.125.0, Dispatch 0.5.3: a one-way off-mesh link on
+every `floor_hole` / `hatch` vertical link, with the cut's rect). This is the gate that reads it.
+
+### Added
+- **`assets/godot/walkable_edge.gd`**, the measurement, Level Factory's own copy of the factory's
+  `tools/walkable_edge.gd` (sha256 878f755daa9521ae3069c0fb49b8d5d88662abff3263cdcde2504998d2e674f9): the body's own capsule over every surface on a grid, lifted on slopes,
+  with surfaces steeper than `floor_max_angle` skipped and occupied ones kept as walls; a flood from the seed
+  across steps, falls and the package's ladders; every reached edge whose neighbour drops further than a step
+  with nothing above step-over height between and nothing in the body's way, with what each stands on and drops
+  to. Nine repairs on one package before its residue was the level's and not its own (the factory's
+  `docs/findings/drop_edges_173/`). Bounded to the rectangle the package's nav nodes and links span plus 12 m,
+  its corner snapped to the cell lattice: on cold run 9318's package 341 x 126 cells and 7 s against 1,521 a
+  side and 150 s unbounded, with the same rows. The `Site` node's subtree reached as far as the backdrop, and an
+  unsnapped corner lost a stair's one-cell turn landing; both are measured in the factory's finding.
+- **`packages/exporting/drop_edges.py`**, the verdict: seeds from the package's `player_start`, links from its
+  `navigation_hints.json`, classes every unguarded edge -- a thing's top, outdoors, a flight's own side, a
+  declared drop's rim, a ladder's shaft at any floor it passes -- and REFUSES on an undeclared drop indoors.
+  `drop_edges.json` (the instrument's report) and `drop_edges_scan.json` (the verdict) land in the package
+  above the closure verdict. A package with no `player_start` seeds no flood: the census is NOT TAKEN, the scan
+  says so, and the export goes on (this suite's own shell exports have none).
+- `ExportProfile.require_declared_drops` (default True; off, the census runs and reports); `ExportDropEdgesError`;
+  step 4.88 of `export_mission`, after the greybox census and before the cache goes.
+- `tests/unit/test_drop_edges.py` (12): a floor is known by its owner, not its height, every class claims its
+  row, a ladder claims its shaft at every floor it
+  passes, a hole claims its rim and not the storey below, the verdict refuses only undeclared indoors, a package
+  without links declares nothing, the seed is the player_start, a census not taken certifies and refuses
+  nothing, the extent is the nav nodes plus a margin, the instrument ships.
+
+### Measured
+Through this module, in the engine, on cold run 9318's package (Deli Counter 0.225.0, which predates the drop
+links): 54 unguarded edges, 46 indoors -- 10 a flight's own side, 3 a rail's top, 13 a ladder's shaft, and 20 at
+deli_a01's floor hole, REFUSED, because that package does not declare the hole. The same report with the link
+Deli Counter 0.226.0 records and Lot 0.125.0 places passes with 0 undeclared. The first draft asked for a
+ladder's ENDS only and also refused 7 rows where the deli's roof ladder passes through the first floor; the
+shaft rule claims them. The first export through the gate is the factory's cold run 9320.
+
 ## [0.215.1] - HANDOFF.md's layers paragraph stands on its own
 
 **Found reading cold run 9314's package** (the factory's `docs/cold_runs/cold_9314/NOTES.md`), the first to carry

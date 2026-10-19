@@ -272,6 +272,19 @@ class ExportGreyboxSkinError(RuntimeError):
     reports."""
 
 
+class ExportDropEdgesError(RuntimeError):
+    """A body can walk off an edge, indoors, that nothing guards and nothing
+    declares -- or the census that asks could not be taken.
+
+    Factory roadmap 173: every drop a body reaches is either GUARDED, or
+    DECLARED, or a defect. The first two findings that were not the
+    instrument's own were an office stair's landing open 6.67 m over its well
+    and a flight's inner side open over the flight beside it, 12 edges no gate
+    had seen; Deli Counter 0.225.0 fixed them at the source. See
+    `packages.exporting.drop_edges` for what is refused and what is reported,
+    and `assets/godot/walkable_edge.gd` for the measurement."""
+
+
 class ExportWarmupError(RuntimeError):
     """The package's shader warm-up could not be shipped, or what shipped is
     not what `packages.exporting.warmup` writes.
@@ -319,6 +332,12 @@ class ExportProfile:
     require_no_addons: bool = True
     require_no_autoloads: bool = True
     require_resource_closure: bool = True
+    #: Refuse a package in which a body can walk off an undeclared edge
+    #: indoors (0.216.0, factory roadmap 173; `packages/exporting/drop_edges`).
+    #: On by default for the same reason the closure verdict is: a warning
+    #: nobody reads is how a package ships with a fall in it. Off, the census
+    #: still runs and its count is in the export log and `drop_edges_scan.json`.
+    require_declared_drops: bool = True
     #: The brief's weather word (0.130.0): what the shipped project's wind is
     #: written from. "clear" when the caller has no brief in hand.
     weather: str = "clear"
@@ -2539,6 +2558,57 @@ def export_mission(
             raise ExportGreyboxSkinError(str(exc)) from exc
     else:
         print("[export] greybox skin: no Godot in this build, so the census "
+              "was not taken and nothing is certified about it")
+
+    # 4.88 CAN A BODY WALK OFF AN EDGE THE LEVEL DID NOT DECLARE? (0.216.0,
+    # factory roadmap 173.) See `packages.exporting.drop_edges`, which owns the
+    # verdict, and `assets/godot/walkable_edge.gd`, which owns the measurement.
+    #
+    # IN THE ENGINE, because the question is where a BODY stands and falls:
+    # the body's own capsule over every surface, a flood from the package's
+    # player_start across steps, falls and its ladders, and every reached edge
+    # with a fall beyond a step and nothing in the way. The declared set is
+    # the package's own: its drop links, its ladders' shafts, a flight's own
+    # open side. Refuses on an UNDECLARED drop INDOORS; a roof's rim, a dock
+    # and a thing's top are reported.
+    #
+    # ABOVE THE CLOSURE VERDICT, like the greybox census: `drop_edges.json`
+    # and `drop_edges_scan.json` are inside the package the verdict describes
+    # and inside the manifest that lists it. NOT in `_WRITTEN_AFTER_VERDICT`.
+    #
+    # ENFORCED ONLY WITH A GODOT TO RUN IT, and OPTED OUT by the profile
+    # (`require_declared_drops`): a build with no engine cannot take the
+    # census, and a census not taken must say so rather than read as clean.
+    # A package with no `player_start` (a single shell exported on its own,
+    # as this exporter's tests do) seeds no flood: the census is NOT TAKEN,
+    # the scan says so, and the export goes on -- not refused over a thing
+    # it could not measure, not certified either.
+    from packages.exporting import drop_edges
+    if godot_executable:
+        try:
+            de_report = drop_edges.measure(export_dir, godot_executable)
+            de_scan = drop_edges.classify(de_report, export_dir)
+            drop_edges.write_scan(export_dir, de_scan)
+            print("[export] drop edges: " + drop_edges.summary(de_scan))
+            if profile.require_declared_drops:
+                drop_edges.assert_declared(export_dir, de_scan)
+            else:
+                print("[export] drop edges: the profile does not require "
+                      "declared drops, so the count above is reported, not "
+                      "refused on")
+        except drop_edges.NoSeedError as exc:
+            de_scan = drop_edges.not_taken(str(exc))
+            drop_edges.write_scan(export_dir, de_scan)
+            print("[export] drop edges: " + drop_edges.summary(de_scan))
+        except drop_edges.DropCensusError as exc:
+            raise ExportDropEdgesError(
+                "the drop-edge census failed and this build had a Godot to "
+                "run it with: %s\n  a package that cannot be measured must "
+                "not be shipped claiming it was" % exc) from exc
+        except drop_edges.UndeclaredDropError as exc:
+            raise ExportDropEdgesError(str(exc)) from exc
+    else:
+        print("[export] drop edges: no Godot in this build, so the census "
               "was not taken and nothing is certified about it")
 
     # THE CACHE GOES HERE, AFTER THE CENSUS (0.181.0, factory roadmap 239), and
