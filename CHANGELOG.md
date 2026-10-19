@@ -1,3 +1,23 @@
+## [0.218.1] - the z-fight gate says WARN, which is what the pipeline does with it
+
+**Factory roadmap 177's decision, made 2026-10-19 and meant to be changed: warn now, block once the library
+counts zero.** `run_presentation_compose.py` printed `z-fight gate [FAIL]` and `ERROR: coplanar surfaces detected
+-- the package would flicker`, under a comment saying a package that z-fights must not ship. None of it held. The
+compose job is `exit_advisory`, so the scheduler records it SUCCEEDED, and the presentation adapter files the pairs
+as PRESENTATION_ZFIGHT, moderate and not blocking. Cold run 9322 printed both twice and shipped.
+
+### Changed
+- `zfight_gate(z)` returns the gate's line, OK or WARN, and a warning naming the pairs and saying where the verdict
+  lives, on the shape of `placement_gate`. The exit stays 3, advisory; the comment above it says so.
+
+### Left for "block"
+Cold run 9322's four pairs, all Deli Counter geometry: deli_a01's `ext_0_E_seg10` against `int_0_1_seg18`, an
+exterior wall segment ending on a partition's faces, and the office's `base:VAULTLEDGE_0` against `reception_desk`,
+the ledge standing inside the desk. When the library counts zero, the finding becomes a blocker and the label FAIL.
+
+### Added
+- `tests/unit/test_zfight_gate_warns.py` (5, all fail on 0.218.0).
+
 ## [0.218.0] - the greybox census refuses any greybox surface in a themed package
 
 **Factory roadmap 168's last step.** `greybox_skin` refused on slabs only and reported the rest, because a greybox

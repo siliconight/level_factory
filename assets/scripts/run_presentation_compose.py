@@ -156,6 +156,34 @@ def placement_gate(pc: dict) -> tuple[str, str | None]:
     return line, err
 
 
+def zfight_gate(z: dict) -> tuple[str, str | None]:
+    """The z-fight gate's log line, and a WARNING when it found pairs --
+    `None` when it found none (0.218.1, factory roadmap 177).
+
+    WARN, NOT FAIL, because that is what the pipeline does with it: the
+    compose job is `exit_advisory`, so the scheduler records it SUCCEEDED, and
+    the presentation adapter files the pairs as PRESENTATION_ZFIGHT, moderate
+    and not blocking. This printed `[FAIL]` and `ERROR` over that from cold run
+    9003 on; 9322 printed both twice and shipped. The call, made 2026-10-19 and
+    meant to be changed: warn now, block once the library counts zero -- when
+    the adapter's finding becomes a blocker and this label FAIL again.
+    """
+    ok = bool(z.get("ok"))
+    line = (f"[compose] z-fight gate [{'OK' if ok else 'WARN'}]: "
+            f"{z.get('pairs', '?')} coplanar pair(s) across "
+            f"{z.get('solids', '?')} solids"
+            + (f" ({z.get('error')})" if z.get("error") else ""))
+    if ok:
+        return line, None
+    named = [f"{f.get('a')} / {f.get('b')}" for f in (z.get("findings") or [])[:6]]
+    warn = ("[compose] WARNING: %s coplanar pair(s) the package may flicker on%s "
+            "-- reported as PRESENTATION_ZFIGHT, moderate and not blocking; it "
+            "blocks once the library counts zero (factory roadmap 177). See "
+            "zfight_check in the manifest."
+            % (z.get("pairs", "?"), (": " + "; ".join(named)) if named else ""))
+    return line, warn
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--deli-repo", required=True,
@@ -287,10 +315,8 @@ def main() -> int:
           f"(absolute_paths={c.get('absolute_path_count')}, "
           f"dangling={len(c.get('dangling_refs') or [])})")
     z = man.get("zfight_check") or {}
-    ztag = "OK" if z.get("ok") else "FAIL"
-    print(f"[compose] z-fight gate [{ztag}]: {z.get('pairs', '?')} coplanar "
-          f"pair(s) across {z.get('solids', '?')} solids"
-          + (f" ({z.get('error')})" if z.get("error") else ""))
+    zline, zwarn = zfight_gate(z)
+    print(zline)
     # Persist a compact compose summary alongside the package for the adapter.
     try:
         Path(a.out, "compose.summary.json").write_text(
@@ -301,12 +327,13 @@ def main() -> int:
                        indent=2, sort_keys=True), encoding="utf-8")
     except OSError:
         pass
-    # A package that z-fights must not ship: fail the compose job so the
-    # pipeline (and its cache) records a red, not a flickering deliverable.
-    if not z.get("ok"):
-        print("[compose] ERROR: coplanar surfaces detected -- the package "
-              "would flicker. See zfight_check in the manifest.",
-              file=sys.stderr)
+    # Z-FIGHTING WARNS (0.218.1, factory roadmap 177; see `zfight_gate`). The
+    # exit stays 3 -- the job is `exit_advisory`, so the scheduler records it
+    # SUCCEEDED either way, and the verdict lives in the adapter's
+    # PRESENTATION_ZFIGHT finding, moderate and not blocking. The comment that
+    # stood here said a package that z-fights must not ship; none ever was stopped.
+    if zwarn:
+        print(zwarn, file=sys.stderr)
         return 3
     # A module that does not sit on its greybox slot is art standing in the
     # wrong place, and the walker sees it. Same standing as the z-fight gate.
