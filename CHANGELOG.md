@@ -1,3 +1,20 @@
+## [0.216.1] - the declared drops reach Dispatch: the staging carries vertical links
+
+**Found by 0.216.0's own gate on its first export** (the factory's cold run 9320). The drop-edge census refused
+the package on 20 undeclared rows at deli_a01's floor hole, "0 at a declared drop", though Deli Counter 0.226.0
+records that hole's one-way nav link and Lot 0.125.0 moves it into site space. Lot's `site.site.gameplay.json`
+carried it. `packages/staging/dispatch_inputs.py` writes Dispatch's inputs from a whitelist of keys that did
+not name `vertical_links`, so Dispatch 0.5.3's importers, which read them, found none. The package's
+`navigation_hints.json` carried the two ladders' links and neither drop's. It is the seam the ladders crossed
+twice (cold runs 9075 and 9076, factory roadmap 172), one record over.
+
+### Fixed
+- `stage_dispatch_inputs` carries `vertical_links` verbatim on the deli_counter side and the lot side, beside
+  `ladders`.
+- `tests/unit/test_drop_links_staged.py` (4, all fail on 0.216.0): both sides carry the deli's three vertical
+  links verbatim; a site that carries its buildings stages none from the generated shell; and both staged
+  manifests carry every key Dispatch 0.5.3's importers read, written down as the contract.
+
 ## [0.216.0] - the gate over undeclared drops: a body walks off an edge only where the level says it may
 
 **Factory roadmap 173's last step.** Every other gate in this exporter measures traversal correctness or

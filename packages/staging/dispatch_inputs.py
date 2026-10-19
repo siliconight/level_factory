@@ -283,6 +283,11 @@ def stage_dispatch_inputs(dest_dir: Path, *, deli_gameplay: Path, shell_glb: Pat
         # looks exactly like an upstream that never sent it -- which is why
         # the capability was claimed and falsified twice (roadmap 172).
         "ladders": list(dc_gp.get("ladders", []) or []),
+        # VERTICAL LINKS, by the same rule (0.216.1, factory roadmap 173): a
+        # floor_hole / hatch vertical link carries a one-way off-mesh
+        # `nav_link` (Deli Counter 0.226.0), and Dispatch 0.5.3's importer
+        # reads it off this record as it reads a ladder's.
+        "vertical_links": list(dc_gp.get("vertical_links", []) or []),
     }, indent=2), encoding="utf-8")
     (deli_dir / "shell.nav_hints.json").write_text(
         json.dumps(derive_nav(dc_anchors or [{"id": "deli_counter:origin",
@@ -335,6 +340,15 @@ def stage_dispatch_inputs(dest_dir: Path, *, deli_gameplay: Path, shell_glb: Pat
         # been taught to read them in 0.5.1 -- found nothing and the package
         # shipped `links: 0` for the second run running.
         "ladders": list(lot_gp.get("ladders", []) or []),
+        # VERTICAL LINKS, the same line one record over (0.216.1, factory
+        # roadmap 173). Deli Counter 0.226.0 files a one-way off-mesh
+        # `nav_link` on every floor_hole / hatch vertical link, Lot 0.125.0
+        # moves it into site space, Dispatch 0.5.3's Lot importer reads it --
+        # and cold run 9320 shipped the two ladders' links and neither drop's,
+        # because this whitelist did not name the key. Found by the export's
+        # drop-edge gate, which refused that package on the deli's 20
+        # undeclared floor-hole rows.
+        "vertical_links": list(lot_gp.get("vertical_links", []) or []),
     }, indent=2), encoding="utf-8")
     (lot_dir / "lot.layout.json").write_text(json.dumps({
         "schema": "lot.layout.v1", "license": {**lic, "source": "lot"},
