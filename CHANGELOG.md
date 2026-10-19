@@ -1,3 +1,40 @@
+## [0.219.0] - the drop-edge lattice is laid off the round coordinates, so a rounding gap is not a hole
+
+**Found by the factory's breadth sweep of 2026-10-19 (roadmap 173).** Cold run 9333, restaurant_row_001, stopped at the
+export with 0 interventions on three "undeclared drops", 3.3 m from deli_a03's storey-1 floor at the west edge of its
+up-stair's discharge plate. The slab's cut and the plate are authored flush on the gate's 0.5 m lattice, site x -64.0,
+and are not flush in float32: the cut is stored at local x -13.000000953674316, one float32 step west, and the plate's
+body composes with the building's -51 to -62.799999237, its west face 0.7 um east of -64.0 -- a 1.7 um gap
+straddling the line (the factory's docs/findings/breadth_sweep_2026-10-19/, read off the GLB and the engine). A ray at
+exactly -64.0 fell through it to the ground; rays a float32 step either side meet the slab and the plate.
+`walkable_edge.gd` cast one ray down each cell's lattice point, and the lattice lands on the round coordinates where
+pieces meet. A body is 0.4 m across and cannot fall through 1.7 um. Roadmap 173 had filed the lattice's fragility
+after one centimetre of offset lost a landing.
+
+### Fixed
+- The lattice is laid `SEAM_NUDGE_X` / `SEAM_NUDGE_Z` (3.1 mm, 2.3 mm) off the round coordinates -- one offset on the
+  grid's origin, bounded or not -- so every query asks the moved points: the column rays and their capsules, the
+  barrier ray, the block capsule, the sky ray, the seed's cell and each link's. Not multiples of 0.5 mm, so no query
+  lands where pieces meet; more than 35 float32 steps anywhere within 1 km of the origin; under 2 % of the standing
+  probe's radius. Rows are reported to 0.01 m, where 3 mm does not show; the report gains `lattice_offset_m`.
+- Measured through the gate on the sweep's six packages, on 0.218.2 and on both builds of this release, the old arm
+  reproducing each export's own scan: 9333 refuses on 0.218.2 and passes here, and no other verdict moves. 38 edge
+  rows change, each attributed cell by cell to what a query on a round coordinate does -- a rounding gap, a ray in a
+  face's plane, a capsule touching a face its radius away (Godot has no epsilon), a hit a few millimetres along a
+  slope -- and the factory's findings keep the tables. A first build moved the column and sky rays alone; this one's
+  every count and row equals it on all six packages, so moving the barrier ray and the block capsule changed nothing
+  measurable there. They move because the capsule kind was measured on the standing capsule, not because a row
+  needed it.
+
+### Refuted, kept
+- "A ray exactly on the line where two flush colliders meet reports neither." They were never flush: the floats
+  above, and rays at the float32 values either side of -64.0 each meet a collider.
+
+### Added
+- `tests/unit/test_edge_seam.py` (1, fails on 0.218.2; runs the real instrument through a real Godot): deli_a03's seam
+  rebuilt from its own floats -- a trimesh slab and a convex plate under a building at -51 -- reads no drop along the
+  seam, and the plate's far rim, which the flood reaches only across the seam, is still found.
+
 ## [0.218.2] - the ground-contact pre-flight reads a scene's transforms as Godot does
 
 **One of a class, found in the factory's roadmap 177.** `ground_contact._transform` read a `.tscn` `Transform3D`'s

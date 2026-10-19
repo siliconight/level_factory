@@ -105,6 +105,19 @@ var _owner_paths: Array = []
 #: A 0.5 m grid over a level is a few hundred thousand cells and the rows are
 #: a few megabytes; the cap is against a runaway, not a budget.
 const MAX_ROWS := 200000
+#: TWO PIECES AUTHORED FLUSH ARE NOT FLUSH IN FLOAT32 (Level Factory 0.219.0,
+#: the factory's roadmap 173). deli_a03's stair cut and its discharge plate
+#: meet at local x -13.0, a line of the gate's 0.5 m lattice; the cut is
+#: stored one float32 step west of it and the plate's body composes a step
+#: east, a 1.7 um gap straddling x -64.0. A ray cast there falls through to
+#: the floor below, and cold run 9333's export refused three such "drops"
+#: (rays a float32 step either side meet the slab and the plate). The
+#: lattice is laid these offsets off the round coordinates (in `_run`), so
+#: no query -- ray or capsule -- lands where pieces meet: not multiples of
+#: 0.5 mm; over 35 float32 steps within 1 km of the origin; and a body is
+#: wider than a gap.
+const SEAM_NUDGE_X := 0.0031
+const SEAM_NUDGE_Z := 0.0023
 
 
 func _initialize() -> void:
@@ -335,6 +348,16 @@ func _run(out_path: String, cell: float, seed: Array, links_path: String, extent
 		var x1: float = ceilf(maxf(extent_rect[0], extent_rect[2]) / cell) * cell
 		var z1: float = ceilf(maxf(extent_rect[1], extent_rect[3]) / cell) * cell
 		box = AABB(Vector3(x0, box.position.y, z0), Vector3(x1 - x0, box.size.y, z1 - z0))
+	# THE LATTICE IS LAID OFF THE ROUND COORDINATES (0.219.0; SEAM_NUDGE
+	# above), bounded or not: every query below -- the column rays and the
+	# capsules stood on them, the barrier ray, the block capsule, the sky ray,
+	# the seed's cell and each link's -- asks points this far off the lines
+	# pieces meet on. The first build moved the column and sky rays alone, and
+	# a capsule standing exactly its radius from a face on a lattice line still
+	# touched it, which Godot calls an overlap. Rows are reported to 0.01 m,
+	# where the offset does not show.
+	box.position += Vector3(SEAM_NUDGE_X, 0.0, SEAM_NUDGE_Z)
+	report["lattice_offset_m"] = [SEAM_NUDGE_X, SEAM_NUDGE_Z]
 
 	var space: PhysicsDirectSpaceState3D = root.world_3d.direct_space_state
 	var probe := CapsuleShape3D.new()
