@@ -1,3 +1,24 @@
+## [0.218.0] - the greybox census refuses any greybox surface in a themed package
+
+**Factory roadmap 168's last step.** `greybox_skin` refused on slabs only and reported the rest, because a greybox
+ladder was "a capability the toolchain does not have yet". That has run out. Every class the census reported now
+has an owner: ladders a worldskin pass (0.136.0), roof parapets wall slots the composer dresses (Deli Counter
+0.177.0), and vault ledges a worldskin pass (0.217.0). Every package exported since 2026-10-10 that drew greybox at
+all drew only vault ledges, across 40 censuses read off disk. On the factory's cold run 9322, the first export on
+0.217.0, the census reads 0 greybox surfaces (no role), where cold run 9321's, on 0.216.1, read the three vault ledges.
+
+**A decision that can be changed:** `ExportProfile.require_no_greybox`, default on. Off, the census reports and
+refuses slabs only, as before, for a build that knowingly ships a new kind of base geometry before its pass.
+
+### Changed
+- `assert_skinned(export_dir, report, any_role=True)` keeps the slab message and, past it, refuses any greybox
+  role (`GREYBOX_IN_A_THEMED_PACKAGE`), naming each role's count and the worst nodes. `summary` says which verdict
+  it applied. Export step 4.87 passes the profile's switch.
+
+### Added
+- `tests/unit/test_greybox_skin_verdict.py` (7; the verdict had no unit test): the slab rule as it was, a vault
+  ledge refused, the switch off, a clean themed package, an unthemed one, the summary, the default.
+
 ## [0.217.0] - a vault ledge is skinned: the building's drywall, then any wall, then its floor
 
 **Found re-measuring factory roadmap 169 on cold run 9321's package.** With the ladders skinned, the only greybox

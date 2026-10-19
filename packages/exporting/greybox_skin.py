@@ -44,6 +44,17 @@ a `gb_*` material, of which 346 are `gb_floor` (essentially all slabs), 28
     it refuse would block every export over work nobody has done, and the
     honest move is to put the number where it can be seen and tracked.
 
+SINCE 0.218.0 IT REFUSES ANY GREYBOX ROLE in a themed package (factory
+roadmap 168), because the reason it reported the rest has run out: every class
+that census reported now has an owner -- ladders a worldskin pass (0.136.0),
+roof parapets wall slots the composer dresses (Deli Counter 0.177.0), vault
+ledges a worldskin pass (0.217.0) -- and every package exported since
+2026-10-10 that drew greybox at all drew only vault ledges. A greybox surface
+in a themed package now means a pass failed or base geometry of a new kind
+arrived without one, and both are defects to see at the export rather than in
+a walk. `ExportProfile.require_no_greybox = False` reports without refusing
+(slabs only, as before), for a build that knowingly ships a new kind early.
+
 AREA IS TOTAL MESH SURFACE AREA, NOT VISIBLE AREA. `gb_floor` reports 17,447
 m2 on that package and almost all of it is slab faces buried under a themed
 floor and ceiling; the walker saw 10.44 m2. The census docstring says this at
@@ -167,7 +178,7 @@ def measure(export_dir, godot_executable, *, script: Path = CENSUS_SCRIPT,
     return report
 
 
-def summary(report: dict) -> str:
+def summary(report: dict, any_role: bool = True) -> str:
     """One line for the export log. Says which question it answered."""
     if report.get("nothing_to_check"):
         return ("this package carries no M_Skin_* material, so no theming was "
@@ -177,24 +188,30 @@ def summary(report: dict) -> str:
         "%s %d" % (name, int(row["surfaces"]))
         for name, row in sorted(roles.items(),
                                 key=lambda kv: -int(kv[1]["surfaces"])))
+    if any_role:
+        return ("%d surface(s) on a greybox material (%s), %d of them slabs; "
+                "any one is refused (require_no_greybox)"
+                % (int(report["greybox_surfaces"]), parts or "none",
+                   int(report["slab_surfaces"])))
     return ("%d surface(s) on a greybox material (%s); slabs %d -- the class "
             "this gate refuses on"
             % (int(report["greybox_surfaces"]), parts or "none",
                int(report["slab_surfaces"])))
 
 
-def assert_skinned(export_dir, report: dict) -> dict:
-    """Raise `GreyboxSkinError` when a themed package draws a greybox slab.
+def assert_skinned(export_dir, report: dict, any_role: bool = True) -> dict:
+    """Raise `GreyboxSkinError` when a themed package draws a greybox slab, and
+    -- with `any_role`, the default since 0.218.0 -- any greybox surface at all.
 
-    Only slabs. The reasoning, and the census that set the threshold, are in
-    this module's docstring: a greybox ladder is an absent capability and
-    refusing over it would block every export on work nobody has done.
+    A slab keeps its own message, because its cause is one pass. The reasoning
+    for each threshold, and the census that set it, are in this module's
+    docstring. `any_role=False` is the pre-0.218.0 verdict: slabs only.
     """
     if report.get("nothing_to_check"):
         return report
     bad = int(report.get("slab_surfaces", 0))
     if not bad:
-        return report
+        return _assert_no_greybox(export_dir, report) if any_role else report
     worst = [w for w in (report.get("worst") or [])
              if str(w.get("node", "")).rsplit("/", 1)[-1].startswith("slab_")]
     lines = [
@@ -210,4 +227,29 @@ def assert_skinned(export_dir, report: dict) -> dict:
         lines.append("    %s  on %s" % (w.get("node"), w.get("material")))
     lines.append("  full report: %s"
                  % (Path(export_dir) / REPORT_NAME))
+    raise GreyboxSkinError("\n".join(lines))
+
+
+def _assert_no_greybox(export_dir, report: dict) -> dict:
+    """Raise `GreyboxSkinError` when a themed package draws any greybox
+    surface (0.218.0). Called past the slab check, so slabs are 0 here."""
+    bad = int(report.get("greybox_surfaces", 0))
+    if not bad:
+        return report
+    roles = report.get("by_role") or {}
+    lines = [
+        "GREYBOX_IN_A_THEMED_PACKAGE: %d surface(s) still carry a greybox "
+        "material (%s)" % (bad, ", ".join(
+            "%s %d" % (name, int(row["surfaces"]))
+            for name, row in sorted(roles.items())) or "no role named"),
+        "  every kind of base geometry the census has met has an owner -- "
+        "slabs, flights, ladders and vault ledges a worldskin pass, parapets "
+        "a wall slot -- so this is a pass that failed (its own log line says "
+        "which, and it push_error()s) or a new kind that arrived without one",
+        "  a build that knowingly ships a new kind before its pass sets "
+        "ExportProfile.require_no_greybox = False",
+    ]
+    for w in (report.get("worst") or [])[:6]:
+        lines.append("    %s  on %s" % (w.get("node"), w.get("material")))
+    lines.append("  full report: %s" % (Path(export_dir) / REPORT_NAME))
     raise GreyboxSkinError("\n".join(lines))

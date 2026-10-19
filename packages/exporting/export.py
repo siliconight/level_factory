@@ -267,9 +267,10 @@ class ExportGreyboxSkinError(RuntimeError):
     collar lining every ladder shaft and stairwell, 10.44 m2 over 8 openings
     on cold run 9070's package -- was found on a ladder, by the walker.
 
-    Refuses on SLABS only; see `packages.exporting.greybox_skin` for the
-    census that set that threshold and for what it deliberately only
-    reports."""
+    Refuses on any greybox surface in a themed package since 0.218.0
+    (`ExportProfile.require_no_greybox`; on slabs only before it, and with it
+    off); see `packages.exporting.greybox_skin` for the census that set each
+    threshold."""
 
 
 class ExportDropEdgesError(RuntimeError):
@@ -338,6 +339,13 @@ class ExportProfile:
     #: nobody reads is how a package ships with a fall in it. Off, the census
     #: still runs and its count is in the export log and `drop_edges_scan.json`.
     require_declared_drops: bool = True
+    #: Refuse a THEMED package that draws any greybox surface (0.218.0, factory
+    #: roadmap 168; `packages/exporting/greybox_skin`). Every kind of base
+    #: geometry the census has met has an owner now, so a greybox surface is a
+    #: pass that failed or a new kind without one. Off, the census reports and
+    #: refuses slabs only, as it did before -- for a build that knowingly ships
+    #: a new kind before its pass exists.
+    require_no_greybox: bool = True
     #: The brief's weather word (0.130.0): what the shipped project's wind is
     #: written from. "clear" when the caller has no brief in hand.
     weather: str = "clear"
@@ -2547,8 +2555,10 @@ def export_mission(
     if godot_executable:
         try:
             gb_report = greybox_skin.measure(export_dir, godot_executable)
-            print("[export] greybox skin: " + greybox_skin.summary(gb_report))
-            greybox_skin.assert_skinned(export_dir, gb_report)
+            print("[export] greybox skin: " + greybox_skin.summary(
+                gb_report, any_role=profile.require_no_greybox))
+            greybox_skin.assert_skinned(export_dir, gb_report,
+                                        any_role=profile.require_no_greybox)
         except greybox_skin.GreyboxCensusError as exc:
             raise ExportGreyboxSkinError(
                 "the greybox census failed and this build had a Godot to run "
