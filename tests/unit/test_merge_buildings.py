@@ -6,7 +6,8 @@ the rooms it hands them in each building's own frame, what it refuses to believe
 the Godot half's rules held to its source, as `test_merge_empties.py` holds the Empties'. A stub Godot writes the
 report, so `merge` goes through its own reading of one.
 
-FAIL ON 0.222.0: there is no `merge_buildings`, and the export merges no building.
+FAIL ON 0.222.0: there is no `merge_buildings`, and the export merges no building. The lit-face tests (0.224.0) fail
+on 0.223.0, which left every module with a lit face whole.
 """
 import json
 import re
@@ -66,7 +67,8 @@ def _pkg(tmp_path, site=SITE, lot=LOT):
 
 def _row(scene, **kw):
     r = {"scene": scene, "slots_merged": 519, "meshes_in": 838, "surfaces_in": 1047, "merged": 470,
-         "unwrapped": 470, "colliders": 485, "units": {"ext": 24, "int": 7, "roof": 5, "room": 434}, "error": None}
+         "unwrapped": 560, "colliders": 485, "units": {"ext": 24, "int": 7, "roof": 5, "room": 434},
+         "lit_surfaces": 132, "lit_meshes": 90, "error": None}
     r.update(kw)
     return r
 
@@ -175,6 +177,9 @@ def test_a_finished_merge_is_believed_and_leaves_no_rooms_behind(tmp_path):
     _report([_row(s) for s in ASKED], schema="something.else"),  # not this report
     _report([_row(s) for s in ASKED], ok=False, error="boom"),   # said it failed
     _report([_row(ASKED[0]), _row(ASKED[1], unwrapped=12)]),     # a mesh with no lightmap UV
+    _report([_row(ASKED[0]), _row(ASKED[1], unwrapped=470)]),    # the lit meshes not unwrapped
+    _report([_row(ASKED[0]), _row(ASKED[1], lit_meshes=0)]),     # lit surfaces in no mesh
+    _report([_row(ASKED[0]), {k: v for k, v in _row(ASKED[1]).items() if k != "lit_surfaces"}]),
     _report([_row(ASKED[0]), _row(ASKED[1], merged=0)]),         # merged nothing
     _report([_row(ASKED[0]), _row(ASKED[1], merged=2000)]),      # more meshes than surfaces
     _report([_row(ASKED[0]), _row(ASKED[1], colliders=0)]),      # lost the collision
@@ -215,13 +220,29 @@ def _func(text, name):
 
 
 def test_what_a_merge_leaves_alone():
-    """Held to the Godot half's source: an interactive slot, an opening, a Lux-lit module, anything animated or
-    scripted, the collision base and the covers are never taken apart."""
+    """Held to the Godot half's source: an interactive slot, an opening, anything animated, scripted or
+    shader-driven, the collision base and the covers are never taken apart."""
     text = M.MERGE_SCRIPT.read_text(encoding="utf-8")
     keep = _func(text, "_mergeable")
     for needle in ('"GreyboxBase"', '"Dressing"', 'has_meta("interactive_id")', 'name.find("_open") >= 0',
-                   "AnimationPlayer", "get_script() != null", "_lit("):
+                   "AnimationPlayer", "get_script() != null", "is ShaderMaterial", "_fixture(m)"):
         assert needle in keep, needle
+    # a lit face that is not a fixture's no longer keeps its whole module out (0.224.0); a fixture's still does
+    assert "_lit(" not in keep
+    assert re.search(r'^const FIXTURE_SUFFIXES: Array\[String\] = \["_Lens", "_Diffuser"\]$', text, re.M)
+
+
+def test_a_lit_face_stays_its_own_instances_mesh():
+    """0.224.0: Lux finds a lit face by material and by place -- the failing fixture dims the one nearest its lamp --
+    so each instance's lit surfaces go into one mesh of their own where it stood (`LitR_<n>`), never into a room
+    cell's merged mesh."""
+    text = M.MERGE_SCRIPT.read_text(encoding="utf-8")
+    merge = _func(text, "_merge_scene")
+    lit_at = merge.index("if _lit(mat):")
+    # the lit branch ends the surface's turn before the key a merged group is filed under
+    assert merge.index("continue", lit_at) < merge.index("var key: String = _key(unit, mat, fmt)")
+    assert 'lout.name = "LitR_%d" % li' in merge
+    assert "LuxFailing.find_lens" in text
     assert re.search(r'^const LIT_SUFFIXES: Array\[String\] = \["_Lens", "_Diffuser", "_Face"\]$', text, re.M)
 
 

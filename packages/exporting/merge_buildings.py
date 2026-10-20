@@ -7,10 +7,11 @@ per side per material (Zoo 1.68.0); the buildings were the rest of the draw pool
 cold run 9339's level (the factory's `docs/findings/multimesh_audit/`).
 
 WHAT IT MERGES, AND IN WHAT UNIT: the Godot half's header (`assets/godot/merge_buildings.gd`). In short: a static
-slot -- not interactive, not an opening, not a Lux-lit fixture, nothing animated, not the collision base, not the
-covers -- joins one mesh per (unit, material); a unit is a wall side of a storey, a partition run, the parapet's side,
-the roof, or a 6 m cell of the room the piece stands in. Colliders are copied out whole, as `merge_empties` copies
-them.
+slot -- not interactive, not an opening, nothing animated or shader-driven, not the collision base, not the covers --
+joins one mesh per (unit, material); a unit is a wall side of a storey, a partition run, the parapet's side, the
+roof, or a 6 m cell of the room the piece stands in. Colliders are copied out whole, as `merge_empties` copies them.
+A LIT FACE stays its own instance's mesh where it stood (0.224.0), because Lux's failing fixture dims the lit face
+nearest its lamp; the module round it merges. 0.223.0 left every module with a lit face whole.
 
 PRICED BEFORE IT SHIPPED (the factory's `docs/findings/interior_merge_266/`): on cold run 9347's package, both arms
 re-baked by this repo's own bake and the control priced twice, the cells cut the draws by 79.6 a heading (11 %, 420 at
@@ -167,14 +168,18 @@ def check(report, asked) -> dict:
             raise MergeError(f"{scene}: not in the report")
         if r.get("error") is not None:
             raise MergeError(f"{scene}: {r['error']}")
-        for k in ("slots_merged", "meshes_in", "surfaces_in", "merged", "unwrapped", "colliders"):
+        for k in ("slots_merged", "meshes_in", "surfaces_in", "merged", "unwrapped", "colliders",
+                  "lit_surfaces", "lit_meshes"):
             if not isinstance(r.get(k), int):
                 raise MergeError(f"{scene}: row has no integer {k!r}")
         if not 0 < r["merged"] < r["surfaces_in"]:
             raise MergeError(f"{scene}: {r['surfaces_in']} surfaces became {r['merged']} meshes")
-        if r["unwrapped"] != r["merged"]:
-            raise MergeError(f"{scene}: {r['unwrapped']} of {r['merged']} merged meshes unwrapped "
+        # every mesh it made is unwrapped: the merged groups and the lit instances both (0.224.0)
+        if r["unwrapped"] != r["merged"] + r["lit_meshes"]:
+            raise MergeError(f"{scene}: {r['unwrapped']} of {r['merged'] + r['lit_meshes']} meshes unwrapped "
                              "for the lightmap")
+        if (r["lit_meshes"] > 0) != (r["lit_surfaces"] > 0) or r["lit_meshes"] > r["lit_surfaces"]:
+            raise MergeError(f"{scene}: {r['lit_surfaces']} lit surfaces in {r['lit_meshes']} meshes")
         if r["colliders"] < 1:
             raise MergeError(f"{scene}: no collider kept")
         if not isinstance(r.get("units"), dict) or not r["units"]:

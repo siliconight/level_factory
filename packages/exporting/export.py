@@ -2418,10 +2418,12 @@ def export_mission(
         brows = breport.get("scenes") or []
         if brows:
             print("[export] buildings merged: %d scene(s), %d slot(s), %d surface(s) "
-                  "-> %d merged mesh(es), %d collider(s) kept"
+                  "-> %d merged mesh(es); %d lit surface(s) in %d mesh(es) of their own; "
+                  "%d collider(s) kept"
                   % (len(brows), sum(r["slots_merged"] for r in brows),
                      sum(r["surfaces_in"] for r in brows),
-                     sum(r["merged"] for r in brows), sum(r["colliders"] for r in brows)))
+                     sum(r["merged"] for r in brows), sum(r["lit_surfaces"] for r in brows),
+                     sum(r["lit_meshes"] for r in brows), sum(r["colliders"] for r in brows)))
             from packages.exporting.merge_empties import drop_merged_modules
             bdropped = drop_merged_modules(export_dir, breport)
             print("[export] merged buildings' modules no file names: %d removed (%.1f MB), "

@@ -1,3 +1,36 @@
+## [0.224.0] - a building's lit face stays one mesh where it stood and the module round it merges; a light fixture and a shader-driven screen stay whole
+
+**The factory's roadmap 266 and 148.** 0.223.0 left every module with a Lux lit face out of the buildings' merge --
+right for a light fixture and wrong for everything else that glows: a lit sign, and the desk screens Zoo 1.115.0 turns
+on (the walker's look review, 2026-10-19: "computer screens hsould be on"), which would have kept every office desk
+out of its room cell's mesh.
+
+### Changed
+- `merge_buildings.gd`: a lit face that is not a fixture's (`M_*_Face`) STAYS ITS OWN INSTANCE'S -- every lit surface
+  of one MeshInstance3D goes into one mesh of its own, `LitR_<n>`, where that instance stood, unwrapped for the
+  lightmap -- and the rest of its module merges. Lux finds lit faces by material (its binder, for the power cut) and
+  by place (the failing fixture dims the lit face nearest its lamp, `LuxFailing.find_lens`), so each stays a mesh
+  where it was.
+- **A light fixture stays whole**, as in 0.223.0: a module wearing a lens or a diffuser (`FIXTURE_SUFFIXES`). Measured
+  before this was decided, on a copy of cold run 9349's package: with the fixtures' housings merged per room cell, two
+  cells' housings paired 10 lights each against Godot's 8, and the meshes over the cap went 9 -> 11. The draws that
+  cut bought (94 a heading where 0.223.0's merge cut 83) are not worth a dark housing.
+- **A shader-driven module stays whole**: any ShaderMaterial surface -- a screen that runs reads its schedule from
+  UV2, and the merge's lightmap unwrap would overwrite it.
+- The report carries `lit_surfaces` and `lit_meshes`; `check` holds every mesh it made unwrapped, the merged groups
+  and the lit instances both, and lit surfaces in lit meshes. The export's line says them.
+
+### Measured (a copy of cold run 9349's package, the export's own steps)
+- deli_a03, office and pharmacy_a01: 4, 2 and 0 lit faces split, 6 meshes of their own; the rest as 0.223.0 merged it.
+  The level carries no lit desk screen yet -- this release is what keeps Zoo 1.115.0's desks in their rooms' meshes.
+
+### Tests
+- `tests/unit/test_merge_buildings.py`: what a merge leaves alone now names the fixture and the shader, and not every
+  lit face; a lit face stays its own instance's mesh; three more unfinished reports refused (the lit meshes not
+  unwrapped, lit surfaces in no mesh, a row without its lit count). 28 in all. Three fail on 0.223.0 -- a finished
+  report with lit meshes, what a merge leaves alone, a lit face's own mesh; the three new refusals pass on it for
+  another reason, since 0.223.0 refuses any report whose unwrapped count is not its merged count.
+
 ## [0.223.0] - the enterable buildings' static modules are merged per room cell and material: 11 % fewer draws, the light cap where it was
 
 **The factory's roadmap 266.** The buildings were the rest of the draw pool: 2,576 of the 3,798 surfaces of cold run

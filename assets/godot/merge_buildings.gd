@@ -12,8 +12,10 @@ extends SceneTree
 ## instancing a kit module GLB, `Dressing` (the covers). Each slot child is either LEFT AS IT IS --
 ##   * `interactive`: it carries `interactive_id` meta -- a door, a breachable wall, a hatch: its states swap;
 ##   * an opening, `*_open<n>`: a window's pane may be glass, which Godot sorts per mesh;
-##   * lit: a module wearing a Lux lit face (`M_*_Lens`, `_Diffuser`, `_Face`) -- Lux binds those by material;
 ##   * moving: a subtree holding an AnimationPlayer or any node with a script;
+##   * a light fixture: a module wearing a lens or a diffuser (`FIXTURE_SUFFIXES`) -- its housing hangs at its lamp;
+##   * shader-driven: a module with any ShaderMaterial surface -- a screen that runs reads its schedule from UV2
+##     (`zoo_keeper/recipes/_card_atlas.build_shutters`), and the merge's lightmap unwrap would overwrite it;
 ##   * the `GreyboxBase`, whose slabs are tiled to the light budget on purpose (Deli Counter, roadmap 54), and the
 ##     `Dressing`, merged per side already (roadmap 180) --
 ## or TAKEN APART: its StaticBody3D colliders copied out whole under `KitCollision`, in the root's frame, and every
@@ -26,6 +28,11 @@ extends SceneTree
 ##     (a local Godot point (x, y, z) is (x, -z) on the plan) with each room's floor height; the room whose plan holds
 ##     the piece (or comes within `ROOM_SLACK_M`) and whose floor is the highest at or under its origin;
 ## and every room unit is CUT INTO `CELL_M` CELLS of the plan (failing a room, a cell alone).
+## A LIT FACE THAT IS NOT A FIXTURE'S (a screen, a sign: `M_*_Face`) STAYS ITS OWN INSTANCE'S (0.224.0): every lit
+## surface of one MeshInstance3D goes into one mesh of its own, `LitR_<n>`, where that instance stood, and the rest
+## of its module merges. Lux finds lit faces by material and by place -- its binder for the power cut, its failing
+## fixture the lit face NEAREST ITS LAMP (`LuxFailing.find_lens`, by AABB) -- so each stays a mesh where it was.
+## 0.223.0 left every module with a lit face whole; a fixture still is.
 ## Each group becomes one ArrayMesh wearing a duplicate of its first material, unwrapped for its lightmap at
 ## `TEXEL_M`, saved as `res://lot/<id>/merged/r<n>.res` under one MeshInstance3D `MergedR_<n>`; the slot children go
 ## and the scene is saved back over itself.
@@ -41,6 +48,10 @@ const SCHEMA := "lf.merge_buildings.v1"
 ## Godot's import default for `meshes/lightmap_texel_size`, as `merge_empties.gd` has it.
 const TEXEL_M := 0.2
 const LIT_SUFFIXES: Array[String] = ["_Lens", "_Diffuser", "_Face"]
+## A LIGHT FIXTURE'S lit faces: a module wearing one stays whole (0.224.0). Its housing hangs at its own lamp, and
+## housings merged into a room cell pair with every lamp round the cell -- measured on cold run 9349's package, two
+## cells' housings at 10 lights against Godot's 8 (`max_lights_per_object`), the meshes over the cap 9 -> 11.
+const FIXTURE_SUFFIXES: Array[String] = ["_Lens", "_Diffuser"]
 ## MEASURED, not derived: the cell that kept cold run 9347's light pairing at the control's (the header). Another
 ## level's fixture spacing could want another; the report's lights-per-object census is where that shows.
 const CELL_M := 6.0
@@ -162,14 +173,24 @@ func _mergeable(child: Node, nodes: Array) -> bool:
 		var mi: MeshInstance3D = n as MeshInstance3D
 		if mi != null and mi.mesh != null:
 			for s in range(mi.mesh.get_surface_count()):
-				if _lit(mi.get_active_material(s)):
+				var m: Material = mi.get_active_material(s)
+				if m is ShaderMaterial or _fixture(m):
 					return false
 	return true
 
 
+func _fixture(mat: Material) -> bool:
+	if mat == null or not mat.resource_name.begins_with("M_"):
+		return false
+	for s in FIXTURE_SUFFIXES:
+		if mat.resource_name.ends_with(s):
+			return true
+	return false
+
+
 func _merge_scene(path: String) -> Dictionary:
 	var row: Dictionary = {"scene": path, "slots_merged": 0, "meshes_in": 0, "surfaces_in": 0, "merged": 0,
-		"unwrapped": 0, "colliders": 0, "units": {}, "error": null}
+		"unwrapped": 0, "colliders": 0, "units": {}, "lit_surfaces": 0, "lit_meshes": 0, "error": null}
 	var rooms_path: String = path.get_base_dir() + "/rooms.json"
 	if not FileAccess.file_exists(rooms_path):
 		row["error"] = "no rooms.json beside the scene"
@@ -194,6 +215,8 @@ func _merge_scene(path: String) -> Dictionary:
 	var inv: Transform3D = scene.global_transform.affine_inverse()
 	var tools: Dictionary = {}
 	var mats: Dictionary = {}
+	# one entry a lit instance: its lit surfaces, each [SurfaceTool, material], in its own mesh (0.224.0)
+	var lit: Array = []
 	var collision := Node3D.new()
 	collision.name = "KitCollision"
 	scene.add_child(collision)
@@ -235,8 +258,16 @@ func _merge_scene(path: String) -> Dictionary:
 				continue
 			row["meshes_in"] = int(row["meshes_in"]) + 1
 			var xf: Transform3D = inv * mi.global_transform
+			var mine: Dictionary = {}
 			for s in range(mi.mesh.get_surface_count()):
 				var mat: Material = mi.get_active_material(s)
+				if _lit(mat):
+					var lk: String = mat.resource_name
+					if not mine.has(lk):
+						mine[lk] = [SurfaceTool.new(), mat]
+					((mine[lk] as Array)[0] as SurfaceTool).append_from(mi.mesh, s, xf)
+					row["lit_surfaces"] = int(row["lit_surfaces"]) + 1
+					continue
 				var fmt: int = (mi.mesh as ArrayMesh).surface_get_format(s) if mi.mesh is ArrayMesh else 0
 				var key: String = _key(unit, mat, fmt)
 				if not tools.has(key):
@@ -244,6 +275,8 @@ func _merge_scene(path: String) -> Dictionary:
 					mats[key] = mat
 				(tools[key] as SurfaceTool).append_from(mi.mesh, s, xf)
 				row["surfaces_in"] = int(row["surfaces_in"]) + 1
+			if not mine.is_empty():
+				lit.append(mine)
 		gone.append(child)
 		row["slots_merged"] = int(row["slots_merged"]) + 1
 	if tools.is_empty():
@@ -284,6 +317,32 @@ func _merge_scene(path: String) -> Dictionary:
 		out.owner = scene
 		k += 1
 	row["merged"] = k
+	# THE LIT FACES, one mesh an instance where it stood (0.224.0): a surface a lit material
+	var li: int = 0
+	for mine in lit:
+		var lam := ArrayMesh.new()
+		var names: Array = (mine as Dictionary).keys()
+		names.sort()
+		for lk in names:
+			var pair: Array = (mine as Dictionary)[lk]
+			(pair[0] as SurfaceTool).commit(lam)
+			lam.surface_set_material(lam.get_surface_count() - 1, (pair[1] as Material).duplicate(true) as Material)
+		if lam.lightmap_unwrap(Transform3D.IDENTITY, TEXEL_M) == OK:
+			row["unwrapped"] = int(row["unwrapped"]) + 1
+		var lpath: String = "%s/l%d.res" % [dir, li]
+		var lerr: int = ResourceSaver.save(lam, lpath)
+		if lerr != OK:
+			scene.queue_free()
+			row["error"] = "cannot save %s (%d)" % [lpath, lerr]
+			return row
+		var lout := MeshInstance3D.new()
+		lout.name = "LitR_%d" % li
+		lout.mesh = load(lpath) as ArrayMesh
+		lout.gi_mode = GeometryInstance3D.GI_MODE_STATIC
+		scene.add_child(lout)
+		lout.owner = scene
+		li += 1
+	row["lit_meshes"] = li
 	# the root was instantiated FROM this path; packed with it set, the saved scene would inherit from itself
 	scene.scene_file_path = ""
 	var repacked := PackedScene.new()
@@ -312,10 +371,16 @@ func _run() -> void:
 	for i in range(1, args.size()):
 		var row: Dictionary = await _merge_scene(args[i])
 		(_report["scenes"] as Array).append(row)
-		print("[merge_buildings] %s: %s" % [args[i], (row["error"] if row["error"] != null
-			else "%d slots, %d meshes, %d surfaces -> %d merged (%d unwrapped), %d colliders kept"
-				% [row["slots_merged"], row["meshes_in"], row["surfaces_in"], row["merged"], row["unwrapped"],
-					row["colliders"]])])
+		var said: String = ""
+		if row["error"] != null:
+			said = String(row["error"])
+		else:
+			# joined BEFORE the format: `%` binds tighter than `+`
+			var fmt: String = ("%d slots, %d meshes, %d surfaces -> %d merged, %d lit surfaces in %d meshes of "
+				+ "their own (%d unwrapped), %d colliders kept")
+			said = fmt % [row["slots_merged"], row["meshes_in"], row["surfaces_in"], row["merged"],
+				row["lit_surfaces"], row["lit_meshes"], row["unwrapped"], row["colliders"]]
+		print("[merge_buildings] %s: %s" % [args[i], said])
 	var bad: Array = (_report["scenes"] as Array).filter(func(r): return r["error"] != null)
 	_report["ok"] = bad.is_empty()
 	if not bad.is_empty():
