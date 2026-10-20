@@ -236,7 +236,9 @@ class ExportImportError(RuntimeError):
 
 class ExportMergeError(RuntimeError):
     """The Empties' merge ran and its report could not be believed (0.143.0,
-    roadmap 182): `packages/exporting/merge_empties.check` says which."""
+    roadmap 182): `packages/exporting/merge_empties.check` says which. The
+    buildings' merge raises it too (0.223.0, roadmap 266;
+    `packages/exporting/merge_buildings.check`)."""
 
 
 class ExportManifestError(RuntimeError):
@@ -356,6 +358,14 @@ class ExportProfile:
     #: profile, the tests among it, says what it wants, and a person running
     #: `export` gets the bake unless they pass --no-bake-lights.
     bake_lights: bool = False
+    #: Merge the enterable buildings' static modules per room cell and material
+    #: (0.223.0, the factory's roadmap 266; `packages/exporting/merge_buildings`).
+    #: ON by default, a call meant to be changed: priced before it shipped (the
+    #: factory's `docs/findings/interior_merge_266/`) at 11 % fewer draws and the
+    #: worst heading 10.05 -> 9.14 ms p95, for a larger lightmap. It runs only with a
+    #: Godot and Lot's site record in hand; without either the package keeps its
+    #: per-module buildings, as it did before, and says so.
+    merge_buildings: bool = True
 
     def as_dict(self) -> dict:
         return self.__dict__.copy()
@@ -2390,6 +2400,36 @@ def export_mission(
             print("[export] merged Empties' modules no file names: %d removed (%.1f MB), "
                   "%d named and kept" % (len(dropped["dropped"]), dropped["bytes"] / 1e6,
                                          dropped["kept"]))
+
+    # THE ENTERABLE BUILDINGS, MERGED PER ROOM CELL AND MATERIAL (0.223.0, roadmap
+    # 266). Where the Empties' merge runs and for its reasons; its rooms come from
+    # Lot's record of the site, the one the responders are read from. A merge
+    # whose report cannot be believed fails the build, as the Empties' does.
+    if profile.merge_buildings and godot_executable and lot_gameplay is not None:
+        from packages.exporting.merge_buildings import merge as _merge_buildings
+        from packages.exporting.merge_empties import MergeError as _BMergeError
+        try:
+            breport = _merge_buildings(export_dir, godot_executable, lot_gameplay)
+        except _BMergeError as exc:
+            drop_cache(export_dir)
+            raise ExportMergeError(
+                "the buildings' merge failed and this build had a Godot to run "
+                "it with: %s\n  report: %s" % (exc, export_dir / "merge_buildings.json"))
+        brows = breport.get("scenes") or []
+        if brows:
+            print("[export] buildings merged: %d scene(s), %d slot(s), %d surface(s) "
+                  "-> %d merged mesh(es), %d collider(s) kept"
+                  % (len(brows), sum(r["slots_merged"] for r in brows),
+                     sum(r["surfaces_in"] for r in brows),
+                     sum(r["merged"] for r in brows), sum(r["colliders"] for r in brows)))
+            from packages.exporting.merge_empties import drop_merged_modules
+            bdropped = drop_merged_modules(export_dir, breport)
+            print("[export] merged buildings' modules no file names: %d removed (%.1f MB), "
+                  "%d named and kept" % (len(bdropped["dropped"]), bdropped["bytes"] / 1e6,
+                                         bdropped["kept"]))
+    elif profile.merge_buildings:
+        print("[export] buildings NOT merged: %s -- the package keeps one module a slot"
+              % ("no Godot" if not godot_executable else "no Lot site record"))
 
     # THE LIGHT BAKE (0.131.0), opt-in. After the occluder bake, which leaves
     # the import cache this needs, and before the cache is dropped; it points

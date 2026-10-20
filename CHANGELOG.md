@@ -1,3 +1,54 @@
+## [0.223.0] - the enterable buildings' static modules are merged per room cell and material: 11 % fewer draws, the light cap where it was
+
+**The factory's roadmap 266.** The buildings were the rest of the draw pool: 2,576 of the 3,798 surfaces of cold run
+9339's level (the factory's `docs/findings/multimesh_audit/`), every wall panel, partition run, prop, floor and
+ceiling its own submission, where the Empties have merged one mesh a side per material since 0.143.0 and the covers
+per side per material since Zoo 1.68.0. MultiMesh is not the lever for them -- they are baked, and a MultiMesh is one
+culling object -- merging is. Priced before it shipped (the factory's `docs/findings/interior_merge_266/`): on copies
+of cold run 9347's package, both arms re-baked by this repo's own bake, the control priced twice.
+
+### Added
+- `packages/exporting/merge_buildings.py` and `assets/godot/merge_buildings.gd`: every enterable building the site
+  places -- a `b<n>` node of `site.tscn` instancing a `lot/<id>/site.tscn`; the terrace's `blocker_<n>` Empties stay
+  `merge_empties`' -- has its static slots taken apart, their colliders copied out whole under `KitCollision`, and
+  their surfaces merged per (unit, material, uv1 scale and triplanar flags, surface format). Left as they are: an
+  interactive slot (`interactive_id`: doors, breachable walls, hatches), an opening (`*_open<n>`: a pane may be
+  glass, sorted per mesh), a module wearing a Lux lit face (`M_*_Lens`, `_Diffuser`, `_Face`: Lux binds them by
+  material), anything with an AnimationPlayer or a script, the `GreyboxBase` (its slabs are tiled to the light budget
+  on purpose) and the covers. The unit: a wall side of a storey, a partition run, a side of the parapet, the roof, and
+  for everything else the room it stands in -- its floor and ceiling by their names, any other piece by where it
+  stands against the room's plan and floor -- CUT INTO 6 m CELLS of the plan.
+- The rooms come from Lot's record of the site (`site.site.gameplay.json`, read for the responders already): each
+  room's site-plan bounds through the inverse of its building node's transform (rows), written beside the scene as
+  `rooms.json` for the Godot half and removed after it. A building Lot records no room for refuses.
+- The export runs it after the Empties' merge and before the light bake, for the Empties' reasons, then drops the
+  module GLBs no file names any longer (`merge_empties.drop_merged_modules`). Its report (`merge_buildings.json`,
+  `lf.merge_buildings.v1`) is believed only when every scene asked for merged something, unwrapped every merged
+  mesh, kept a collider and says what units it made; anything else fails the build, as the Empties' does.
+- `ExportProfile.merge_buildings`, ON by default -- a call meant to be changed -- and `export --no-merge-buildings`,
+  which ships one module a slot as before. Without a Godot or Lot's site record the export says so and merges nothing.
+
+### Measured (cold run 9347's package, 53 station-headings, the control twice)
+- **This release's path** -- the export's own steps on a copy: 1,641 static surfaces in three buildings became 789
+  meshes; 196 module GLBs dropped, 8.9 MB; the draws 38,954 -> 34,590 (-82.3 a heading, median -50, most -420); p95
+  -0.249 ms a heading (median -0.144) against the controls' own 0.097 (median 0.040); the level's worst heading,
+  attacker_spawn_5 at yaw 90, 10.05 and 9.88 -> 9.10 ms p95 at 2,115 -> 1,799 draws.
+- **The light cap held:** the meshes over Godot's 8 lights per object, paired, are the control's nine, the roof among
+  them under a new name. One unit a storey had paired up to 14 lights (19 meshes over), whole rooms 14 (11 over) --
+  the finding keeps both prototypes with their prices.
+- **The cost:** a lightmap of 2048 x 1024 where the control's was 1024 x 1024; the video memory read 134.7 MiB
+  against the controls' 126.3 and 130.4.
+- **The look:** frames from fixed cameras inside and out differ by the lightmap's own repacking noise.
+
+### Tests
+- `tests/unit/test_merge_buildings.py` (24; every one fails on 0.222.0): the buildings are the `b<n>` nodes and never
+  a blocker, with their transforms read as rows; a building node instancing anything but a lot scene refuses; an
+  unturned and a quarter-turned building's rooms come back to its own frame; the rooms are written beside each scene
+  and gone after the merge; a building Lot records no room for, no Godot or no Lot record refuses; a finished report
+  is believed and ten unfinished or unrecognised ones are not; it runs after the Empties' merge and before the light
+  bake; the profile merges by default; and the Godot half is held to its source -- what it leaves alone, and that
+  every room unit carries a cell of the measured 6 m.
+
 ## [0.222.0] - the drop-edge probe models the body: what it walks over does not occupy a cell, and a gap narrower than it is not a fall
 
 **The factory's roadmap 173, What is left item 7.** The factory's lattice phase sweep

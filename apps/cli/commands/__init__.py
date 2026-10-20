@@ -3923,7 +3923,8 @@ def cmd_export(args) -> int:
     profile = ExportProfile(mode=args.mode,
                             include_walk=bool(getattr(args, "include_walk", False)),
                             weather=weather,
-                            bake_lights=bool(getattr(args, "bake_lights", False)))
+                            bake_lights=bool(getattr(args, "bake_lights", False)),
+                            merge_buildings=bool(getattr(args, "merge_buildings", True)))
     if not profile.bake_lights and BAKE_LIGHTS_CLI_DEFAULT:
         # The site spec told Lot the package would bake (0.178.0), so its
         # plates are cut to the baked tile (Lot 0.115.0, 32 m) rather than the

@@ -215,6 +215,11 @@ def build_parser() -> argparse.ArgumentParser:
                          "a GPU and a display, opens the Godot editor for about a minute, "
                          "and ships the package unbaked when it cannot; "
                          "--no-bake-lights skips it")
+    # ON BY DEFAULT (0.223.0, the factory's roadmap 266), a call meant to be changed.
+    sp.add_argument("--merge-buildings", action=argparse.BooleanOptionalAction, default=True,
+                    help="merge each enterable building's static modules per room cell and "
+                         "material -- the default; --no-merge-buildings ships one module a slot, "
+                         "as before 0.223.0")
     sp.set_defaults(func=cmd_export)
 
     sp = sub.add_parser("portability-test", help="clean-project portability test")
