@@ -16,6 +16,10 @@ extends SceneTree
 ##   * a light fixture: a module wearing a lens or a diffuser (`FIXTURE_SUFFIXES`) -- its housing hangs at its lamp;
 ##   * shader-driven: a module with any ShaderMaterial surface -- a screen that runs reads its schedule from UV2
 ##     (`zoo_keeper/recipes/_card_atlas.build_shutters`), and the merge's lightmap unwrap would overwrite it;
+##   * holding what the merge cannot carry (0.227.0, `_cannot_carry`): outside a StaticBody3D, a node that is neither
+##     a MeshInstance3D nor a bare Node3D, or any node in a group of its own or with metadata -- Deli Counter's
+##     `Ladders`, the climb volumes the walk's player and bot use, and its `Markers`, the spawns, objectives and cover
+##     a game finds by group; the report names each slot it kept so (`kept_carrying`);
 ##   * the `GreyboxBase`, whose slabs are tiled to the light budget on purpose (Deli Counter, roadmap 54), and the
 ##     `Dressing`, merged per side already (roadmap 180) --
 ## or TAKEN APART: its StaticBody3D colliders copied out whole under `KitCollision`, in the root's frame, and every
@@ -179,6 +183,54 @@ func _mergeable(child: Node, nodes: Array) -> bool:
 	return true
 
 
+## WHAT THE MERGE CANNOT CARRY (0.227.0): why node `n` of slot `child` keeps the slot whole, or "". The merge keeps a
+## StaticBody3D whole, with everything under it, and a MeshInstance3D's surfaces, and removes the rest with its slot. A
+## bare Node3D -- a module's root, Zoo's `ATT_*` sockets -- holds only its transform, which its meshes already carry.
+## Anything else, and any node in a group not starting "_" (Godot's own do) or with metadata, would go: 0.223.0 to
+## 0.226.2 removed every building's `Ladders` -- Deli Counter's Area3D climb volumes, group `ladder_area3d` -- and its
+## `Markers`, the grouped Node3D spawns, objectives and cover a recipient game finds with `get_nodes_in_group` (Deli
+## Counter's `portable_building._marker_nodes`). Found by the factory's install test 11's walk, "no ladder_area3d in
+## scene". Its `docs/findings/merge_ladders_227/` counted on two levels what else went: bare Node3Ds, and one Lux
+## emitter marker -- an indoor payphone's `LuxEmit_payphone_hood`, its payload glTF extras read as metadata, which
+## Lux's runtime `LuxFixtureSpawner.spawn` lights a lamp from; that payphone now stays whole, 2 surfaces unmerged.
+func _cannot_carry(n: Node, child: Node) -> String:
+	var p: Node = n
+	while p != null:
+		if p is StaticBody3D:
+			return ""
+		if p == child:
+			break
+		p = p.get_parent()
+	if not (n is MeshInstance3D) and n.get_class() != "Node3D":
+		return n.get_class()
+	# sorted: Godot does not keep a node's groups in order, and the report is diffed between runs
+	var own: Array = []
+	for g in n.get_groups():
+		if not String(g).begins_with("_"):
+			own.append(String(g))
+	if not own.is_empty():
+		own.sort()
+		return "group %s" % own[0]
+	var metas: Array = []
+	for m in n.get_meta_list():
+		metas.append(String(m))
+	if not metas.is_empty():
+		metas.sort()
+		return "metadata %s" % metas[0]
+	return ""
+
+
+## The first node of a slot's subtree the merge cannot carry, "<its path> (<why>)", or "" when it can carry it all.
+func _held(child: Node, nodes: Array) -> String:
+	for n in nodes:
+		var node: Node = n as Node
+		var why: String = _cannot_carry(node, child)
+		if why != "":
+			var at: String = "." if node == child else String(child.get_path_to(node))
+			return "%s (%s)" % [at, why]
+	return ""
+
+
 func _fixture(mat: Material) -> bool:
 	if mat == null or not mat.resource_name.begins_with("M_"):
 		return false
@@ -190,7 +242,8 @@ func _fixture(mat: Material) -> bool:
 
 func _merge_scene(path: String) -> Dictionary:
 	var row: Dictionary = {"scene": path, "slots_merged": 0, "meshes_in": 0, "surfaces_in": 0, "merged": 0,
-		"unwrapped": 0, "colliders": 0, "units": {}, "lit_surfaces": 0, "lit_meshes": 0, "error": null}
+		"unwrapped": 0, "colliders": 0, "units": {}, "lit_surfaces": 0, "lit_meshes": 0, "kept_carrying": [],
+		"error": null}
 	var rooms_path: String = path.get_base_dir() + "/rooms.json"
 	if not FileAccess.file_exists(rooms_path):
 		row["error"] = "no rooms.json beside the scene"
@@ -228,6 +281,11 @@ func _merge_scene(path: String) -> Dictionary:
 		var nodes: Array = []
 		_walk(child, nodes)
 		if not _mergeable(child, nodes):
+			continue
+		# before any collider is copied out: a slot kept whole keeps its own (0.227.0)
+		var held: String = _held(child, nodes)
+		if held != "":
+			(row["kept_carrying"] as Array).append("%s: %s" % [String(child.name), held])
 			continue
 		var origin: Vector3 = (inv * (child as Node3D).global_transform).origin if child is Node3D else Vector3.ZERO
 		var unit := _unit(String(child.name), origin, rooms)
@@ -377,9 +435,10 @@ func _run() -> void:
 		else:
 			# joined BEFORE the format: `%` binds tighter than `+`
 			var fmt: String = ("%d slots, %d meshes, %d surfaces -> %d merged, %d lit surfaces in %d meshes of "
-				+ "their own (%d unwrapped), %d colliders kept")
+				+ "their own (%d unwrapped), %d colliders kept; %d slots kept whole, holding what it cannot carry")
 			said = fmt % [row["slots_merged"], row["meshes_in"], row["surfaces_in"], row["merged"],
-				row["lit_surfaces"], row["lit_meshes"], row["unwrapped"], row["colliders"]]
+				row["lit_surfaces"], row["lit_meshes"], row["unwrapped"], row["colliders"],
+				(row["kept_carrying"] as Array).size()]
 		print("[merge_buildings] %s: %s" % [args[i], said])
 	var bad: Array = (_report["scenes"] as Array).filter(func(r): return r["error"] != null)
 	_report["ok"] = bad.is_empty()

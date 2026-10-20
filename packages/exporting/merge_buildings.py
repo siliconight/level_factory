@@ -11,7 +11,11 @@ slot -- not interactive, not an opening, nothing animated or shader-driven, not 
 joins one mesh per (unit, material); a unit is a wall side of a storey, a partition run, the parapet's side, the
 roof, or a 6 m cell of the room the piece stands in. Colliders are copied out whole, as `merge_empties` copies them.
 A LIT FACE stays its own instance's mesh where it stood (0.224.0), because Lux's failing fixture dims the lit face
-nearest its lamp; the module round it merges. 0.223.0 left every module with a lit face whole.
+nearest its lamp; the module round it merges. 0.223.0 left every module with a lit face whole. A SLOT HOLDING WHAT THE
+MERGE CANNOT CARRY stays whole (0.227.0): the merge keeps meshes and static bodies and removed the rest with its slot --
+Deli Counter's `Ladders`, the Area3D climb volumes, and its `Markers`, the grouped spawns and objectives a game finds by
+group, until the factory's install test 11's walk found no ladder to climb. The report names each slot it kept so
+(`kept_carrying`), and a report without that list is an older merge's and is not believed.
 
 PRICED BEFORE IT SHIPPED (the factory's `docs/findings/interior_merge_266/`): on cold run 9347's package, both arms
 re-baked by this repo's own bake and the control priced twice, the cells cut the draws by 79.6 a heading (11 %, 420 at
@@ -172,6 +176,9 @@ def check(report, asked) -> dict:
                   "lit_surfaces", "lit_meshes"):
             if not isinstance(r.get(k), int):
                 raise MergeError(f"{scene}: row has no integer {k!r}")
+        # what the merge cannot carry keeps its slot whole and is named (0.227.0); an older merge removed it
+        if not isinstance(r.get("kept_carrying"), list):
+            raise MergeError(f"{scene}: row names no `kept_carrying` list")
         if not 0 < r["merged"] < r["surfaces_in"]:
             raise MergeError(f"{scene}: {r['surfaces_in']} surfaces became {r['merged']} meshes")
         # every mesh it made is unwrapped: the merged groups and the lit instances both (0.224.0)

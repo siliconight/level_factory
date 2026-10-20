@@ -7,7 +7,9 @@ the Godot half's rules held to its source, as `test_merge_empties.py` holds the 
 report, so `merge` goes through its own reading of one.
 
 FAIL ON 0.222.0: there is no `merge_buildings`, and the export merges no building. The lit-face tests (0.224.0) fail
-on 0.223.0, which left every module with a lit face whole.
+on 0.223.0, which left every module with a lit face whole. The kept-whole tests (0.227.0) fail on 0.226.2, which took
+apart a slot holding what the merge cannot carry -- Deli Counter's `Ladders` and `Markers` -- and removed it; where a
+Godot is installed `test_merge_buildings_godot.py` runs the Godot half on a small building to the same end.
 """
 import json
 import re
@@ -68,7 +70,8 @@ def _pkg(tmp_path, site=SITE, lot=LOT):
 def _row(scene, **kw):
     r = {"scene": scene, "slots_merged": 519, "meshes_in": 838, "surfaces_in": 1047, "merged": 470,
          "unwrapped": 560, "colliders": 485, "units": {"ext": 24, "int": 7, "roof": 5, "room": 434},
-         "lit_surfaces": 132, "lit_meshes": 90, "error": None}
+         "lit_surfaces": 132, "lit_meshes": 90,
+         "kept_carrying": ["Ladders: Ladder_ladder_0 (Area3D)", "Markers: LADDER_0 (group dc_marker)"], "error": None}
     r.update(kw)
     return r
 
@@ -186,6 +189,9 @@ def test_a_finished_merge_is_believed_and_leaves_no_rooms_behind(tmp_path):
     _report([_row(ASKED[0]), _row(ASKED[1], units={})]),         # says nothing of its units
     _report([_row(ASKED[0]), _row(ASKED[1], error="cannot load")]),
     _report([_row(ASKED[0]), {"scene": ASKED[1]}]),              # a row of nothing
+    # an older merge's report (0.226.2 and before), which removed what it could not carry, and a count for the list
+    _report([_row(ASKED[0]), {k: v for k, v in _row(ASKED[1]).items() if k != "kept_carrying"}]),
+    _report([_row(ASKED[0]), _row(ASKED[1], kept_carrying=2)]),
 ])
 def test_an_unfinished_or_unrecognised_merge_refuses(tmp_path, doc):
     pkg, g = _pkg(tmp_path)
@@ -230,6 +236,23 @@ def test_what_a_merge_leaves_alone():
     # a lit face that is not a fixture's no longer keeps its whole module out (0.224.0); a fixture's still does
     assert "_lit(" not in keep
     assert re.search(r'^const FIXTURE_SUFFIXES: Array\[String\] = \["_Lens", "_Diffuser"\]$', text, re.M)
+
+
+def test_a_slot_holding_what_a_merge_cannot_carry_stays_whole():
+    """0.227.0, held to the Godot half's source: outside a static body, a node that is neither a mesh nor a bare Node3D,
+    or any node in a group of its own or with metadata, keeps its slot whole -- decided before any collider is copied
+    out, so a kept slot's colliders are never doubled -- and the report names the slot. FAILS ON 0.226.2, which took
+    Deli Counter's `Ladders` and `Markers` apart and removed them (the factory's install test 11's walk)."""
+    text = M.MERGE_SCRIPT.read_text(encoding="utf-8")
+    carry = _func(text, "_cannot_carry")
+    for needle in ("if p is StaticBody3D:", "n.get_groups()", 'begins_with("_")', "n.get_meta_list()",
+                   'not (n is MeshInstance3D) and n.get_class() != "Node3D"'):
+        assert needle in carry, needle
+    merge = _func(text, "_merge_scene")
+    held = merge.index("var held: String = _held(child, nodes)")
+    assert merge.index("if not _mergeable(child, nodes):") < held
+    assert held < merge.index("var unit := _unit(") < merge.index("body.duplicate()")
+    assert '(row["kept_carrying"] as Array).append(' in merge
 
 
 def test_a_lit_face_stays_its_own_instances_mesh():

@@ -1,3 +1,40 @@
+## [0.227.0] - a building's slot that holds what the merge cannot carry stays whole: its ladders and its markers ship again
+
+**Found by the factory's install test 11**, certifying factory 1.41.0, whose walk read "walk bot: no ladder_area3d in
+scene; traversal vacuous"; 1.40.0's install test 9 climbed all four of its site's ladders. The buildings' merge
+(0.223.0, `assets/godot/merge_buildings.gd`) copies a StaticBody3D out whole and a MeshInstance3D's surfaces into the
+merged meshes, and removes each slot it took apart -- so from 0.223.0 to 0.226.2 it removed every enterable building's
+`Ladders` (Deli Counter's Area3D climb volumes, group `ladder_area3d`, which the walk's player and bot climb) and its
+`Markers` (the grouped spawns, objectives, extraction, cover, camera sockets and patrol points a recipient game finds
+with `get_nodes_in_group`; Deli Counter's `portable_building._marker_nodes`).
+
+**Counted before the rule was chosen** (the factory's `docs/findings/merge_ladders_227/`: `merge_drop_census.gd` over
+two levels' packages exported unmerged -- cold run 9356's first level at seed 9205 and 9355's at seed 9003, six
+buildings, 1,928 slots of which 0.226.2 merged 1,753). Beside bare Node3Ds -- modules' roots and Zoo's `ATT_*`
+sockets, a transform the merged meshes already hold -- a merge removed each building's `Ladders` and `Markers`, 4
+climb volumes and 58 markers, and one Lux emitter marker, an office payphone's `LuxEmit_payphone_hood`: its payload is
+glTF extras, read as metadata, and Lux's runtime `LuxFixtureSpawner.spawn` lights a lamp from it. None of the 2,860
+meshes it carried had a group or metadata.
+- **The rule** (`_cannot_carry`, asked of every node of a slot before any collider is copied out): outside a
+  StaticBody3D, a node that is neither a MeshInstance3D nor a bare Node3D, or any node in a group not starting "_"
+  (Godot's own do) or with metadata, keeps its slot whole. On the two levels it keeps 9 slots: the 8 `Ladders` and
+  `Markers`, which hold no mesh, and the payphone, 2 surfaces. Every other merged mesh is as it was.
+- **The report names what it kept** (`kept_carrying`, "<slot>: <node> (<why>)"); the merge's log line and the
+  export's count it, and `merge_buildings.check` does not believe a row without the list -- an older merge's.
+- **Not done, and what it would buy:** a marker could be copied out of its module as a collider is, leaving the
+  module's surfaces in the merge -- on the two levels counted, one payphone's 2 surfaces.
+
+### Tests
+- `tests/unit/test_merge_buildings_godot.py` (new): the Godot half run headless on a small building -- two wall
+  modules of one storey's side, one with a collider and one with a bare `ATT_*` socket; a prop whose module holds a
+  lamp; `Ladders`; `Markers`. The ladder, its shape and the marker stand where they stood with their groups and
+  metadata; the lamp's module stays whole with its collider once, never also under `KitCollision`; the walls merge
+  into one mesh, the socket with them. Three of its four tests fail on 0.226.2 -- the bare socket's passes on both,
+  the guard against keeping too much. Skipped where no Godot is installed.
+- `tests/unit/test_merge_buildings.py`: `test_a_slot_holding_what_a_merge_cannot_carry_stays_whole` holds the rule
+  and its place before the colliders to the source, and a report row without `kept_carrying`, or with a count for
+  it, refuses. All three fail on 0.226.2.
+
 ## [0.226.2] - the certified table's deli_counter row at 0.241.0
 
 `contracts.GROUNDED` moves one row for factory 1.41.0: deli_counter 0.240.0 -> 0.241.0, where a ramp's slab cut stops
