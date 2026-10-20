@@ -1,3 +1,21 @@
+## [0.226.0] - the perf panel calls the primitives monitor what it is
+
+**The factory's roadmap 261.** The walk overlay's perf panel printed Godot's `RENDER_TOTAL_PRIMITIVES_IN_FRAME` as
+"tris". That monitor counts what each render pass submits -- vertices or indices, the shadow and depth passes
+included -- and never triangles (the geometry guide filed 2026-10-19, sections 2 and 9.3). Measured in the factory, it
+moved 1.5 to 5.4 times on identical meshes with the Lux tier alone, a median of 3.9 times more at High than at
+Compatibility over 53 headings (the factory's `docs/findings/lux_tiers/`). Read off this panel, it reached the
+factory's draw-call budget as two million triangles.
+
+### Changed
+- `assets/godot/debug_overlay.gd`: the line reads `draw <n> calls  <n> prims (all passes)  <n> objects`, and says
+  why above it. The other readers of the monitor (`tools/perf_stations.gd`, `occlusion_ab.gd`, `tint_merge_ab.gd`,
+  `wet_ab.gd`) already named it primitives.
+
+### Tests
+- `tests/unit/test_debug_overlay_perf.py`: `test_the_primitives_monitor_is_not_called_triangles` reads the draw
+  line's format string: "prims (all passes)" and no "tri". It fails on 0.225.0.
+
 ## [0.225.0] - every one of the walker's five times of day names a Lux preset of its own
 
 **The factory's roadmap 217.** The walker, 2026-10-07: a level is set at morning, high noon, afternoon, evening or

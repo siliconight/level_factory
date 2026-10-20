@@ -508,7 +508,13 @@ func _perf_refresh() -> String:
 		# that is not reading anything.
 		gpu_txt = "  n/a  "
 	lines.append("gpu %s   render-cpu %5.2f ms" % [gpu_txt, rcpu / n])
-	lines.append("draw %s calls  %s tris  %s objects" % [
+	# PRIMITIVES ACROSS EVERY PASS, NOT TRIANGLES (0.226.0, the factory's
+	# roadmap 261). RENDER_TOTAL_PRIMITIVES_IN_FRAME counts what each pass
+	# submits -- vertices or indices, the shadow and depth passes included --
+	# and moved 1.5-5.4x on identical meshes with the Lux tier alone (the
+	# factory's docs/findings/lux_tiers/). This line said "tris" until 0.226.0,
+	# which is how two million "triangles" reached the draw-call budget's table.
+	lines.append("draw %s calls  %s prims (all passes)  %s objects" % [
 		_grouped(int(Performance.get_monitor(
 			Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME))),
 		_grouped(int(Performance.get_monitor(

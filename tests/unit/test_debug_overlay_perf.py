@@ -195,6 +195,19 @@ def test_the_worst_step_line_is_not_sold_as_a_frame_time():
         "idle step in the last completed second")
 
 
+def test_the_primitives_monitor_is_not_called_triangles():
+    """`RENDER_TOTAL_PRIMITIVES_IN_FRAME` counts what every pass submits -- vertices or indices, the shadow and depth
+    passes included -- and never triangles (the factory's roadmap 261; its geometry guide, sections 2 and 9.3). It
+    moved 1.5-5.4x on identical meshes with the Lux tier alone. FAILS ON 0.225.0: the panel printed it as "tris", and
+    a figure read off the panel reached the factory's draw-call budget as two million triangles."""
+    text = _func(_src(), "_perf_refresh")
+    m = re.search(r'"([^"]*)" % \[\s*_grouped\(int\(Performance\.get_monitor\(\s*'
+                  r'Performance\.RENDER_TOTAL_DRAW_CALLS_IN_FRAME', text)
+    assert m, "the draw line is not formatted where this expects it"
+    assert "prims (all passes)" in m.group(1), m.group(1)
+    assert "tri" not in m.group(1).lower(), m.group(1)
+
+
 def test_the_readout_says_whose_figures_these_are():
     """The walk copy runs the PACKAGE's renderer and light budget, so the
     number is the package's. A frame time with no resolution or vsync state
