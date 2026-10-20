@@ -1396,7 +1396,9 @@ def _preset_for(model: MissionBrief) -> str:
     # resource stems — a wrong name makes blend_to_preset a silent no-op
     # (proven on hardware in the lux visual pass). Registered library:
     # Delco Summer Afternoon / Delco Arcade / Gas Station Fluorescent /
-    # Blue Hour / Heavy Rain / Mission Goes Hot.
+    # Blue Hour / Heavy Rain / Mission Goes Hot / Delco Night, and since
+    # Lux 0.79.0 Delco Morning / Delco High Noon
+    # (`tests/unit/test_time_of_day_presets.py` reads the names off Lux).
     #
     # WEATHER FIRST. `MissionBrief.weather` was read by nothing, so a brief
     # that said "rain" shipped dry. Heavy Rain is the one shipped
@@ -1416,12 +1418,22 @@ def _preset_for(model: MissionBrief) -> str:
     # ambient -- which washes out every fixture in the level and casts the long
     # hard shadows across it. There was no night preset to ask for; Lux 0.44.0
     # adds `Delco Night`, whose sun is off.
-    if tod == "night":
+    # THE WALKER'S FIVE TIMES (2026-10-07): morning, high noon, afternoon,
+    # evening, midnight. Three had a preset, so a brief asking for morning or
+    # noon got Gas Station Fluorescent, an interior look, and one saying
+    # "midnight" -- the walker's own word for the night slot -- did too. Lux
+    # 0.79.0 adds the two days (the walker's look review, 2026-10-19: "Build
+    # both"); 0.225.0 names all five.
+    if tod in ("night", "midnight"):
         return "Delco Night"
     if tod == "evening":
         return "Blue Hour"
     if tod == "afternoon":
         return "Delco Summer Afternoon"
+    if tod == "morning":
+        return "Delco Morning"
+    if tod in ("noon", "high noon", "high_noon", "midday"):
+        return "Delco High Noon"
     return "Gas Station Fluorescent"
 
 

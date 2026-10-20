@@ -50,7 +50,10 @@ def test_rain_wins_over_time_of_day(tod):
     # `Delco Night` since, and this row was left behind until 0.138.0.
     ("night", "Delco Night"),
     ("evening", "Blue Hour"),
-    ("morning", "Gas Station Fluorescent"),
+    # `morning` fell through to Gas Station Fluorescent, an interior look,
+    # until 0.225.0; it asks for Lux 0.79.0's `Delco Morning` since
+    # (`tests/unit/test_time_of_day_presets.py` holds all five times).
+    ("morning", "Delco Morning"),
 ])
 def test_clear_weather_keeps_the_time_of_day_choice(tod, preset):
     assert _preset_for(_brief(weather="clear", time_of_day=tod)) == preset

@@ -1,3 +1,26 @@
+## [0.225.0] - every one of the walker's five times of day names a Lux preset of its own
+
+**The factory's roadmap 217.** The walker, 2026-10-07: a level is set at morning, high noon, afternoon, evening or
+midnight. `_preset_for` named three of them. A brief asking for morning or noon, or saying "midnight" -- the
+walker's own word for the night slot -- fell through to Gas Station Fluorescent, an interior look. Lux 0.79.0 draws
+the morning and the high noon (the walker's look review, 2026-10-19: "Build both").
+
+### Changed
+- `apps/cli/commands._preset_for`: `morning` asks for Delco Morning; `noon`, `high noon`, `high_noon` and `midday`
+  ask for Delco High Noon; `midnight` asks for Delco Night, beside `night`. Rain still wins, and any other word still
+  falls through to Gas Station Fluorescent. The briefs written so far say night, evening or afternoon, and each
+  still names what it did.
+
+### Tests
+- `tests/unit/test_time_of_day_presets.py`: each of the five times names its own preset; the spellings in use still
+  name theirs; rain wins and an unknown word falls through. The last test reads Lux's preset folder from the
+  factory's sibling `lux/` and holds every name `_preset_for` can return to one Lux registers, since a name Lux
+  lacks makes `blend_to_preset` a silent no-op. It finds Lux through `tests.siblings.sibling_repo`, and skips where
+  there is none (the suite's own `test_sibling_locator` refused the first draft, which counted parents). Four fail on
+  0.224.0.
+- `tests/unit/test_lux_rain.py`: its clear-weather row for `morning` held the old fall-through, Gas Station
+  Fluorescent; it holds Delco Morning.
+
 ## [0.224.0] - a building's lit face stays one mesh where it stood and the module round it merges; a light fixture and a shader-driven screen stay whole
 
 **The factory's roadmap 266 and 148.** 0.223.0 left every module with a Lux lit face out of the buildings' merge --
