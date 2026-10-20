@@ -1,3 +1,48 @@
+## [0.220.0] - a legacy fire escape and a vehicle ramp are skinned: the building's darkest metal, and its floor
+
+**Found by the factory's cold run 9342 (precinct_yard_001, seed 9708, 0 interventions), stopped at the export.** The
+greybox census refused the themed package on two surfaces, `Bake/Site/b2/GreyboxBase/FIREESCAPE_REAR_FIRE_ESCAPE_1`
+and its `_RAIL`, both on `gb_floor`: apartment_walkup_a01's legacy exterior fire escape, which Deli Counter's
+`_fire_escapes` builds as boxes in the floor role -- a deck a served storey, its outer guard, a stub down to the deck
+below -- with its own colliders and a drop ladder linked to it. No kit module stands in for one and no pass dressed
+one. It is not new: cold run 9172 shipped the same two surfaces on 2026-10-06, and the census, which refused on slabs
+only then, reported them.
+
+**0.218.0's claim was wrong for two classes, and is kept in `greybox_skin.py` above the passes that answered it.**
+"Every class that census reported now has an owner" rested on the packages exported since 2026-10-10, and no lot in
+that window drew a shell carrying either. A census of every base in Deli Counter's library against the passes' name
+tests (the factory's `docs/findings/base_greybox_owners/census.py`, which reproduces 9342's engine census exactly on
+its four buildings) found two kinds without an owner in the shells a themed lot can draw: the fire escape, in
+apartment_walkup_a01, and the vehicle ramp (`_ramps`, `ramp<n>`, on `gb_ramp`), five of them in cr_garage,
+parking_garage, parking_garage_a01 and parking_garage_a02 -- which cold runs 9168, 9174 and 9177 had each shipped one
+of, reported and not refused. Any of the four garages would have been refused the next time a lot drew it. The other
+kinds the census names (whole-wall `ext_` / `int_` / `parapet_` boxes, warehouse's `PLATFORM_` catwalk, two more
+ramps) stand only in shells a themed lot cannot draw: ten the themed pool turns away for an empty slot coverage, and
+two demos the library does not index.
+
+**What each wears is a call, made 2026-10-20 and meant to be changed.** The walk-ups' fire escapes are Zoo's
+`fire_escape` (1.110.0), black painted steel, so this one takes the darkest tinted metal in the building's `prop_`
+modules -- the ladder rail's pick -- and the theme's rust only when no tinted metal is there; on 9342's
+apartment_walkup_a01 that is `M_Skin_metal_painted_delco_050505`, the metal its ladders' rails wear, and its packs
+carry no rust. A ramp is a floor, as a tread is, so it takes the floor family the slabs' reveal takes, the roof as
+the fallback. Neither changes a draw: a greybox box is one mesh of one surface before and after, and the texture it
+borrows is already resident.
+
+### Added
+- `zoo_worldskin.gd`: `FIRE_ESCAPE_PREFIX`, `RAMP_PREFIX`, `RAMP_FAMILY`; `_skin_fire_escapes`,
+  `_is_visual_fire_escape`, `_assign_fire_escapes`, `_skin_ramps`, `_is_visual_ramp`, `_assign_ramps` on the slab
+  pass's shape (one definition counts and dresses); a `fire escapes:` and a `ramps:` line after the vault ledges'. No
+  art, no metal, or no floor or roof module is a `push_error` that says how many meshes stay grey. A ramp's name test
+  is exact -- `ramp` and an index -- so its collider and a name that merely begins `ramp` are not claimed.
+- `greybox_skin.py`: the refutation, and the refusal's list of owners names fire escapes and vehicle ramps.
+- `tests/unit/test_worldskin_fire_escapes_ramps.py` (12, all fail on 0.219.0; through a real Godot import), and both
+  assign functions join `test_worldskin_crt_motion`'s MATERIAL_REPLACERS with their reason.
+
+### Not measured here
+- A kit gap: the census assumes every slot resolves to a themed module, so a slot left on its greybox fallback is not
+  in it. The export's engine census still refuses one.
+- How either looks in a level, and its frame cost: the factory's re-run of 9342 is the measurement.
+
 ## [0.219.0] - the drop-edge lattice is laid off the round coordinates, so a rounding gap is not a hole
 
 **Found by the factory's breadth sweep of 2026-10-19 (roadmap 173).** Cold run 9333, restaurant_row_001, stopped at the

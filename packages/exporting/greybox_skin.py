@@ -55,6 +55,19 @@ arrived without one, and both are defects to see at the export rather than in
 a walk. `ExportProfile.require_no_greybox = False` reports without refusing
 (slabs only, as before), for a build that knowingly ships a new kind early.
 
+THAT CLAIM WAS WRONG FOR TWO CLASSES, and is kept above the passes that
+answered it (0.220.0). "Every class that census reported now has an owner"
+rested on the packages exported since 2026-10-10, and no lot in that window
+drew a shell carrying either. The factory's cold run 9342 (precinct_yard_001,
+2026-10-20) was refused on apartment_walkup_a01's legacy fire escape --
+`FIREESCAPE_*`, two surfaces on `gb_floor` -- which cold run 9172 had shipped,
+reported and not refused, on 2026-10-06; and cold runs 9168, 9174 and 9177 had
+shipped a garage's vehicle ramp (`ramp<n>`, on `gb_ramp`) the same way. A
+census of every base in Deli Counter's library against the passes' name tests
+(the factory's `docs/findings/base_greybox_owners/census.py`) found exactly
+those two kinds in the shells a themed lot can draw -- one fire escape, five
+ramps in four garages -- and each now has a worldskin pass.
+
 AREA IS TOTAL MESH SURFACE AREA, NOT VISIBLE AREA. `gb_floor` reports 17,447
 m2 on that package and almost all of it is slab faces buried under a themed
 floor and ceiling; the walker saw 10.44 m2. The census docstring says this at
@@ -243,9 +256,10 @@ def _assert_no_greybox(export_dir, report: dict) -> dict:
             "%s %d" % (name, int(row["surfaces"]))
             for name, row in sorted(roles.items())) or "no role named"),
         "  every kind of base geometry the census has met has an owner -- "
-        "slabs, flights, ladders and vault ledges a worldskin pass, parapets "
-        "a wall slot -- so this is a pass that failed (its own log line says "
-        "which, and it push_error()s) or a new kind that arrived without one",
+        "slabs, flights, ladders, vault ledges, fire escapes and vehicle "
+        "ramps a worldskin pass, parapets a wall slot -- so this is a pass "
+        "that failed (its own log line says which, and it push_error()s) or a "
+        "new kind that arrived without one",
         "  a build that knowingly ships a new kind before its pass sets "
         "ExportProfile.require_no_greybox = False",
     ]

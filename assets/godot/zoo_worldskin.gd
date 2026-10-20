@@ -200,6 +200,41 @@ const SLAB_REVEAL_FAMILY: Array = ["floor_", "roof_"]
 const VAULT_LEDGE_PREFIX: String = "VAULTLEDGE_"
 const VAULT_LEDGE_FAMILIES: Array = [["wall_", "_mdrywall"], ["wall_", ""], ["floor_", ""]]
 
+## FIRE ESCAPES (0.220.0). Deli Counter's legacy exterior fire escape
+## (`_fire_escapes`, ladder spec s9) is a deck a served storey, its outer guard
+## and a stub down to the deck below -- `FIREESCAPE_<ID>_<story>`, `_RAIL`,
+## `_STAIR` -- boxes in the FLOOR and STAIR roles, so it arrived in `gb_floor`
+## and `gb_stair`. No kit module stands in for it: like a slab, a flight and a
+## ladder it is the base's own geometry, with its own colliders and a drop
+## ladder linked to it. The factory's cold run 9342 (precinct_yard_001) was
+## refused at export on apartment_walkup_a01's two surfaces, which cold run
+## 9172 had shipped on 2026-10-06, reported and not refused. Two of Deli
+## Counter's specs declare one: apartment_walkup_a01, which a themed lot can
+## draw, and rowhouse_raid, which it cannot.
+##
+## WHAT IT WEARS IS A CALL, made 2026-10-20 and meant to be changed: the
+## walk-ups' fire escapes are Zoo's `fire_escape` (1.110.0), black painted
+## steel, so this one takes the DARKEST tinted metal in the building's `prop_`
+## modules -- the ladder rail's pick, from `LADDER_METAL_FAMILY` -- and the
+## theme's rust (`LADDER_RUST_MATERIAL`) only when no tinted metal is there.
+## Deck, guard and stub wear one material.
+const FIRE_ESCAPE_PREFIX: String = "FIREESCAPE_"
+
+## VEHICLE RAMPS (0.220.0). Deli Counter builds a ramp between storeys
+## (`_ramps`: `ramp<n>`, its collider `ramp<n>_col`) as one inclined box in the
+## RAMP role, so it arrived in `gb_ramp`. The factory's cold runs 9168, 9174
+## and 9177 shipped one each, reported and not refused; since 0.218.0 the
+## export would refuse it. Four shells a themed lot can draw carry five:
+## cr_garage, parking_garage, parking_garage_a01 and parking_garage_a02 (two).
+##
+## A RAMP IS A FLOOR, as a tread is (`STAIR_FLIGHT_FAMILY`). That is a call,
+## made 2026-10-20 and meant to be changed: a ramp takes the floor family the
+## slabs' reveal takes, the roof as the fallback. Written out rather than
+## aliased to `SLAB_REVEAL_FAMILY`, so the two can diverge later without one
+## silently moving the other.
+const RAMP_PREFIX: String = "ramp"
+const RAMP_FAMILY: Array = ["floor_", "roof_"]
+
 ## LADDERS -- rusted outside, clean inside (roadmap 169), and the walker's
 ## call with two reference photographs.
 ##
@@ -949,6 +984,14 @@ func _post_import(scene: Node) -> Object:
 			print("[worldskin] %s  vault ledges: %d surface(s) skinned on %d mesh(es), %d mesh(es) left flat%s"
 				% [base, int(vl["ledge_surfaces"]), int(vl["ledge_meshes"]),
 					int(vl["unskinned_meshes"]), String(vl["note"])])
+			var fe: Dictionary = _skin_fire_escapes(scene, get_source_file().get_base_dir())
+			print("[worldskin] %s  fire escapes: %d surface(s) skinned on %d mesh(es), %d mesh(es) left flat%s"
+				% [base, int(fe["escape_surfaces"]), int(fe["escape_meshes"]),
+					int(fe["unskinned_meshes"]), String(fe["note"])])
+			var rp: Dictionary = _skin_ramps(scene, get_source_file().get_base_dir())
+			print("[worldskin] %s  ramps: %d surface(s) skinned on %d mesh(es), %d mesh(es) left flat%s"
+				% [base, int(rp["ramp_surfaces"]), int(rp["ramp_meshes"]),
+					int(rp["unskinned_meshes"]), String(rp["note"])])
 			return scene
 		print("[worldskin] %s  not a kit module, left alone" % base)
 		return scene
@@ -2128,6 +2171,176 @@ func _assign_vault_ledges(n: Node, mat: Material) -> Array:
 			fm += 1
 	for c in n.get_children():
 		var sub: Array = _assign_vault_ledges(c, mat)
+		fs += int(sub[0])
+		fm += int(sub[1])
+		seen += int(sub[2])
+		flat += int(sub[3])
+	return [fs, fm, seen, flat]
+
+
+## Skin every legacy fire escape in the base (0.220.0; see FIRE_ESCAPE_PREFIX).
+##
+## Refuses out loud like its siblings: a base whose fire escape this cannot
+## dress ships it grey, and the export's greybox census refuses the package.
+##
+## Returns {escape_surfaces, escape_meshes, unskinned_meshes, note}.
+func _skin_fire_escapes(scene: Node, base_dir: String) -> Dictionary:
+	var out: Dictionary = {"escape_surfaces": 0, "escape_meshes": 0,
+		"unskinned_meshes": 0, "note": ""}
+	# One definition of a visual fire escape for the census and the work, as
+	# the slab pass has: a null material counts instead of assigning.
+	var present: Array = _assign_fire_escapes(scene, null)
+	var parts: int = int(present[2])
+	if parts == 0:
+		out["note"] = "; no fire escape in this base, nothing to skin"
+		return out
+	var art: String = base_dir.path_join("art").path_join("zoo")
+	var dir := DirAccess.open(art)
+	if dir == null:
+		out["unskinned_meshes"] = parts
+		out["note"] = "; NO art/zoo BESIDE THE BASE -- %d fire escape mesh(es) left in the greybox material" % parts
+		push_error("[worldskin] %s%s" % [get_source_file(), String(out["note"])])
+		return out
+	# The darkest tinted metal, ranked as the ladder pass ranks them; the rust
+	# is found by name, because its colour is in its texture and cannot rank.
+	var pick: BaseMaterial3D = null
+	var pick_name: String = ""
+	var pick_lum: float = 999.0
+	var rust: BaseMaterial3D = null
+	for row in _metal_palette(art, dir):
+		var bm: BaseMaterial3D = row[0]
+		var nm: String = String(row[1])
+		var lum: float = float(row[2])
+		if nm == LADDER_RUST_MATERIAL:
+			rust = bm
+		if bool(row[3]) and lum < pick_lum:
+			pick_lum = lum
+			pick = bm
+			pick_name = nm
+	var note: String = "; darkest tinted metal %s (%.3f)" % [pick_name, pick_lum]
+	if pick == null and rust != null:
+		pick = rust
+		note = "; no tinted metal, the theme's rust %s" % LADDER_RUST_MATERIAL
+	if pick == null:
+		out["unskinned_meshes"] = parts
+		out["note"] = ("; NO METAL MATERIAL UNDER art/zoo IN FAMILIES %s -- %d fire escape mesh(es) left in the greybox material"
+			% [str(LADDER_METAL_FAMILY), parts])
+		push_error("[worldskin] %s%s" % [get_source_file(), String(out["note"])])
+		return out
+	# World-triplanar, as `_ladder_material` makes a ladder's: a greybox box
+	# carries no UVs, so the texture is projected from position.
+	var mat: BaseMaterial3D = pick.duplicate()
+	mat.resource_name = "M_Skin_fire_escape"
+	if not mat.uv1_world_triplanar:
+		mat.uv1_triplanar = true
+		mat.uv1_world_triplanar = true
+	var counts: Array = _assign_fire_escapes(scene, mat)
+	out["escape_surfaces"] = int(counts[0])
+	out["escape_meshes"] = int(counts[1])
+	out["unskinned_meshes"] = int(counts[3])
+	out["note"] = note
+	return out
+
+
+## A mesh named for a legacy fire escape that is DRAWN rather than collided
+## with. Deli Counter upper-cases the escape's id into the name
+## (`FIREESCAPE_<ID>_<story>`, `_RAIL`, `_STAIR`), so the lower-case `col` of
+## a collider's `-convcolonly` cannot occur in a drawn part's name; Godot's
+## import deletes that collider's visual anyway, and this is a second line.
+func _is_visual_fire_escape(nm: String) -> bool:
+	return nm.begins_with(FIRE_ESCAPE_PREFIX) and not nm.contains("col")
+
+
+## Assign the fire escape's material; a null `mat` counts instead (see
+## `_assign_slabs`).
+##
+## Returns [escape_surfaces, escape_meshes, escape_seen, unskinned_meshes].
+func _assign_fire_escapes(n: Node, mat: Material) -> Array:
+	var fs: int = 0
+	var fm: int = 0
+	var seen: int = 0
+	var flat: int = 0
+	var mi: MeshInstance3D = n as MeshInstance3D
+	if mi != null and mi.mesh != null and _is_visual_fire_escape(String(mi.name)):
+		seen += 1
+		if mat == null:
+			flat += 1
+		else:
+			for i in range(mi.mesh.get_surface_count()):
+				mi.mesh.surface_set_material(i, mat)
+				fs += 1
+			fm += 1
+	for c in n.get_children():
+		var sub: Array = _assign_fire_escapes(c, mat)
+		fs += int(sub[0])
+		fm += int(sub[1])
+		seen += int(sub[2])
+		flat += int(sub[3])
+	return [fs, fm, seen, flat]
+
+
+## Skin every vehicle ramp in the base (0.220.0; see RAMP_PREFIX). Refuses out
+## loud as its siblings do.
+##
+## Returns {ramp_surfaces, ramp_meshes, unskinned_meshes, note}.
+func _skin_ramps(scene: Node, base_dir: String) -> Dictionary:
+	var out: Dictionary = {"ramp_surfaces": 0, "ramp_meshes": 0,
+		"unskinned_meshes": 0, "note": ""}
+	var present: Array = _assign_ramps(scene, null)
+	var ramps: int = int(present[2])
+	if ramps == 0:
+		out["note"] = "; no vehicle ramp in this base, nothing to skin"
+		return out
+	var art: String = base_dir.path_join("art").path_join("zoo")
+	var dir := DirAccess.open(art)
+	if dir == null:
+		out["unskinned_meshes"] = ramps
+		out["note"] = "; NO art/zoo BESIDE THE BASE -- %d ramp mesh(es) left in the greybox material" % ramps
+		push_error("[worldskin] %s%s" % [get_source_file(), String(out["note"])])
+		return out
+	var found: Array = _family_material(art, dir, RAMP_FAMILY, "ramp")
+	if found.is_empty():
+		out["unskinned_meshes"] = ramps
+		out["note"] = ("; NO MODULE UNDER art/zoo IN FAMILIES %s -- %d ramp mesh(es) left in the greybox material"
+			% [str(RAMP_FAMILY), ramps])
+		push_error("[worldskin] %s%s" % [get_source_file(), String(out["note"])])
+		return out
+	var counts: Array = _assign_ramps(scene, found[0] as Material)
+	out["ramp_surfaces"] = int(counts[0])
+	out["ramp_meshes"] = int(counts[1])
+	out["unskinned_meshes"] = int(counts[3])
+	out["note"] = "; from %s" % String(found[1])
+	return out
+
+
+## A mesh named for a vehicle ramp that is DRAWN: `ramp` and an index, exactly
+## (`_ramps` names it `ramp<n>`), so its collider (`ramp<n>_col...`) and
+## anything else whose name merely begins `ramp` are not claimed.
+func _is_visual_ramp(nm: String) -> bool:
+	return nm.begins_with(RAMP_PREFIX) and nm.substr(RAMP_PREFIX.length()).is_valid_int()
+
+
+## Assign the ramp's material; a null `mat` counts instead (see
+## `_assign_slabs`).
+##
+## Returns [ramp_surfaces, ramp_meshes, ramp_seen, unskinned_meshes].
+func _assign_ramps(n: Node, mat: Material) -> Array:
+	var fs: int = 0
+	var fm: int = 0
+	var seen: int = 0
+	var flat: int = 0
+	var mi: MeshInstance3D = n as MeshInstance3D
+	if mi != null and mi.mesh != null and _is_visual_ramp(String(mi.name)):
+		seen += 1
+		if mat == null:
+			flat += 1
+		else:
+			for i in range(mi.mesh.get_surface_count()):
+				mi.mesh.surface_set_material(i, mat)
+				fs += 1
+			fm += 1
+	for c in n.get_children():
+		var sub: Array = _assign_ramps(c, mat)
 		fs += int(sub[0])
 		fm += int(sub[1])
 		seen += int(sub[2])

@@ -215,8 +215,14 @@ def test_the_snow_grain_is_read_off_the_picture_not_assumed():
 #: pass's reason: Deli Counter's ledge is a greybox box with no UVs, so its
 #: `gb_floor` is swapped for the building's drywall, world-triplanar
 #: (`test_worldskin_vault_ledges.py`).
+#: 0.220.0: `_assign_fire_escapes` and `_assign_ramps`, for the same reason:
+#: Deli Counter's legacy fire escape and its vehicle ramp are greybox boxes the
+#: export refused in a themed package, so their `gb_floor` / `gb_ramp` is
+#: swapped for the building's darkest metal and its floor, world-triplanar
+#: (`test_worldskin_fire_escapes_ramps.py`).
 MATERIAL_REPLACERS = {"_assign_stairs", "_assign_slabs", "_shutters", "_turning_parts", "_sway_crowns",
-                      "_assign_ladders", "_signal_lenses", "_assign_vault_ledges"}
+                      "_assign_ladders", "_signal_lenses", "_assign_vault_ledges", "_assign_fire_escapes",
+                      "_assign_ramps"}
 
 
 def test_nothing_elses_material_class_changes():
