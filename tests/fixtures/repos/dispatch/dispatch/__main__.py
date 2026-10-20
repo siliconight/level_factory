@@ -1,11 +1,11 @@
 """Stub Dispatch (0.3.0 CLI shape): python -m dispatch {contract,build} ....
 
-The version it reports is the grounded one, 0.5.2 (Level Factory 0.170.0)."""
+The version it reports is the grounded one, 0.5.3 (Level Factory 0.226.1; 0.5.2 from 0.170.0)."""
 import argparse, json, sys
 from pathlib import Path
 
 REAL_CONTRACT = {
-    "tool": "dispatch", "version": "0.5.2", "contract": "dispatch.mission.v0.2",
+    "tool": "dispatch", "version": "0.5.3", "contract": "dispatch.mission.v0.2",
     "modes": ["shell-handoff", "playtest", "preview-playtest", "runtime-adapter"],
     "schemas": ["dispatch.manifest.v0.2", "dispatch.report.v0.2"],
     "capabilities": ["assemble_shell", "validate_shell", "export_godot",
@@ -46,7 +46,7 @@ def cmd_build(argv):
     (out / "proposed_beat_graph.json").write_text(json.dumps({"beats": []}, sort_keys=True))
     (out / "navigation_hints.json").write_text(json.dumps({"hints": []}, sort_keys=True))
     (out / "build.lock.json").write_text(json.dumps(
-        {"tool": "dispatch", "version": "0.5.2"}, sort_keys=True))
+        {"tool": "dispatch", "version": "0.5.3"}, sort_keys=True))
     (out / "HANDOFF.md").write_text(
         "# Handoff\n\nThis package is a shell-handoff. The production game runtime remains "
         "authoritative for mission progression, gameplay, AI, replication, and "
