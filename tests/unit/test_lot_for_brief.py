@@ -35,15 +35,19 @@ def test_lot_for_brief_anchors_on_the_brief_archetype(tmp_path):
 
 
 def test_the_three_callers_are_one_draw(tmp_path):
-    """planner, compose spec, site spec: same brief, same candidate, same lot."""
+    """planner, compose spec, site spec: same brief, same candidate, same lot.
+    The site spec draws through `draw_lot` since 0.221.0 (the hole rule's one
+    meeting place); this library holds no hole, so it is `pick_lot`'s draw."""
     model = SimpleNamespace(lot_library=_lib(tmp_path), building_count=3,
                             archetype="urban_bank")
     cid = "bank_block_001.candidate.seed_9008"
     via_brief, _ = bl.lot_for_brief(model, cid)
     complete, _i, _n = bl.index(model.lot_library)
     seed = int(cid.rsplit("_", 1)[-1])
-    via_site = bl.pick_lot(complete, seed, 3, anchor=model.archetype)
+    via_site = bl.draw_lot(complete, seed, 3, anchor=model.archetype, candidate=cid,
+                           hole_rate=bl.floor_hole_rate(model))
     assert [e["id"] for e in via_brief] == [e["id"] for e in via_site]
+    assert via_site == bl.pick_lot(complete, seed, 3, anchor=model.archetype)
 
 
 def test_compose_spec_uses_the_one_rule(tmp_path):

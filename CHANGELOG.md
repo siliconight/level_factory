@@ -1,3 +1,51 @@
+## [0.221.0] - a hole in a floor is rare: a level carries one at the brief's rate, 0.25 unless it says
+
+**The factory's roadmap 269.** The walker, 2026-10-20: "stairs and ladders should be the primary way to get between
+floors in this game...with the holes in floors being somewhat rare...but still at our disposal to use if
+needed/desired to add some more ways to navigate levels". Measured first (the factory's
+`docs/findings/hole_frequency/`, this repo's own lot draw replayed over every staged brief, twelve candidates each):
+54 of 288 lot levels carried a hole a player sees, bunched where a family that always carries one anchors the
+mission -- every restaurant_row_001 and urban_row_001 level had the deli's cut drop, both themeable deli variants
+carrying it -- and warehouse_yard_001 7 of 12; and every single-building deli and county-hospital level carried its
+preset's. Rarity is a property of a LEVEL, so the decision is made per level, here.
+
+**What it is.** `building_library.holes_wanted(candidate, rate)` decides per candidate; `apply_hole_rule` swaps a
+drawn building's VARIANT within its family to match -- without a hole on a level left without, with one on a level
+that wants one and has none -- and never the family, so `pick_lot`'s draw stands and a lot the rule does not touch
+is the lot it always was; `draw_lot` is the one place the draw and the rule meet, and `lot_for` and the site spec's
+own draw (`_write_site_spec`, the fourth draw) both go through it, keyed on the candidate id the planner names. The
+mission's own building is built without its holes on a level left without (`--holes off`, Deli Counter 0.237.0,
+which also gives the deli family a variant without the drop). A brief's `floor_holes`, 0 to 1, overrides the rate
+and enters the functional signature only when set.
+
+**The rate is a call, made 2026-10-20 and meant to be changed: `FLOOR_HOLE_RATE = 0.25`.**
+
+**Found while writing it, kept in the source:** the first cut keyed the coin on `zlib.crc32`, and two missions'
+answers came out identical for 200 seeds of 200 at a rate of 0.5 -- CRC is affine over GF(2), so candidate ids that
+differ only in their mission prefix XOR to a constant. `_unit` takes the first eight bytes of a SHA-256: 0.248 of
+4,000 candidates at 0.25, the two missions agreeing on 101 of 200 at 0.5.
+
+### Added
+- `building_library`: `FLOOR_HOLE_RATE`, `floor_hole_rate`, `holes_wanted`, `carries_hole` (reads Deli Counter's
+  `cause` on a drop link; a hatch into a stair's own well and a roof hatch are not holes), `apply_hole_rule`,
+  `draw_lot`; `lot_for(..., hole_rate=None)`; `lot_for_brief` passes the brief's rate.
+- `MissionBrief.floor_holes`; `schemas/mission.brief.schema.json` lists it.
+- `_write_site_spec` draws through `draw_lot`; `_job_specs_for_plan` gives the Deli Counter job `holes: off` on a
+  level left without one.
+- The Deli Counter adapter passes `--holes off` and nothing else -- a Deli Counter older than 0.237.0 still builds
+  every level that keeps its holes and refuses, at its argument parser, one that does not -- and fingerprints `holes`
+  only when it is set.
+
+### Tests
+- `tests/unit/test_floor_holes.py` (7; every one fails on 0.220.0): the rate is the rate, keyed on the candidate; a
+  hole is a drop a player sees; a level without one swaps the variant, never the family, and a family with no
+  variant keeps its building and says so; a level with one keeps it or takes one, one only; `lot_for` and the site's
+  draw agree, about one level in four keeping the drop at the default; the brief names its rate; the adapter passes
+  `--holes off` and nothing else.
+- `test_lot_for_brief.py`: the three callers are one draw through `draw_lot`. `test_cluster.py`'s guard over every
+  lot draw outside the library reads `draw_lot(` as well as `pick_lot(` -- the site spec's draw is spelled that
+  way now, and the guard first failed on not finding it -- and asks a `draw_lot` for its `candidate=` too.
+
 ## [0.220.0] - a legacy fire escape and a vehicle ramp are skinned: the building's darkest metal, and its floor
 
 **Found by the factory's cold run 9342 (precinct_yard_001, seed 9708, 0 interventions), stopped at the export.** The

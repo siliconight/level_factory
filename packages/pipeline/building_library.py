@@ -36,6 +36,7 @@ Pure: a directory listing and arithmetic. No workspace, no Lot, no Godot.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -668,9 +669,144 @@ def pick_lot(entries: list[dict], seed: int, count: int,
     return out
 
 
+#: A HOLE IN A FLOOR IS RARE (0.221.0, factory roadmap 269). The walker,
+#: 2026-10-20: "stairs and ladders should be the primary way to get between
+#: floors in this game...with the holes in floors being somewhat rare...but
+#: still at our disposal to use if needed/desired to add some more ways to
+#: navigate levels". The chance that one candidate's level carries a hole in
+#: a floor, where its buildings can hold one.
+#:
+#: A CALL, made 2026-10-20 and meant to be changed. Measured before it (the
+#: factory's docs/findings/hole_frequency/, Level Factory's own draw replayed
+#: over every staged brief): 54 of 288 lot levels carried one, and every level
+#: of restaurant_row_001 and urban_row_001 among them -- the deli anchors both
+#: and both of its themeable variants carried the cut drop -- and every level
+#: of the single-building deli and county-hospital missions, whose presets
+#: author one. A brief's `floor_holes` overrides it: 0 never, 1 wherever the
+#: lot can hold one.
+FLOOR_HOLE_RATE = 0.25
+
+
+def floor_hole_rate(model) -> float:
+    """The brief's `floor_holes`, held to 0..1, or FLOOR_HOLE_RATE when it names none."""
+    raw = getattr(model, "floor_holes", None)
+    if raw is None:
+        return FLOOR_HOLE_RATE
+    return min(1.0, max(0.0, float(raw)))
+
+
+def holes_wanted(candidate, rate) -> bool:
+    """Does this candidate's level carry a hole in a floor?
+
+    Keyed on the CANDIDATE ID (`packages.core.ids.candidate_id`), the string
+    every caller names a level by -- so the lot's draw and the mission's own
+    building ask the same question and get the same answer -- on a stream of
+    its own (`_unit`, not `stream`), so it moves no other draw. 0 is never and
+    1 always.
+    """
+    rate = float(rate)
+    if rate <= 0.0:
+        return False
+    if rate >= 1.0:
+        return True
+    return _unit("floor_holes:%s" % candidate) < rate
+
+
+def _unit(key: str) -> float:
+    """A number in [0, 1) that is `key`'s alone: the first eight bytes of its SHA-256.
+
+    NOT CRC32, measured while this was written: CRC is affine over GF(2), so
+    two keys that differ only in a prefix -- `restaurant_row_001.candidate.
+    seed_<n>` and `urban_row_001.candidate.seed_<n>` -- XOR to one constant for
+    every n, and at a rate of 0.5 the two missions came out with the same
+    answer for 200 seeds of 200.
+    """
+    return int.from_bytes(hashlib.sha256(key.encode("utf-8")).digest()[:8], "big") / 18446744073709551616.0
+
+
+def carries_hole(entry) -> bool:
+    """Does this built building have a hole in a floor a player sees?
+
+    Deli Counter marks a drop by giving its vertical link a `cause` (0.236.0)
+    -- a roof hatch has none -- and a drop whose cause is `stair` opens into a
+    stair's own well, where nothing of it shows. LEVEL FACTORY DOES NOT
+    COMPUTE THIS, for the reason `scoped_verdict` gives: it reads a field. An
+    unreadable record carries none, because this module lists and counts and
+    never raises while a plan is built.
+    """
+    data = _manifest(entry.get("gameplay") if isinstance(entry, dict) else entry)
+    links = (data or {}).get("vertical_links") or []
+    return any(isinstance(v, dict) and "cause" in v and v.get("cause") != "stair"
+               for v in links)
+
+
+def apply_hole_rule(lot, entries, candidate, rate):
+    """``(lot, wanted, swaps)``: `lot` with its buildings' VARIANTS swapped so
+    the level carries a hole in a floor only when `holes_wanted` says so.
+    ``swaps`` is ``[(from id, to id or None)]``, None where the family had no
+    variant to swap to.
+
+    NOT WANTED: each building with a hole swaps for a variant of its family
+    without one that is not already in the lot; a family with none keeps its
+    building, and the swap says so. WANTED: a lot that already holds one
+    stands as drawn; otherwise the first building whose family has a variant
+    with a hole swaps for it, and a lot whose families have none stands too.
+
+    THE FAMILY IS KEPT, never the family's place: `pick_lot`'s draw --
+    families without replacement, the anchor first -- stands, so a lot the
+    rule does not touch is the lot it always was, and the score building is
+    still the brief's archetype. Which variant: sorted by id, picked on the
+    candidate's own stream. Only the swapped building's family is read, so a
+    lot costs a handful of manifests, not the library.
+    """
+    wanted = holes_wanted(candidate, rate)
+    out = list(lot)
+    have = [carries_hole(e) for e in out]
+    swaps: list = []
+    if wanted and any(have):
+        return out, wanted, swaps
+    used = {e.get("id") for e in out}
+    for i, e in enumerate(out):
+        if have[i] == wanted:
+            continue
+        fam = e.get("family", "")
+        alts = sorted((x for x in entries
+                       if x.get("family", "") == fam and x.get("id") not in used
+                       and carries_hole(x) == wanted),
+                      key=lambda x: x.get("id", ""))
+        if not alts:
+            if not wanted:
+                swaps.append((e.get("id"), None))
+            continue
+        pick = alts[int(_unit("floor_hole_variant:%s:%d" % (candidate, i)) * len(alts))]
+        used.discard(e.get("id"))
+        used.add(pick.get("id"))
+        out[i] = pick
+        swaps.append((e.get("id"), pick.get("id")))
+        if wanted:
+            break
+    return out, wanted, swaps
+
+
+def draw_lot(entries: list[dict], seed: int, count: int, *, anchor: str = None,
+             preferred=None, candidate: str = "", hole_rate: float = None) -> list[dict]:
+    """THE DRAW: `pick_lot`, then the hole rule (0.221.0).
+
+    The one place the two meet. `lot_for` comes here, and so does the site
+    spec's own draw (`apps.cli.commands._write_site_spec`, the fourth draw,
+    which indexes and filters the library itself), so the buildings the
+    planner fans out, the compose spec dresses and the site places are one lot
+    by construction rather than four derivations that agree. ``candidate`` is
+    the candidate id; ``hole_rate`` None is FLOOR_HOLE_RATE.
+    """
+    lot = pick_lot(entries, seed, count, anchor=anchor, preferred=preferred)
+    rate = FLOOR_HOLE_RATE if hole_rate is None else hole_rate
+    return apply_hole_rule(lot, entries, candidate or str(seed), rate)[0]
+
+
 def lot_for(library, building_count, candidate_id, *,
             themed: bool = False, anchor: str = None,
-            preferred=None) -> tuple[list[dict], list[dict]]:
+            preferred=None, hole_rate: float = None) -> tuple[list[dict], list[dict]]:
     """``(lot, incomplete)`` -- which buildings this candidate places.
 
     THE one rule, so that the planner (which must fan art jobs out per
@@ -709,7 +845,10 @@ def lot_for(library, building_count, candidate_id, *,
         # finds no composed scene for the ones it placed.
         complete = require_themed_shells(complete, count)
     seed = int(str(candidate_id).rsplit("_", 1)[-1])
-    return pick_lot(complete, seed, count, anchor=anchor, preferred=preferred), incomplete
+    # A HOLE IN A FLOOR IS RARE (0.221.0): `draw_lot` swaps a drawn family's
+    # VARIANT, never the family, so only a lot the rule touches changes.
+    return draw_lot(complete, seed, count, anchor=anchor, preferred=preferred,
+                    candidate=str(candidate_id), hole_rate=hole_rate), incomplete
 
 
 def preferred_for_brief(model):
@@ -744,7 +883,8 @@ def lot_for_brief(model, candidate_id, *, themed: bool = False):
                    getattr(model, "building_count", 1),
                    candidate_id, themed=themed,
                    anchor=getattr(model, "archetype", "") or "",
-                   preferred=preferred_for_brief(model))
+                   preferred=preferred_for_brief(model),
+                   hole_rate=floor_hole_rate(model))
 
 
 def footprints_for(lot: list[dict], measure) -> list:

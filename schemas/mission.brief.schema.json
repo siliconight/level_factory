@@ -23,6 +23,7 @@
   "theme": "string",
   "candidate_count": "int",
   "target_minutes": "list[int]",
+  "floor_holes": "float",
   "notes": "string"
  }
 }

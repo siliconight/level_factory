@@ -17,7 +17,7 @@ from packages.artifacts.cache import ContentCache
 from packages.core import states
 from packages.core.canonical import pretty_dumps
 from packages.core.hashing import hash_json
-from packages.core.ids import export_build_dir_name, slugify
+from packages.core.ids import candidate_id, export_build_dir_name, slugify
 from packages.core.models import MissionBrief
 from packages.jobs.scheduler import Scheduler
 from packages.pipeline.planner import (
@@ -704,6 +704,13 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                 # the DC repo's specs/ dir (DC writes specs there, not to work).
                 "level_name": f"lf_{model.mission_id}",
             }
+            # A HOLE IN A FLOOR IS RARE (0.221.0, roadmap 269): the mission's
+            # own building is built without the holes in its floors on a level
+            # the brief's rate leaves without one -- the question the lot's
+            # draw asks (`building_library.holes_wanted`), of the same candidate.
+            from packages.pipeline import building_library as _bl
+            if not _bl.holes_wanted(job.candidate_id, _bl.floor_hole_rate(model)):
+                specs[job.job_id]["holes"] = "off"
         elif job.adapter_id == "lot" and job.stage_id == "lot_site_surfaces":
             # Layer 3, stage one. The SAME spec the greybox assembly ran
             # from -- taken from that job's own spec, which topological
@@ -1996,10 +2003,15 @@ def _write_site_spec(ws: Workspace, model: MissionBrief, deli_out: Path,
         # the export's closure gate stopped the run on the station's
         # unresolved glb. The template is read by the one function
         # `lot_for_brief` reads it by, so the four draws cannot disagree.
-        lot = building_library.pick_lot(
+        # And through `draw_lot` (0.221.0, roadmap 269), the one place the
+        # draw and the hole rule meet, keyed on the candidate the planner
+        # names -- so they cannot disagree about a variant either.
+        lot = building_library.draw_lot(
             complete, seed, count,
             anchor=getattr(model, "archetype", "") or "",
-            preferred=building_library.preferred_for_brief(model))
+            preferred=building_library.preferred_for_brief(model),
+            candidate=candidate_id(model.mission_id, seed),
+            hole_rate=building_library.floor_hole_rate(model))
         # THE SCORE IS THE BUILDING THE BRIEF ASKED FOR (0.152.0, roadmap
         # 201): the anchor family's building, which `pick_lot` placed first.
         score = building_library.score_building(

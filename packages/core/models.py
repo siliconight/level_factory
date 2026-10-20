@@ -131,6 +131,12 @@ class MissionBrief:
     #: `auto` for the archetype's words to decide. Empty, the lot is drawn as it
     #: always was. In the functional signature when set: it changes the lot.
     cluster: str = ""
+    #: HOLES IN FLOORS (0.221.0, roadmap 269): the chance, 0 to 1, that one
+    #: candidate's level carries a hole in a floor where its buildings can hold
+    #: one. None is `building_library.FLOOR_HOLE_RATE` (0.25): stairs and
+    #: ladders are the way between floors, and a hole is a rare extra route.
+    #: In the functional signature when set: it changes the lot.
+    floor_holes: float | None = None
     #: ROOF PROPS (0.179.0, roadmap 181): Zoo's rooftop scatter -- units, vent
     #: stacks, fans, skylights, a dish -- on every enterable building's roof,
     #: planned off its hatches and landings. `false` plans none. Not in the
@@ -238,6 +244,9 @@ class MissionBrief:
         # the same care for the cluster (0.176.0): named, it changes the lot
         if self.cluster:
             sig["cluster"] = self.cluster
+        # the same care for the hole rate (0.221.0): named, it changes the lot
+        if self.floor_holes is not None:
+            sig["floor_holes"] = float(self.floor_holes)
         # the same care for the Empties (0.137.0): they stand on the site.
         # Keyed on what the brief GETS since they became the default
         # (0.144.0): a brief with no library, or one building, stands no

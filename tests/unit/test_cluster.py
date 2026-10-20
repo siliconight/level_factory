@@ -87,8 +87,10 @@ def test_preferred_for_brief_is_the_one_place_the_template_is_read():
 def test_every_draw_outside_the_library_passes_the_template():
     """0.176.1, cold run 9231: `lot_for_brief` threaded the template and the site spec's own
     `pick_lot` call did not, so the art leg dressed a pharmacy the site never placed and the
-    export's closure gate stopped the run. Every `pick_lot(` in `apps/` and `packages/` outside
-    the library must say `preferred=`, read with the brackets balanced."""
+    export's closure gate stopped the run. Every `pick_lot(` or `draw_lot(` in `apps/` and
+    `packages/` outside the library must say `preferred=`, read with the brackets balanced --
+    and a `draw_lot(` (0.221.0, the site spec's draw since) its `candidate=` too, the key the
+    hole rule's answer is the same under for every caller."""
     import pathlib
     root = pathlib.Path(__file__).resolve().parents[2]
     found = 0
@@ -96,13 +98,16 @@ def test_every_draw_outside_the_library_passes_the_template():
         if p.name == "building_library.py":
             continue
         text = p.read_text(encoding="utf-8")
-        i = text.find("pick_lot(")
-        while i >= 0:
-            j, depth = i + len("pick_lot("), 1
-            while depth and j < len(text):
-                depth += {"(": 1, ")": -1}.get(text[j], 0)
-                j += 1
-            assert "preferred=" in text[i:j], f"{p.relative_to(root)}: a lot draw without the template"
-            found += 1
-            i = text.find("pick_lot(", j)
+        for name in ("pick_lot(", "draw_lot("):
+            i = text.find(name)
+            while i >= 0:
+                j, depth = i + len(name), 1
+                while depth and j < len(text):
+                    depth += {"(": 1, ")": -1}.get(text[j], 0)
+                    j += 1
+                assert "preferred=" in text[i:j], f"{p.relative_to(root)}: a lot draw without the template"
+                if name == "draw_lot(":
+                    assert "candidate=" in text[i:j], f"{p.relative_to(root)}: a lot draw without its candidate"
+                found += 1
+                i = text.find(name, j)
     assert found >= 1, "the site spec's draw was not found"

@@ -214,7 +214,7 @@ class DeliCounterAdapter(BaseAdapter):
         # It must be fingerprinted or the fix is inert: five candidates that
         # differ only by seed would hash identically and cache-hit to one
         # build, which is the state this adapter was already in.
-        return {
+        inputs = {
             "seed": job_spec.get("seed"),
             # Fingerprinting must not VALIDATE. A hash only has to be stable
             # and distinguishing, and this runs on specs that legitimately
@@ -230,6 +230,12 @@ class DeliCounterAdapter(BaseAdapter):
             "vertex_nuance": bool(job_spec.get("vertex_nuance")),
             "rarity": job_spec.get("rarity"),
         }
+        # Keyed only when set (0.221.0): a spec that names no `holes` hashes as
+        # it always did, and one built without them never cache-hits one built
+        # with them.
+        if job_spec.get("holes") is not None:
+            inputs["holes"] = str(job_spec["holes"])
+        return inputs
 
     def plan_commands(self, job_spec, context) -> Sequence[PlannedCommand]:
         repo = Path(str(context["repository"]))
@@ -257,6 +263,12 @@ class DeliCounterAdapter(BaseAdapter):
             new_args += ["--rarity", str(job_spec["rarity"])]
         if job_spec.get("seed") is not None:
             new_args += ["--seed", str(int(job_spec["seed"]))]
+        # Only `off` is passed (0.221.0, the factory's roadmap 269): the
+        # recipe's own holes are the default, so a Deli Counter older than
+        # 0.237.0 still builds every level that keeps them, and refuses --
+        # loudly, at its argument parser -- one that does not.
+        if str(job_spec.get("holes") or "") == "off":
+            new_args += ["--holes", "off"]
 
         # Step 2: build the shell into the job's work dir (Blender).
         build_args = [str(repo / "build.py"), str(spec_path),
