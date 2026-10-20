@@ -678,8 +678,9 @@ def pick_lot(entries: list[dict], seed: int, count: int,
 #:
 #: A CALL, made 2026-10-20 and meant to be changed. Measured before it (the
 #: factory's docs/findings/hole_frequency/, Level Factory's own draw replayed
-#: over every staged brief): 54 of 288 lot levels carried one, and every level
-#: of restaurant_row_001 and urban_row_001 among them -- the deli anchors both
+#: over every staged brief): 54 of 300 lot levels carried one (25 missions,
+#: twelve candidates each; 0.221.0 wrote 288, a count made by eye), and every
+#: level of restaurant_row_001 and urban_row_001 among them -- the deli anchors both
 #: and both of its themeable variants carried the cut drop -- and every level
 #: of the single-building deli and county-hospital missions, whose presets
 #: author one. A brief's `floor_holes` overrides it: 0 never, 1 wherever the

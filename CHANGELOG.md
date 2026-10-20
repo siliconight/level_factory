@@ -1,3 +1,53 @@
+## [0.222.0] - the drop-edge probe models the body: what it walks over does not occupy a cell, and a gap narrower than it is not a fall
+
+**The factory's roadmap 173, What is left item 7.** The factory's lattice phase sweep
+(`docs/findings/drop_edges_173/phase_sweep/`) moved the gate's 0.5 m lattice a quarter cell at a time over three
+packages. At one phase restaurant_row_001, which the shipped phase passes, was refused, and its flood reached 41,322
+cells where every other phase reached 53,144 to 55,492. Both were the standing probe's model of a body, attributed
+before this was written:
+
+- **A kerb a body steps over occupied the cell beside it.** The standing capsule, 0.20 m wide and 1.80 m tall stood
+  on a hit, met the 8 cm face of Lot's kerb 0.038 m from the cell, so every cell along that kerb read occupied: a
+  moat the flood never crossed. The shipped phase had cleared it by 1.8 cm.
+- **A gap narrower than a body read as a fall.** The refused row was a 0.4 by 0.36 m slot between deli_a03's flight
+  and its hole's unrailed edge, which a body 0.70 m across cannot enter.
+
+### Changed
+- `walkable_edge.gd`: **`STEP_M` 0.1025**, the contract's `clearances.unassisted_step_max_m` -- the standing capsule
+  stands that far up, its head where it was, so a solid wholly below what a body walks over (a kerb, a threshold, a
+  floor hatch's 3 cm frame) does not occupy a cell; a slab's underside and a floor's edge under a wall stay occupied.
+  **A body-fit test before a fall:** a drop that passes the barrier ray and the block capsule is asked whether a
+  sphere of `BODY_R` (0.35, the contract's radius, read now) fits in the opening, its top 2 cm under the surface the
+  body stands on, sampled along the step from 0.35 to 1.05 m past the cell every 5 cm; a drop no sample fits is
+  `too_narrow`, reported and not an edge. Any opening 0.75 m or wider along the step holds a sample, wherever the rim
+  falls in the cell's half-step. What it cannot see, stated in the source: a sample moves along the step only, so a
+  row within 0.35 m of an opening's side is too narrow too, and the opening's middle rows report it -- the gate
+  refuses on any one row.
+- The report carries `too_narrow`, `stand_lift_m` and `body_fit`; the gate reads neither, and its classes are as
+  they were.
+- `building_library.FLOOR_HOLE_RATE`'s comment: 54 of 300 lot levels, not 0.221.0's 54 of 288 -- 25 missions, a
+  count made by eye (the factory's `docs/findings/hole_frequency/`).
+
+### Measured (the factory's `docs/findings/drop_edges_173/probe_body/`)
+The gate's own measure, classify and assert (`gate_ab.py`) on copies of three packages -- precinct_yard_001 (cold
+runs 9343 and 9344, one level), urban_row_001 (9345) and deli_001 (9346) -- at the phase sweep's six phases, the
+instrument before and after, 36 arms. The control arm reproduces each export's own scan.
+- **No verdict moves:** every arm passes, before and after, 18 of 18 each.
+- **The moat is gone:** urban_row_001 at the sweep's refusing phase reached 39,266 of 60,205 cells before -- a
+  quarter of the level lost, as restaurant_row_001's was -- and 52,030 of 66,419 after; its six phases now span
+  51,614 to 52,848 where they spanned 39,266 to 52,524. Standable cells rise 2,400 to 6,700 a level.
+- **Unguarded rows fall at every phase** (precinct 54 -> 35, urban 28 -> 14, deli 35 -> 23 at the shipped phase), the
+  rows only the new probe finds number 0 at the shipped phase and at most 4 at any other, every one in a class the gate
+  files: the precinct's declared floor hatch, whose 3 cm frame no longer occupies the cell beside it, outdoor rims,
+  and a flight's own side. Too narrow: 4 to 26 a package and phase.
+- None of the three carries deli_a03, so the slot's refusal is proven on the fixture, not on a package.
+
+### Tests
+- `tests/unit/test_edge_probe_body.py` (6; every one fails on 0.221.0, through a real Godot): a kerb 0.038 m off a
+  cell no longer cuts the sidewalk and the ground past it off the flood; at four phases of a storey shifted over a
+  fixed ground, no edge across a 0.4 m slot beside a block standing in a hole -- two of the four reproduce 0.221.0's
+  refusal -- while a 2.2 m hole is still found on all four sides; `STEP_M` and `BODY_R` are the contract's.
+
 ## [0.221.0] - a hole in a floor is rare: a level carries one at the brief's rate, 0.25 unless it says
 
 **The factory's roadmap 269.** The walker, 2026-10-20: "stairs and ladders should be the primary way to get between

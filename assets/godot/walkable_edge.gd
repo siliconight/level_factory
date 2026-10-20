@@ -61,14 +61,30 @@ const STAND_M := 1.80
 #: the factory's CLAUDE.md records the tension; this file sides with the body.
 const FLOOR_MAX_DEG := 45.0
 var _steep: int = 0
-#: characters.player.radius_m. NOT what the probes below are built from, and
-#: nothing reads it yet: on a 0.5 m grid a capsule of the body's full radius
-#: finds every cell within 0.35 m of a wall occupied, so an edge along that
-#: wall is asked from the next cell out; at PROBE_R the cell at the wall asks
-#: it. The cost is a solid between 0.20 and 0.35 m of a neighbour's centre that
-#: the barrier ray (which ends at the centre) also misses. Neither radius has
-#: been measured against the other on a package; this stays for when one is.
+#: characters.player.radius_m. NOT what the standing and block probes below
+#: are built from: on a 0.5 m grid a capsule of the body's full radius finds
+#: every cell within 0.35 m of a wall occupied, so an edge along that wall is
+#: asked from the next cell out; at PROBE_R the cell at the wall asks it. The
+#: cost is a solid between 0.20 and 0.35 m of a neighbour's centre that the
+#: barrier ray (which ends at the centre) also misses. Neither radius has been
+#: measured against the other on a package. What it IS read by (0.222.0) is
+#: the body-fit test before a fall (`_body_fits`, FIT_* below): whether the
+#: body can get INTO an opening is the body's own width, not the probe's.
 const BODY_R := 0.35
+#: WHAT A BODY WALKS OVER DOES NOT OCCUPY A CELL (0.222.0, the factory's
+#: roadmap 173, What is left item 7): clearances.unassisted_step_max_m, the
+#: tallest step a capsule of the body's radius walks up with no step-up code,
+#: R * (1 - cos 45 deg) = 0.1025. The standing capsule (`_stand`) stands this
+#: far up, its head where it was: a solid wholly below it -- a kerb, a
+#: threshold, a floor hatch's frame -- is walked over, not stood beside. The
+#: factory's lattice phase sweep (docs/findings/drop_edges_173/phase_sweep/)
+#: found the probe, stood on the ground 0.038 m from Lot's 0.0974 m kerb,
+#: meeting its face, so every cell along that kerb read occupied: a moat the
+#: flood never crossed, and at that phase restaurant_row_001 reached 41,322
+#: cells where every other phase reached 53,144 to 55,492. The shipped phase
+#: had cleared the kerb by 1.8 cm. A slab's underside and a floor's edge under
+#: a wall stay occupied: the slab is 0.3 m deep and the wall a storey tall.
+const STEP_M := 0.1025
 #: Probe from this far above a surface so a ray does not start inside it.
 const EPS := 0.02
 #: A SURFACE IS STANDABLE ONLY IF THE BODY FITS ON IT, AND THE BODY IS A SHAPE.
@@ -90,6 +106,24 @@ var _stand: PhysicsShapeQueryParameters3D
 #: is stepped over (or onto, when its top is a surface), and so must not block.
 const BLOCK_H := STAND_M - FALL_M - EPS
 var _block: PhysicsShapeQueryParameters3D
+#: A GAP NARROWER THAN A BODY IS NOT A FALL (0.222.0, the same sweep). A drop
+#: that passes the barrier ray and the block capsule is asked one more thing
+#: before it counts: does a body fit in the opening it would fall through? A
+#: sphere of BODY_R, its top EPS under the surface the body stands on, is
+#: sampled along the step from FIT_FROM to FIT_TO past the cell, every
+#: FIT_STEP; a drop no sample fits at is `too_narrow`, reported and not an
+#: edge. At the phase sweep's refusing phase, the refused row was a 0.4 by
+#: 0.36 m slot between deli_a03's flight and its hole's unrailed edge, which a
+#: body 0.70 m across cannot enter. The samples reach FIT_TO, so the rim may
+#: be anywhere in the cell's half-step: any opening 0.75 m or wider along the
+#: step holds a sample at least BODY_R from both its sides. What this cannot
+#: see, stated: a sample only moves along the step, so a row within BODY_R of
+#: an opening's SIDE is too_narrow too, and a hole's middle rows are what
+#: report it -- the gate refuses on any one row.
+const FIT_FROM := 0.35
+const FIT_TO := 1.05
+const FIT_STEP := 0.05
+var _fit: PhysicsShapeQueryParameters3D
 #: WHAT EACH SURFACE BELONGS TO: the path of the node whose collider the ray
 #: hit, as an index into the report's `owners[]`. A gate that excludes furniture
 #: has to do it by what a surface IS -- a slab, a tread, the ground -- not by
@@ -191,10 +225,25 @@ func _columns(space: PhysicsDirectSpaceState3D, x: float, z: float,
 		# 3.3 m drop to the first floor, and a first-floor cell beside a carton
 		# stack one to the ground floor (cold run 9317, the sixth run) -- the
 		# body cannot fall through a roof, it walks into the fan.
-		_stand.transform = Transform3D(Basis(), Vector3(x, hy + EPS + lift + STAND_M * 0.5, z))
+		# ...from STEP_M up (0.222.0): what the body walks over is not in its column.
+		_stand.transform = Transform3D(Basis(), Vector3(x, hy + EPS + lift + STEP_M + (STAND_M - STEP_M) * 0.5, z))
 		out.append([hy, _owner(hit), space.intersect_shape(_stand, 1).is_empty(), false])
 		y = hy - EPS * 2.0
 	return out
+
+
+## Does a body fit in the opening past this cell's edge (FIT_* above)? From
+## the cell at (x0, z0), along the unit step (dx, dz), with the cell's surface
+## at y: any sample the sphere overlaps nothing at is room to fall.
+func _body_fits(space: PhysicsDirectSpaceState3D, x0: float, z0: float,
+		dx: float, dz: float, y: float) -> bool:
+	var t: float = FIT_FROM
+	while t <= FIT_TO + 0.000001:
+		_fit.transform = Transform3D(Basis(), Vector3(x0 + dx * t, y - EPS - BODY_R, z0 + dz * t))
+		if space.intersect_shape(_fit, 1).is_empty():
+			return true
+		t += FIT_STEP
+	return false
 
 
 func _owner(hit: Dictionary) -> int:
@@ -362,7 +411,7 @@ func _run(out_path: String, cell: float, seed: Array, links_path: String, extent
 	var space: PhysicsDirectSpaceState3D = root.world_3d.direct_space_state
 	var probe := CapsuleShape3D.new()
 	probe.radius = PROBE_R
-	probe.height = STAND_M
+	probe.height = STAND_M - STEP_M
 	_stand = PhysicsShapeQueryParameters3D.new()
 	_stand.shape = probe
 	_stand.collide_with_areas = false
@@ -374,8 +423,16 @@ func _run(out_path: String, cell: float, seed: Array, links_path: String, extent
 	_block.shape = above
 	_block.collide_with_areas = false
 	_block.collide_with_bodies = true
+	var room := SphereShape3D.new()
+	room.radius = BODY_R
+	_fit = PhysicsShapeQueryParameters3D.new()
+	_fit.shape = room
+	_fit.collide_with_areas = false
+	_fit.collide_with_bodies = true
 	report["stand_probe_r"] = PROBE_R
 	report["stand_probe_h"] = STAND_M
+	report["stand_lift_m"] = STEP_M
+	report["body_fit"] = {"r": BODY_R, "from_m": FIT_FROM, "to_m": FIT_TO, "step_m": FIT_STEP}
 	report["block_above_m"] = FALL_M + EPS
 	var top: float = box.position.y + box.size.y + 1.0
 	var bottom: float = box.position.y - 1.0
@@ -534,6 +591,7 @@ func _run(out_path: String, cell: float, seed: Array, links_path: String, extent
 	var guarded: int = 0
 	var blocked: int = 0
 	var occupied_next: int = 0
+	var too_narrow: int = 0
 	var unguarded: int = 0
 	var indoor: int = 0
 	for ix in range(nx):
@@ -602,6 +660,10 @@ func _run(out_path: String, cell: float, seed: Array, links_path: String, extent
 					if not space.intersect_shape(_block, 1).is_empty():
 						blocked += 1
 						continue
+					# A GAP NARROWER THAN A BODY IS NOT A FALL (FIT_* above).
+					if not _body_fits(space, x0, z0, float(s[0]), float(s[1]), y):
+						too_narrow += 1
+						continue
 					unguarded += 1
 					# INDOORS OR UNDER THE SKY, and the difference is the
 					# whole usefulness of this instrument. A body that walks
@@ -630,14 +692,15 @@ func _run(out_path: String, cell: float, seed: Array, links_path: String, extent
 	report["guarded"] = guarded
 	report["blocked"] = blocked
 	report["occupied_next"] = occupied_next
+	report["too_narrow"] = too_narrow
 	report["unguarded"] = unguarded
 	report["unguarded_indoors"] = indoor
 	report["owners"] = _owner_paths
 	edges.sort_custom(func(a, b): return float(a["drop_m"]) > float(b["drop_m"]))
 	report["edges"] = edges
 	_write(out_path, report)
-	print("[edge] standable %d (occupied %d, steep %d), into things %d, drop edges %d (guarded %d, blocked %d), unguarded %d, UNGUARDED INDOORS %d"
-		% [standable, occupied, _steep, occupied_next, drops, guarded, blocked, unguarded, indoor])
+	print("[edge] standable %d (occupied %d, steep %d), into things %d, drop edges %d (guarded %d, blocked %d, too narrow %d), unguarded %d, UNGUARDED INDOORS %d"
+		% [standable, occupied, _steep, occupied_next, drops, guarded, blocked, too_narrow, unguarded, indoor])
 	quit(0)
 
 
