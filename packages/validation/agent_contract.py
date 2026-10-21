@@ -21,6 +21,15 @@ characters of its own size. The promise of the contract is that they state that
 size ONCE. Without this, stating it moves every Deli Counter clearance and
 leaves the body that tests them at whatever Laser Tag was authored with.
 
+THE ENEMY'S EYE CROSSES HERE TOO (0.231.0, the factory's roadmap 292). Until
+then this seam wrote the player's body and nothing of the enemy's, so a studio
+stating a 2.05 m character got a crew sighting from 1.85 m and enemies from
+Laser Tag's stock 1.6 -- while Laser Tag has built every enemy's capsule, mesh
+and agent from the crew's body in the scenario since its 0.26.0, and the
+contract says its NPCs share the player's metrics until a distinct class ships.
+The enemy's eye is `characters.npc_standard`'s, and the player's while that
+block states none of its own.
+
 A MISSING OR MALFORMED CONTRACT IS NOT AN ERROR, for the same reason
 `lasertag_contract.read_engagement_from` treats a missing file as an unread
 field: a pre-flight that refuses to run because a tool moved a file is worse
@@ -60,11 +69,35 @@ _FIELDS = {
     "aim_height_m": "chest_height_m",
 }
 
+#: `LT_TestScenario` field  <-  the enemy's body: `characters.npc_standard`'s
+#: key, or `characters.player`'s where the NPC states none, because the
+#: contract's NPCs share the player's metrics until a distinct class ships
+#: (0.231.0, the factory's roadmap 292). The eye alone: Laser Tag builds an
+#: enemy's capsule, mesh and agent from the crew's `player_radius_m` and
+#: `player_height_m`, and has no enemy radius or height to write.
+_NPC_FIELDS = {
+    "enemy_eye_height_m": "eye_height_m",
+}
+
 CONTRACT_REL = "agent_contract.json"
+
+
+def _metres(value) -> float | None:
+    """A positive number of metres, or None: 0 is not a body, a string is not
+    metres, and `True` is not 1 m."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if float(value) > 0.0:
+            return float(value)
+    return None
 
 
 def read_player_body(repository) -> dict | None:
     """`{scenario field: metres}` from a Deli Counter checkout, or None.
+
+    Both sides' bodies, though the name is the player's: the crew's from
+    `characters.player`, and the enemy's eye from `characters.npc_standard`
+    over it (0.231.0) -- the player's being the body an NPC states nothing
+    against.
 
     None means "nothing to say" -- no repository, no file, unreadable JSON, or
     no `characters.player` block -- and the caller keeps its own defaults.
@@ -83,10 +116,17 @@ def read_player_body(repository) -> dict | None:
         return None
     out: dict = {}
     for field, key in _FIELDS.items():
-        value = player.get(key)
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            if float(value) > 0.0:
-                out[field] = float(value)
+        value = _metres(player.get(key))
+        if value is not None:
+            out[field] = value
+    npc = (raw.get("characters") or {}).get("npc_standard")
+    npc = npc if isinstance(npc, Mapping) else {}
+    for field, key in _NPC_FIELDS.items():
+        # a value the NPC states is its own, nonsense included, which is
+        # dropped rather than quietly replaced with the player's
+        value = _metres(npc[key] if key in npc else player.get(key))
+        if value is not None:
+            out[field] = value
     return out or None
 
 

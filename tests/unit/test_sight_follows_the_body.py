@@ -70,13 +70,16 @@ def _street(tmp_path: Path, crate: float | None = 1.4) -> Path:
     return path
 
 
-def _contract(root: Path, **player) -> Path:
+def _contract(root: Path, npc: dict | None = None, **player) -> Path:
     body = {"radius_m": 0.35, "height_m": 1.8, "eye_height_m": 1.6,
             "chest_height_m": 1.0, "walk_speed_mps": 4.0}
     body.update(player)
+    characters = {"player": body}
+    if npc is not None:
+        characters["npc_standard"] = npc
     root.mkdir(parents=True, exist_ok=True)
     (root / "agent_contract.json").write_text(
-        json.dumps({"characters": {"player": body}}), encoding="utf-8")
+        json.dumps({"characters": characters}), encoding="utf-8")
     return root
 
 
@@ -126,6 +129,9 @@ def test_a_studio_states_its_body_once_and_the_advisory_sights_from_it(
     line = [f for f in findings if f["code"] == OPEN]
     assert len(line) == 1, _codes(findings)
     assert "92.0 m of open ground" in line[0]["message"]
+    # one stated body is one eye on both sides (0.231.0, roadmap 292): until
+    # then the enemy's stayed at Laser Tag's 1.6 and this said so
+    assert ONE_EYE not in _codes(findings), findings
 
 
 def test_a_brief_s_scenario_beats_the_contract_here_too(tmp_path):
@@ -147,12 +153,15 @@ def test_no_contract_leaves_laser_tag_s_own_heights(tmp_path):
 
 
 def test_two_eyes_are_named_rather_than_averaged(tmp_path):
-    """The seam moves the crew's eye to the contract's and leaves the enemy's
-    at Laser Tag's 1.6, while the advisory draws both lines from one eye. It is
-    said beside the findings, with the evaluator's own crossing against the
-    advisory's, rather than read as a measurement of the run."""
+    """A contract stating an NPC whose eye differs from the player's -- a
+    distinct class -- sends the run two eyes, while the advisory draws both
+    lines from one. It is said beside the findings, with the evaluator's own
+    crossing against the advisory's, rather than read as a measurement of the
+    run. Until 0.231.0 every contract moving the player's eye did this, the
+    seam leaving the enemy's at Laser Tag's 1.6 (the factory's roadmap 292)."""
     findings = _advise(_street(tmp_path),
-                       contract=_contract(tmp_path / "dc", **TALL))
+                       contract=_contract(tmp_path / "dc",
+                                          npc={"eye_height_m": 1.6}, **TALL))
     note = [f for f in findings if f["code"] == ONE_EYE]
     assert len(note) == 1, _codes(findings)
     assert note[0]["blocking"] is False
@@ -200,6 +209,7 @@ def test_the_run_and_the_advisory_ask_one_precedence(tmp_path):
         "deli_counter": str(_contract(tmp_path / "dc", **TALL))}}
     merged, drift = laser_tag._run_scenario(job, context)
     assert merged["player_eye_height_m"] == 1.85
+    assert merged["enemy_eye_height_m"] == 1.85
     assert merged["aim_height_m"] == 1.2
     assert drift, "a body unlike the stock one says so out loud"
     project = tmp_path / "proj"
@@ -209,7 +219,8 @@ def test_the_run_and_the_advisory_ask_one_precedence(tmp_path):
     laser_tag._write_scenario(project, merged)
     tres = (project / "mission_scenario.tres").read_text(encoding="utf-8")
     assert "player_eye_height_m = 1.85" in tres
+    assert "enemy_eye_height_m = 1.85" in tres
     assert "aim_height_m = 1.2" in tres
     run = laser_tag._run_engagement(lasertag_contract.MEASURED, merged)
-    assert (run.crew_eye, run.enemy_eye, run.aim_height) == (1.85, 1.6, 1.2)
+    assert (run.crew_eye, run.enemy_eye, run.aim_height) == (1.85, 1.85, 1.2)
     assert run.opening_range == lasertag_contract.MEASURED.opening_range

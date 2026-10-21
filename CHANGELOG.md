@@ -1,3 +1,40 @@
+## [0.231.0] - the enemy sights from the contract's body too
+
+**The factory's roadmap 292.** `adapters/laser_tag` writes the contract's body into every run's scenario (roadmap
+123), and wrote only the player's: `enemy_eye_height_m` went out at `_STOCK_SCENARIO`'s 1.6 whatever
+`deli_counter/agent_contract.json` said. The contract says its NPCs share the player's metrics until a distinct class
+ships, and Laser Tag has built every enemy's capsule, mesh and agent from the crew's body in the scenario since its
+0.26.0 -- so a studio stating a 2.05 m character with a 1.85 m eye fielded 2.05 m enemies sighting from 1.6 m, and the
+evaluator's lines crossed at 1.42 m where the body's own cross at 1.5. 0.230.0's `LT_SIGHT_ONE_EYE` said so for every
+such contract.
+
+### Changed
+- **The enemy's eye crosses the seam.** `agent_contract.read_player_body` reads the enemy's eye too (`_NPC_FIELDS`):
+  `characters.npc_standard`'s `eye_height_m`, and the player's where that block states none. A value the NPC states is
+  its own, so a nonsense one is dropped -- the run keeps Laser Tag's -- rather than replaced with the player's.
+  `_run_scenario`'s precedence is unchanged: stock <- contract <- this job's scenario. The eye alone: Laser Tag builds
+  an enemy's body from the crew's radius and height, and has no enemy radius or height to write.
+- **`_metres`**, the one test of a value the reader writes -- a positive number, never a bool -- asked by both loops.
+
+### Measured, kept
+- **One stated body is one eye on both sides.** The shipped contract's NPC states no eye of its own, so a stock run
+  writes the 1.6 m on both sides it wrote before, and `LT_SIGHT_ONE_EYE` speaks now only for a contract stating a
+  distinct NPC eye, or a brief moving one side.
+- REFUTED, kept in the factory's roadmap 292: that the enemy's body size follows nothing. Laser Tag 0.26.0 (the
+  factory's roadmap 197) builds every enemy from the scenario's `player_radius_m` and `player_height_m`, which this
+  seam writes from the contract (Laser Tag's `test_enemy_is_the_contracts.gd`, its check [2]).
+
+### Tests
+- **test_the_enemy_sights_from_the_contract.py** (new, 6): one stated body, and both sides sight from it -- in the
+  scenario `run` writes and in the engagement the advisory is given, the evaluator's lines crossing where the body's
+  own do; a contract with no NPC block shares the player's eye; a distinct class states its own; a nonsense NPC eye is
+  dropped rather than replaced; a brief's scenario still beats the contract; the shipped contract fields one eye on
+  both sides. On 0.230.0 four fail on behaviour, the reader giving no enemy eye, and the two guards pass (the
+  factory's `patches/lf_enemy_eye/prove_tests_on_0230.out.txt`).
+- **test_sight_follows_the_body.py**: a stated body draws no `LT_SIGHT_ONE_EYE`, and the run's precedence puts the
+  enemy's eye at the body's 1.85 m -- both failing on 0.230.0 on behaviour; the two-eyes test states a distinct NPC
+  eye, since one body no longer gives two.
+
 ## [0.230.0] - the sightline advisory sights from the body the run fields
 
 **The factory's roadmap 289, finished.** 0.229.0 moved `packages/validation/sightlines.py`'s eye from a stale 1.4 m to
