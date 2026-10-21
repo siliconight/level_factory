@@ -1,3 +1,24 @@
+## [0.229.0] - the sightline advisory sights from the evaluator's eye
+
+**The factory's roadmap 289.** `packages/validation/sightlines.py` sighted from `EYE_HEIGHT = 1.4` -- the crew bot's
+probe before Laser Tag 0.20.0 moved both sides to the scenario's `player_eye_height_m` and `enemy_eye_height_m`, 1.6 m
+each -- at a 1.0 m chest, so its `MIN_COVER_HEIGHT` was 1.2, and the advisory the Laser Tag adapter gives through
+`tactical.py` counted a 1.2 to 1.3 m solid as breaking a line both sides see over. Lot's copies, held to Laser Tag's
+by `lasertag_contract.check_sight_drift` since roadmap 131, carry 1.6 and 1.3, and the agent contract crosses at
+`cover_break_height_m`, 1.3: two instruments for one question, and this was the wrong one. Found by the read-only pass
+over the walker's lived-in levels guide (the factory's `docs/findings/guides_2026-10-21/lived_in.md`).
+
+### Changed
+- **`EYE_HEIGHT` 1.4 -> 1.6**, Laser Tag's and the contract's; `MIN_COVER_HEIGHT`, derived, 1.2 -> 1.3. The
+  constant's comment says where the number comes from and what it read before.
+
+### Tests
+- **test_sightlines.py**: `test_the_advisory_s_heights_are_the_shipped_evaluator_s` (new) asks this module's heights
+  what `check_sight_drift` asks Lot's, against the Laser Tag checkout beside it, and is skipped when that is absent,
+  as Lot's is. On 0.228.0 it fails on behaviour -- a 1.4 m eye against Laser Tag's 1.6, a 1.2 m crossing against 1.3
+  -- and so does `test_on_flat_ground_the_shortest_workable_cover_works_at_one_spot_only`, which pinned the old 1.2
+  and pins 1.3 now. Two docstrings that walked a line down from 1.4 m walk it from 1.6.
+
 ## [0.228.0] - `approve candidate_selected` refuses a candidate the mission's plan never builds
 
 **Found by the factory's cold run 9362** (its roadmap 278). The run named seed 9281 against a batch whose

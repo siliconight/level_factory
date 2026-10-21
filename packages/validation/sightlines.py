@@ -41,11 +41,17 @@ from dataclasses import dataclass
 
 Vec3 = tuple[float, float, float]
 
-#: Eye heights, from the Laser Tag scripts. ``LT_BotPlayerController`` sights
-#: from ``body.global_position + Vector3.UP * 1.4``; the enemy sights from its
-#: ``Marker3D_Eye``, and both aim at ``LT_LineOfSightTester.CHEST_OFFSET``,
-#: which is 1.0 m above the target's origin.
-EYE_HEIGHT = 1.4
+#: Eye heights: where Laser Tag sights each side from, and the height both aim
+#: at. Since Laser Tag 0.20.0 the crew and the enemy sight from the scenario's
+#: ``player_eye_height_m`` and ``enemy_eye_height_m`` -- 1.6 m both, the agent
+#: contract's ``crew_sight_height_m`` and ``enemy_sight_height_m`` -- and aim at
+#: ``LT_LineOfSightTester.CHEST_OFFSET``, 1.0 m above the target's origin (the
+#: contract's ``aim_height_m``). Until Level Factory 0.229.0 this read 1.4, the
+#: bot's old probe, so the advisory crossed at 1.2 m and named solids both sides
+#: see over as cover (the factory's roadmap 289); the check Lot's copies answer
+#: to, `lasertag_contract.check_sight_drift`, now asks this one too
+#: (`test_sightlines`).
+EYE_HEIGHT = 1.6
 CHEST_HEIGHT = 1.0
 
 #: The shortest solid that can break a *mutual* sightline on flat ground, and

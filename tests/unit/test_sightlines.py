@@ -67,8 +67,8 @@ def test_a_kerb_is_in_the_way_on_a_plan_view_and_a_rifle_shoots_over_it():
     """The reason the crossing test is not enough on its own.
 
     A 0.4 m solid spans the line in two dimensions and occludes nothing: the
-    sightline runs from an eye at 1.4 m to a chest at 1.0 m and passes a metre
-    above it the whole way.
+    sightline runs from an eye at 1.6 m to a chest at 1.0 m and passes at least
+    0.6 m above it the whole way.
     """
     line = sightline("crew", CREW, "enemy", FAR,
                      [slab("yard", 0, 0, 200, 200),
@@ -131,7 +131,7 @@ def test_cover_has_to_stop_both_sides_or_it_stops_nothing():
     the clock exactly where it was.
 
     A 1.1 m block clears the crew's outgoing line over most of its length --
-    that line descends from 1.4 m to 1.0 m -- and never touches the incoming
+    that line descends from 1.6 m to 1.0 m -- and never touches the incoming
     one, which is climbing while the other falls.
     """
     boxes = [slab("yard", 0, 0, 300, 300)]
@@ -150,7 +150,7 @@ def test_on_flat_ground_the_shortest_workable_cover_works_at_one_spot_only():
     """
     boxes = [slab("yard", 0, 0, 300, 300)]
     line = sightline("crew", CREW, "enemy", FAR, boxes)
-    assert MIN_COVER_HEIGHT == 1.2
+    assert MIN_COVER_HEIGHT == 1.3        # 1.2 until 0.229.0, from a stale 1.4 m eye
     interval = break_interval(line, MIN_COVER_HEIGHT)
     assert interval is not None
     lo, hi = interval
@@ -256,3 +256,21 @@ def test_a_long_list_is_summarised_rather_than_dumped():
 def test_nothing_open_is_nothing_said():
     assert describe([], limit=45.0) == []
     assert open_sightlines({}, [], limit=45.0) == []
+
+
+def test_the_advisory_s_heights_are_the_shipped_evaluator_s():
+    """The check Lot's copies answer to (`lasertag_contract.check_sight_drift`, roadmap 131), asked of this module's.
+
+    Until 0.229.0 the advisory sighted from a 1.4 m eye -- the bot's probe before Laser Tag 0.20.0 moved both sides
+    to the scenario's 1.6 -- so it crossed at 1.2 m and named solids both sides see over as cover, while Lot's copies
+    were held to 1.6 by this same check (the factory's roadmap 289). Skipped when the Laser Tag sibling is absent,
+    as Lot's is: it has to run against the evaluator as it stands, not a fixture."""
+    import pytest
+    from packages.validation import lasertag_contract as lt
+    from packages.validation.sightlines import CHEST_HEIGHT, EYE_HEIGHT
+    from tests.siblings import not_found, sibling_repo
+    lasertag = sibling_repo("lasertag", marker="addons/laser_tag_tool")
+    if lasertag is None:
+        pytest.skip(not_found("lasertag", marker="addons/laser_tag_tool"))
+    assert lt.check_sight_drift(EYE_HEIGHT, CHEST_HEIGHT, lt.read_engagement_from(lasertag),
+                                who="Level Factory's sightline advisory") == []
