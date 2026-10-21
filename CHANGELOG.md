@@ -1,3 +1,25 @@
+## [0.228.0] - `approve candidate_selected` refuses a candidate the mission's plan never builds
+
+**Found by the factory's cold run 9362** (its roadmap 278). The run named seed 9281 against a batch whose
+`seed_base` was 9054, so the shell leg built the candidates 9054, 9155 and 9256. `approve candidate_selected
+--candidate bank_block_001.candidate.seed_9281` warned -- "no bank_block_001.lot_assemble.candidate.seed_9281 yet;
+the selection is recorded and will resolve once that job runs" -- and recorded it; no job ever would, and the next
+approval, `functional_shell_locked`, refused the lock as protecting nothing, a long way from the cause.
+
+`_refuse_bad_candidate` refused a malformed id and only warned about a missing job, on purpose: whether lot_assemble
+has run when a candidate is selected is an ordering question it has no business deciding. Whether a candidate is one
+of the mission's is not that question. A mission's candidates are its batch's -- `planner.derive_seeds(seed_base,
+candidate_count)` through `_plan_for` -- before any job runs, so it now refuses a candidate outside them, names the
+ones there are, and records nothing. A planned candidate whose job has not run yet is recorded with the warning, as
+before; a mission no batch holds keeps the old path, the warning, having no plan to ask.
+
+### Tests
+- `tests/unit/test_candidate_guard.py` (new), on a workspace's batch and brief built in a temporary folder: a seed the
+  plan never builds is refused and the planned seeds named; a planned seed passes, warned about until its
+  lot_assemble job exists; a malformed id is still refused; a mission no batch holds keeps the warning; `cmd_approve`
+  records no gate and no selection for a refused seed. The first and the last fail on 0.227.0 and the other three pass
+  there, the behaviour this keeps.
+
 ## [0.227.0] - a building's slot that holds what the merge cannot carry stays whole: its ladders and its markers ship again
 
 **Found by the factory's install test 11**, certifying factory 1.41.0, whose walk read "walk bot: no ladder_area3d in

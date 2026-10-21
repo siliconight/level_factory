@@ -3381,6 +3381,16 @@ def _refuse_bad_candidate(ws: Workspace, mission_id: str,
     lot_assemble has run by the time a candidate is selected is an
     ordering question this has no business deciding, but a marker that
     cannot possibly name a job is wrong at any point in the order.
+
+    MEMBERSHIP OF THE PLAN is refused too (0.228.0, the factory's roadmap
+    278), and it is not the ordering question: a mission's candidates are
+    its batch's -- `planner.derive_seeds(seed_base, candidate_count)` --
+    before any job has run, so a candidate outside them is one no job will
+    ever build. The factory's cold run 9362 named seed 9281 against a
+    batch whose seed_base was 9054: this warned "will resolve once that
+    job runs", recorded it, and the functional lock refused it a step
+    later as protecting nothing. A mission no batch holds keeps the
+    warning: there is no plan to ask.
     """
     import re
     want = re.compile(
@@ -3388,6 +3398,20 @@ def _refuse_bad_candidate(ws: Workspace, mission_id: str,
     if not want.match(str(candidate).strip()):
         print(f"refusing --candidate {candidate!r}: expected "
               f"{mission_id}.candidate.seed_<number>", file=sys.stderr)
+        print("  nothing is recorded; the gate is not approved",
+              file=sys.stderr)
+        return EXIT_BLOCKED
+    try:
+        _bid, _batch, _model, plan = _plan_for(ws, mission_id, None)
+        planned = list(plan.candidate_ids)
+    except SystemExit:
+        planned = []
+    if planned and str(candidate).strip() not in planned:
+        seeds = ", ".join(c.rsplit(".", 1)[-1] for c in planned)
+        print(f"refusing --candidate {candidate!r}: not one of "
+              f"{mission_id}'s candidates ({seeds}) -- name one of them, "
+              f"or set its batch's seed_base to that seed and plan again",
+              file=sys.stderr)
         print("  nothing is recorded; the gate is not approved",
               file=sys.stderr)
         return EXIT_BLOCKED
