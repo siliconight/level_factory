@@ -56,6 +56,13 @@ CODE_DRIFT = "LT_ENGAGEMENT_DRIFT"
 #: The scenario resource does not expose the number that decides first contact.
 CODE_NOT_CONFIGURABLE = "LT_ENGAGEMENT_NOT_CONFIGURABLE"
 
+#: The run's crew and enemy sight from different heights, and the sightline
+#: advisory draws both lines from the crew's eye (0.230.0). INFO, not a defect
+#: in the map: the lines it reports are measured, but from one eye, so the
+#: crossing they imply is not the evaluator's -- and the finding says what that
+#: one is.
+CODE_SIGHT_ONE_EYE = "LT_SIGHT_ONE_EYE"
+
 #: Severity and category per code. Every one of these is a design signal, so
 #: none of them is a blocker and the scheduler forces that regardless -- what
 #: the severity decides is reading order, not whether a level gets made.
@@ -72,6 +79,7 @@ _FILING = {
     CODE_DRIFT: (model.MODERATE, "configuration"),
     CODE_NOT_CONFIGURABLE: (model.MINOR, "configuration"),
     CODE_SCENE_NOT_READ: (model.INFO, "configuration"),
+    CODE_SIGHT_ONE_EYE: (model.INFO, "configuration"),
 }
 
 #: What Lot states its placement is sized against. Read rather than assumed:
@@ -133,6 +141,29 @@ def engagement_findings(engagement, assumed: float | None = None) -> list[dict]:
     return out
 
 
+def one_eye_findings(engagement) -> list[dict]:
+    """``LT_SIGHT_ONE_EYE`` when a run's two sides sight from two heights.
+
+    `sightlines` draws every line from one eye (`sightlines.Sight`), and the
+    adapter hands it the crew's. That is exact while Laser Tag ships both sides
+    at one height and an approximation once a contract or a brief moves one of
+    them -- so it is said, with the evaluator's own crossing beside the
+    advisory's, rather than left to read as a measurement of the run.
+    """
+    if abs(engagement.enemy_eye - engagement.crew_eye) < 0.005:
+        return []
+    real = engagement.cover_break_height
+    ours = (engagement.crew_eye + engagement.aim_height) / 2.0
+    theirs = (f"{real:g} m" if real is not None else
+              "no height, the aim being at or above both eyes")
+    return [_finding(
+        CODE_SIGHT_ONE_EYE,
+        f"the run's crew sights from {engagement.crew_eye:g} m and its enemy "
+        f"from {engagement.enemy_eye:g} m, and the sightline advisory draws "
+        f"both lines from the crew's eye: its lines cross at {ours:g} m, the "
+        f"evaluator's at {theirs} ({engagement.source})")]
+
+
 #: Which name survives when two mission markers stand on the same spot, most
 #: informative first. A sightline is named by its endpoints, so the name decides
 #: what the reader goes looking for.
@@ -162,13 +193,14 @@ def _one_name_per_position(named: dict) -> dict:
     return {name: point for _rank, name, point in best.values()}
 
 
-def scene_findings(text: str, reading: Reading, *,
-                   opening_range: float) -> list[dict]:
+def scene_findings(text: str, reading: Reading, *, opening_range: float,
+                   sight: sightlines.Sight = sightlines.STOCK) -> list[dict]:
     """The tactical findings readable out of one staged scene.
 
     ``opening_range`` is passed rather than looked up so this stays pure and so
     a caller that read the real scenario for this run reports against it, not
-    against `lasertag_contract.MEASURED`'s snapshot.
+    against `lasertag_contract.MEASURED`'s snapshot. ``sight`` likewise: the
+    heights this run's bodies sight from.
     """
     out = [_finding(code, message) for code, message in
            advise_spawn_placement_coded(text, reading,
@@ -183,10 +215,11 @@ def scene_findings(text: str, reading: Reading, *,
     lines = sightlines.open_sightlines(
         _one_name_per_position({"LT_PlayerSpawn": player,
                                 **enemies, **destinations}),
-        reading.boxes, limit=opening_range)
+        reading.boxes, limit=opening_range, sight=sight)
     out.extend(_finding(CODE_SIGHTLINE, message, fix=fix.lstrip("; "))
                for message, fix in sightlines.advise(lines, limit=opening_range,
-                                                     boxes=reading.boxes))
+                                                     boxes=reading.boxes,
+                                                     sight=sight))
     return out
 
 
@@ -201,6 +234,11 @@ def advise_scene(scene, *, engagement=None, lot_repository=None) -> list[dict]:
     standoff and floating-marker halves simply do not run -- and an absent
     finding reads exactly like a clean one. So the pass says, at INFO, that it
     could not read a scene and which checks therefore did not happen.
+
+    The sightlines are drawn from ``engagement``'s heights, the crew's eye and
+    the aim, so a caller handing over the run's engagement gets lines drawn
+    from the run's bodies (0.230.0, the factory's roadmap 289). Until then they
+    were `sightlines`' own copies, whatever body the run fielded.
     """
     engagement = engagement or lasertag_contract.MEASURED
     out = engagement_findings(engagement, lot_opening_range(lot_repository))
@@ -218,5 +256,6 @@ def advise_scene(scene, *, engagement=None, lot_repository=None) -> list[dict]:
     text = scene.read_text(encoding="utf-8", errors="replace")
     reading = read_scene_text(text, resolve=resolver(scene.parent),
                               _seen=frozenset({scene}))
-    return out + scene_findings(text, reading,
-                                opening_range=engagement.opening_range)
+    return out + one_eye_findings(engagement) + scene_findings(
+        text, reading, opening_range=engagement.opening_range,
+        sight=sightlines.Sight(engagement.crew_eye, engagement.aim_height))

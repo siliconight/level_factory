@@ -1,3 +1,40 @@
+## [0.230.0] - the sightline advisory sights from the body the run fields
+
+**The factory's roadmap 289, finished.** 0.229.0 moved `packages/validation/sightlines.py`'s eye from a stale 1.4 m to
+Laser Tag's 1.6 and held it there with `lasertag_contract.check_sight_drift`, the check Lot's copies answer to. That
+made the number right and left the rule broken that a body-derived height is read through `agent_contract.json`, never
+kept as a literal beside a comment naming it. `adapters/laser_tag` writes the contract's body into the run's scenario
+(`_body_overrides`, roadmap 123), and the advisory went on sighting from its own constants whatever body the run
+fielded: a studio stating a 2.05 m character got a crew sighting from 1.85 m and an advisory still crossing at 1.3 m,
+calling a 1.4 m crate cover when both sides see over it (their lines cross at 1.5 m).
+
+### Changed
+- **The advisory sights from the run's body.** `advise_configuration` hands `tactical.advise_scene` an `Engagement`
+  carrying the heights the run's scenario will carry -- Laser Tag's own, under the contract's body and this job's
+  scenario (`_run_engagement`) -- and `advise_scene` draws the sightlines from its crew eye and aim. The ranges stay
+  the evaluator's own.
+- **One precedence, asked twice.** `_run_scenario` is stock <- `agent_contract.json` <- this job's scenario, moved out
+  of `run` unchanged, so `run` and the advisory read one answer.
+- **`sightlines.Sight`**, an eye and a chest with `cover_break` their crossing, is threaded through `sightline`,
+  `open_sightlines`, `required_height`, `break_interval`, `propose_cover`, `advise` and `describe`; `min_height`
+  defaults to the body's own crossing. `EYE_HEIGHT` and `CHEST_HEIGHT` are `STOCK`, the fallback when nothing names a
+  body, still held to Laser Tag's files by `test_sightlines`. `required_height`'s local `sight` is `y`, so it no
+  longer shadows the parameter.
+
+### Added
+- **`LT_SIGHT_ONE_EYE`** (INFO). `sightlines` draws both lines from one eye, so when a run's crew and enemy sight from
+  different heights the advisory says so, with the evaluator's own two-eye crossing beside its one-eye one. Any
+  contract that moves the player's eye trips it today: the seam writes the player's eye and aim and leaves the enemy's
+  eye at Laser Tag's 1.6, while the contract says its NPCs share the player's metrics (the factory's roadmap 292).
+
+### Tests
+- **test_sight_follows_the_body.py** (new, 9), on a 92 m street with a 1.4 m crate across it, through
+  `advise_configuration` as the scheduler asks it. On 0.229.0 three fail on behaviour -- a contract's 2.05 m character
+  and a brief's taller body both leave the crate called cover, and the one-eye note is never given -- two on the new
+  names (`Sight`, `_run_scenario`), and four guards pass there: the street reported with no crate (the control that
+  the instrument sees a line at all), the crate cover for the stock body, no contract, and a height that is not a
+  number (the factory's `patches/lf_sight_contract/prove_tests_on_0229.out.txt`).
+
 ## [0.229.0] - the sightline advisory sights from the evaluator's eye
 
 **The factory's roadmap 289.** `packages/validation/sightlines.py` sighted from `EYE_HEIGHT = 1.4` -- the crew bot's

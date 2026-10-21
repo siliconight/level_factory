@@ -6,6 +6,7 @@ the adapter labels it as such and never marks it fun/balanced/verified.
 """
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
@@ -136,6 +137,53 @@ def _body_overrides(context: Mapping) -> tuple[dict, list[str]]:
     if not body:
         return {}, []
     return body, agent_contract.body_drift(body, _STOCK_SCENARIO)
+
+
+def _run_scenario(job_spec: Mapping,
+                  context: Mapping) -> tuple[dict, list[str]]:
+    """The scenario keys this job's run writes over the stock, and the drift.
+
+    PRECEDENCE: stock <- agent_contract.json <- this job's scenario. The
+    contract beats the stock because it says it is the source of truth; an
+    explicit scenario key beats the contract because a brief asking for a
+    different body is asking on purpose.
+
+    One function because two things ask it: `run`, which writes the answer into
+    the staged project, and `advise_configuration`, whose sightlines have to be
+    drawn from the bodies that run fields (0.230.0, the factory's roadmap 289).
+    Asked separately, the precedence is written twice and the second copy is
+    the one that rots.
+    """
+    body, drift = _body_overrides(context)
+    merged: dict = dict(body)
+    wanted = job_spec.get("scenario")
+    if isinstance(wanted, Mapping):
+        merged.update(wanted)
+    return merged, drift
+
+
+#: The scenario fields that place an eye or the aim, and the `Engagement` field
+#: each one sets.
+_SIGHT_FIELDS = {"player_eye_height_m": "crew_eye",
+                 "enemy_eye_height_m": "enemy_eye",
+                 "aim_height_m": "aim_height"}
+
+
+def _run_engagement(engagement, merged: Mapping):
+    """``engagement`` with the sight heights this run's scenario overrides.
+
+    The ranges stay Laser Tag's own: no scenario key here moves them. A value
+    that is not a positive number is not a height anything can sight from, and
+    the advisory is never the reason a level does not exist, so it keeps Laser
+    Tag's height for that field rather than raising.
+    """
+    over = {}
+    for key, field in _SIGHT_FIELDS.items():
+        value = merged.get(key)
+        if (isinstance(value, (int, float)) and not isinstance(value, bool)
+                and value > 0):
+            over[field] = float(value)
+    return dataclasses.replace(engagement, **over) if over else engagement
 
 
 def _write_scenario(project: Path, overrides: Mapping) -> str | None:
@@ -296,6 +344,10 @@ class LaserTagAdapter(BaseAdapter):
         files -- the crew's sight range is an ``@export`` default ten metres
         past the enemy's, and the crew shoots first -- and a pre-flight that
         carried its own copy of that number would be checking its memory.
+
+        The heights the sightlines are drawn from are a fact about THIS run:
+        the body the agent contract states, which `run` writes into the run's
+        scenario over Laser Tag's stock (0.230.0, the factory's roadmap 289).
         """
         from packages.validation import lasertag_contract, tactical
 
@@ -303,7 +355,11 @@ class LaserTagAdapter(BaseAdapter):
             context.get("repository"))
         return tactical.advise_scene(
             job_spec.get("evaluation_scene"),
-            engagement=engagement,
+            # The heights the RUN sights from: the contract's body and this
+            # job's scenario over Laser Tag's own, as `run` writes them. The
+            # ranges stay the evaluator's.
+            engagement=_run_engagement(engagement,
+                                       _run_scenario(job_spec, context)[0]),
             # Lot's stated opening range, checked against the evaluator's real
             # one. Neither tool can do this alone: Lot cannot import Level
             # Factory, and Laser Tag has never heard of Lot.
@@ -428,17 +484,11 @@ class LaserTagAdapter(BaseAdapter):
         scenario = str(job_spec.get(
             "scenario_res",
             "res://addons/laser_tag_tool/resources/default_laser_tag_scenario.tres"))
-        wanted = job_spec.get("scenario")
-        # PRECEDENCE: stock <- agent_contract.json <- this job's scenario.
-        # The contract beats the stock because it says it is the source of
-        # truth; an explicit scenario key beats the contract because a brief
-        # asking for a different body is asking on purpose.
-        body, drift = _body_overrides(context)
+        # PRECEDENCE: stock <- agent_contract.json <- this job's scenario
+        # (`_run_scenario`, which the advisory asks too).
+        merged, drift = _run_scenario(job_spec, context)
         for _line in drift:
             print(f"[laser_tag] body: {_line}")
-        merged: dict = dict(body)
-        if isinstance(wanted, Mapping):
-            merged.update(wanted)
         if merged and project:
             written = _write_scenario(Path(str(project)), merged)
             if written is not None:

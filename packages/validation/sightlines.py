@@ -42,15 +42,20 @@ from dataclasses import dataclass
 Vec3 = tuple[float, float, float]
 
 #: Eye heights: where Laser Tag sights each side from, and the height both aim
-#: at. Since Laser Tag 0.20.0 the crew and the enemy sight from the scenario's
-#: ``player_eye_height_m`` and ``enemy_eye_height_m`` -- 1.6 m both, the agent
-#: contract's ``crew_sight_height_m`` and ``enemy_sight_height_m`` -- and aim at
-#: ``LT_LineOfSightTester.CHEST_OFFSET``, 1.0 m above the target's origin (the
-#: contract's ``aim_height_m``). Until Level Factory 0.229.0 this read 1.4, the
-#: bot's old probe, so the advisory crossed at 1.2 m and named solids both sides
-#: see over as cover (the factory's roadmap 289); the check Lot's copies answer
-#: to, `lasertag_contract.check_sight_drift`, now asks this one too
-#: (`test_sightlines`).
+#: at, AS IT SHIPS. Since Laser Tag 0.20.0 the crew and the enemy sight from
+#: the scenario's ``player_eye_height_m`` and ``enemy_eye_height_m``, 1.6 m
+#: both, and aim at its ``aim_height_m``, 1.0 m above the target's origin (by
+#: default ``LT_LineOfSightTester.CHEST_OFFSET``). Until Level Factory 0.229.0
+#: this read 1.4, the bot's old probe, so the advisory crossed at 1.2 m and
+#: named solids both sides see over as cover (the factory's roadmap 289); the
+#: check Lot's copies answer to, `lasertag_contract.check_sight_drift`, now
+#: asks these too (`test_sightlines`).
+#:
+#: THE FALLBACK, NOT THE SOURCE (0.230.0). A run's body is the agent
+#: contract's: the Laser Tag adapter writes it into the run's scenario and
+#: hands the advisory the same heights as a `Sight`. These are what is left
+#: when nothing does -- Laser Tag's stock scenario, which carries the same
+#: numbers.
 EYE_HEIGHT = 1.6
 CHEST_HEIGHT = 1.0
 
@@ -63,6 +68,33 @@ CHEST_HEIGHT = 1.0
 #: because Laser Tag stamps first contact on the first shot fired by either
 #: side. See `break_interval`.
 MIN_COVER_HEIGHT = (EYE_HEIGHT + CHEST_HEIGHT) / 2.0
+
+
+@dataclass(frozen=True)
+class Sight:
+    """Where both sides sight from and the height they aim at, in metres above
+    the floor a mission point stands on.
+
+    ONE EYE FOR BOTH SIDES. Every line here runs between two mission points and
+    each end sights from ``eye``: nothing in this module knows which body
+    stands on which point. Laser Tag ships the crew and the enemy at one
+    height; when a run's two differ, `tactical` says so beside the findings
+    (``LT_SIGHT_ONE_EYE``) rather than this module picking one silently.
+    """
+
+    eye: float = EYE_HEIGHT
+    chest: float = CHEST_HEIGHT
+
+    @property
+    def cover_break(self) -> float:
+        """`MIN_COVER_HEIGHT` for this body: where its two lines cross on flat
+        ground."""
+        return (self.eye + self.chest) / 2.0
+
+
+#: Laser Tag's stock scenario: what every function here sights from when its
+#: caller names no body.
+STOCK = Sight()
 
 #: How far apart to sample a sightline when deciding what it crosses.
 SAMPLE = 1.0
@@ -136,7 +168,8 @@ def _crossings(a: Vec3, b: Vec3, rect) -> tuple[float, float] | None:
     return (lo, hi)
 
 
-def _occludes(box, a: Vec3, b: Vec3, span: tuple[float, float]) -> bool:
+def _occludes(box, a: Vec3, b: Vec3, span: tuple[float, float],
+              sight: Sight = STOCK) -> bool:
     """Does ``box`` actually stand in the line, or only under it?
 
     The 2-D crossing test is not enough. A kerb is in the way on a plan view
@@ -155,8 +188,8 @@ def _occludes(box, a: Vec3, b: Vec3, span: tuple[float, float]) -> bool:
         blocked = False
         for t in (span[0], (span[0] + span[1]) / 2.0, span[1]):
             # ``t`` is measured along a->b, so the b-eye line is read backwards.
-            lo = eye[1] + EYE_HEIGHT
-            hi = chest[1] + CHEST_HEIGHT
+            lo = eye[1] + sight.eye
+            hi = chest[1] + sight.chest
             at = t if eye is a else 1.0 - t
             y = lo + (hi - lo) * at
             if _bottom(box) <= y <= _top(box):
@@ -167,7 +200,8 @@ def _occludes(box, a: Vec3, b: Vec3, span: tuple[float, float]) -> bool:
     return True
 
 
-def sightline(a_name: str, a: Vec3, b_name: str, b: Vec3, boxes) -> Sightline:
+def sightline(a_name: str, a: Vec3, b_name: str, b: Vec3, boxes,
+              *, sight: Sight = STOCK) -> Sightline:
     """How much of the line from ``a`` to ``b`` nothing interrupts.
 
     A box containing either endpoint is skipped, for the reason Lot skips it:
@@ -187,7 +221,7 @@ def sightline(a_name: str, a: Vec3, b_name: str, b: Vec3, boxes) -> Sightline:
         span = _crossings(a, b, rect)
         if span is None or span[1] - span[0] < 1e-9:
             continue
-        if not _occludes(box, a, b, span):
+        if not _occludes(box, a, b, span, sight):
             continue
         spans.append((span[0], span[1], getattr(box, "name", "?")))
 
@@ -209,7 +243,7 @@ def _contains(rect, p: Vec3) -> bool:
 
 
 def open_sightlines(points: dict, boxes, *, limit: float,
-                    pairs=None) -> list[Sightline]:
+                    pairs=None, sight: Sight = STOCK) -> list[Sightline]:
     """Every pair that can see each other across more than ``limit`` metres.
 
     ``limit`` is the engagement opening range, so what comes back is the set of
@@ -225,7 +259,8 @@ def open_sightlines(points: dict, boxes, *, limit: float,
     for a_name, b_name in chosen:
         if a_name not in points or b_name not in points:
             continue
-        line = sightline(a_name, points[a_name], b_name, points[b_name], boxes)
+        line = sightline(a_name, points[a_name], b_name, points[b_name], boxes,
+                         sight=sight)
         if line.is_open and line.length > limit:
             out.append(line)
     out.sort(key=lambda s: -s.length)
@@ -240,7 +275,8 @@ def open_sightlines(points: dict, boxes, *, limit: float,
 _MARGIN = 0.1
 
 
-def required_height(line: Sightline, t: float, boxes=()) -> float:
+def required_height(line: Sightline, t: float, boxes=(),
+                    *, sight: Sight = STOCK) -> float:
     """How tall a solid at ``t`` must be to stop *both* sides shooting.
 
     Two lines run between the same pair of points, not one: the crew sights
@@ -258,12 +294,13 @@ def required_height(line: Sightline, t: float, boxes=()) -> float:
     """
     x, z = line.point_at(t)
     a_floor, b_floor = line.a[1], line.b[1]
-    eye_a = a_floor + EYE_HEIGHT
-    eye_b = b_floor + EYE_HEIGHT
-    chest_a = a_floor + CHEST_HEIGHT
-    chest_b = b_floor + CHEST_HEIGHT
-    sight = max(eye_a + (chest_b - eye_a) * t, chest_a + (eye_b - chest_a) * t)
-    return sight - _floor_under(x, z, sight, boxes, default=min(a_floor, b_floor))
+    eye_a = a_floor + sight.eye
+    eye_b = b_floor + sight.eye
+    chest_a = a_floor + sight.chest
+    chest_b = b_floor + sight.chest
+    # the higher of the two lines at ``t``, which is what the solid must reach
+    y = max(eye_a + (chest_b - eye_a) * t, chest_a + (eye_b - chest_a) * t)
+    return y - _floor_under(x, z, y, boxes, default=min(a_floor, b_floor))
 
 
 def _floor_under(x: float, z: float, ceiling: float, boxes,
@@ -287,8 +324,8 @@ def _floor_under(x: float, z: float, ceiling: float, boxes,
 
 
 def break_interval(line: Sightline, height: float,
-                   *, min_height: float = MIN_COVER_HEIGHT,
-                   boxes=()) -> tuple[float, float] | None:
+                   *, min_height: float | None = None, boxes=(),
+                   sight: Sight = STOCK) -> tuple[float, float] | None:
     """The ``t`` range where a solid ``height`` tall would occlude ``line``.
 
     Cover does not work everywhere along a line, and this is the fact that
@@ -302,14 +339,18 @@ def break_interval(line: Sightline, height: float,
 
     Sampled rather than solved because the floor under the line is whatever the
     boxes say it is, and a closed form would only be closed for a flat site.
+    ``min_height`` is the body's own crossing unless given -- for the stock
+    body, `MIN_COVER_HEIGHT`.
     """
+    if min_height is None:
+        min_height = sight.cover_break
     if height < min_height:
         return None
     steps = max(20, int(line.length / SAMPLE))
     lo = hi = None
     for i in range(steps + 1):
         t = _MARGIN + (1.0 - 2.0 * _MARGIN) * (i / steps)
-        if height + 1e-9 >= required_height(line, t, boxes):
+        if height + 1e-9 >= required_height(line, t, boxes, sight=sight):
             if lo is None:
                 lo = t
             hi = t
@@ -338,8 +379,8 @@ class CoverProposal:
 
 
 def propose_cover(lines, *, height: float = 1.8, bias: float = 0.35,
-                  min_height: float = MIN_COVER_HEIGHT,
-                  boxes=()) -> list[CoverProposal]:
+                  min_height: float | None = None, boxes=(),
+                  sight: Sight = STOCK) -> list[CoverProposal]:
     """One cover position per open sightline, biased towards the crew's end.
 
     ``bias`` is where in the usable interval to sit, 0 being the ``a`` end.
@@ -355,7 +396,7 @@ def propose_cover(lines, *, height: float = 1.8, bias: float = 0.35,
     out: list[CoverProposal] = []
     for line in lines:
         interval = break_interval(line, height, min_height=min_height,
-                                  boxes=boxes)
+                                  boxes=boxes, sight=sight)
         if interval is None:
             continue
         lo, hi = interval
@@ -365,7 +406,8 @@ def propose_cover(lines, *, height: float = 1.8, bias: float = 0.35,
     return out
 
 
-def describe(lines, *, limit: float, boxes=()) -> list[str]:
+def describe(lines, *, limit: float, boxes=(),
+             sight: Sight = STOCK) -> list[str]:
     """Findings for open sightlines. Advisory: this is a design note, not a gate.
 
     Named by what to do rather than what is wrong. "LT_PlayerSpawn can see
@@ -374,10 +416,12 @@ def describe(lines, *, limit: float, boxes=()) -> list[str]:
     the fact is kept alongside it so the proposal can be argued with.
     """
     return [(message + fix) if fix else message
-            for message, fix in advise(lines, limit=limit, boxes=boxes)]
+            for message, fix in advise(lines, limit=limit, boxes=boxes,
+                                       sight=sight)]
 
 
-def advise(lines, *, limit: float, boxes=()) -> list[tuple[str, str]]:
+def advise(lines, *, limit: float, boxes=(),
+           sight: Sight = STOCK) -> list[tuple[str, str]]:
     """The same findings as ``(what is open, what to do about it)``.
 
     Split because they answer to different people. The first half is a
@@ -392,7 +436,8 @@ def advise(lines, *, limit: float, boxes=()) -> list[tuple[str, str]]:
     """
     if not lines:
         return []
-    proposals = {id(p.line): p for p in propose_cover(lines, boxes=boxes)}
+    proposals = {id(p.line): p
+                 for p in propose_cover(lines, boxes=boxes, sight=sight)}
     out: list[tuple[str, str]] = []
     for line in lines[:6]:
         where = proposals.get(id(line))
