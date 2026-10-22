@@ -9,6 +9,11 @@ scene: each standing instance -- a building `b<n>` or an Empty `blocker_<n>` -- 
 drawn from, its drawings as `res://` paths (or why it has none), and where it stands: the instance's origin in
 `site.tscn`, Godot metres, Y up. The game builds the screen; this is what it reads.
 
+THE SCOUT VIEW (0.233.0). The walker judged the axonometric too busy to scout from -- "simpler but carry all of the
+signals needed" -- and Deli Counter 0.258.0 draws each building a second way, with only what a body finds its way
+by, as `drawings/scout.svg`. Each entry names it under `scout`; a package composed before 0.258.0 has none, and the
+entry says null there rather than guessing a path.
+
 THE PATHS ARE res:// ON PURPOSE. The export's closure scan resolves every `res://` a package's JSON names
 (`closure.scan_closure`), so an index naming a drawing the package does not carry fails the package's own verdict.
 """
@@ -47,7 +52,7 @@ def build(package_dir) -> dict | None:
         entry = {"node": name, "id": lot_id, "kind": "empty" if name.startswith("blocker_") else "building",
                  # the Transform3D's last three numbers are its origin, however its basis is written
                  "at": [round(v, 3) for v in nums[9:12]] if len(nums) == 12 else None,
-                 "spec": None, "axonometric": None, "plans": []}
+                 "spec": None, "axonometric": None, "scout": None, "plans": []}
         rec_path = root / "lot" / lot_id / "drawings" / "drawings.json"
         if rec_path.is_file():
             rec = json.loads(rec_path.read_text(encoding="utf-8"))
@@ -55,6 +60,8 @@ def build(package_dir) -> dict | None:
             entry["spec"] = rec.get("spec")
             if rec.get("axonometric"):
                 entry["axonometric"] = base + rec["axonometric"]
+            if rec.get("scout"):
+                entry["scout"] = base + rec["scout"]
             entry["plans"] = [{"storey": p["storey"], "file": base + p["file"]} for p in rec.get("plans") or []]
             if rec.get("none_because"):
                 entry["none_because"] = rec["none_because"]

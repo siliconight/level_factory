@@ -42,10 +42,12 @@ def _package(tmp_path: Path, *, office_drawn=True) -> Path:
                                                           encoding="utf-8")
     d = root / "lot" / "deli_a03" / "drawings"
     d.mkdir()
-    for f in ("axonometric.svg", "floorB1.svg", "floor0.svg"):
+    for f in ("axonometric.svg", "scout.svg", "floorB1.svg", "floor0.svg"):
         (d / f).write_text("<svg/>", encoding="utf-8")
+    # deli_a03 composed by Deli Counter 0.258.0, with a scout view; office (below) by 0.257.0, without
     (d / "drawings.json").write_text(json.dumps({
         "schema": "deli_counter.drawings.v1", "spec": "deli_a03", "axonometric": "axonometric.svg",
+        "scout": "scout.svg",
         "plans": [{"storey": -1, "file": "floorB1.svg"}, {"storey": 0, "file": "floor0.svg"}]}), encoding="utf-8")
     if office_drawn:
         d = root / "lot" / "office" / "drawings"
@@ -100,3 +102,18 @@ def test_the_closure_verdict_proves_every_drawing_the_index_names(tmp_path):
     (root / "lot" / "deli_a03" / "drawings" / "floor0.svg").unlink()
     issues = [i for i in scan_closure(root).issues if i.startswith(BI.INDEX_NAME)]
     assert issues == ["%s: unresolved res://lot/deli_a03/drawings/floor0.svg" % BI.INDEX_NAME], issues
+
+
+def test_the_scout_view_is_named_where_a_package_carries_one(tmp_path):
+    """0.233.0, the factory's roadmap 296: a building whose package carries Deli Counter 0.258.0's scout view is named
+    with it, res://; one composed before has none and says null; a facade has none; and the closure verdict proves the
+    path -- take the file away and it names the index's reference to it."""
+    root = _package(tmp_path)
+    by_node = {e["node"]: e for e in BI.write(root)["buildings"]}
+    assert by_node["b0"]["scout"] == "res://lot/deli_a03/drawings/scout.svg"
+    assert by_node["b1"]["scout"] is None and by_node["b1"]["axonometric"] == "res://lot/office/drawings/axonometric.svg"
+    assert by_node["blocker_0"]["scout"] is None
+    assert not [i for i in scan_closure(root).issues if i.startswith(BI.INDEX_NAME)]
+    (root / "lot" / "deli_a03" / "drawings" / "scout.svg").unlink()
+    issues = [i for i in scan_closure(root).issues if i.startswith(BI.INDEX_NAME)]
+    assert issues == ["%s: unresolved res://lot/deli_a03/drawings/scout.svg" % BI.INDEX_NAME], issues

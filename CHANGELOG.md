@@ -1,3 +1,19 @@
+## [0.233.0] - a level's index names each building's scout view
+
+**The factory's roadmap 296.** The walker judged the exploded axonometric too busy to scout from on two of three
+buildings -- "simpler but carry all of the signals needed" -- and Deli Counter 0.258.0 draws each building a second
+way, with only what a body finds its way by, into its package as `drawings/scout.svg`, named in `drawings.json`.
+
+### Added
+- **`buildings.json` names it**: each entry carries `scout`, the drawing's `res://` path where its package has one,
+  null where it has none (a facade, or a package composed before Deli Counter 0.258.0 -- the entry says so rather
+  than guessing a path). The closure verdict resolves it as it does the other drawings.
+
+### Tests
+- `test_buildings_index.py`: a building composed with a scout view is named with it, one composed before has null, a
+  facade null, and the closure verdict names the index's reference when the file is taken away. On 0.232.1 it fails on
+  the new name (`KeyError: 'scout'`).
+
 ## [0.232.1] - the Empties named, and the shell's drawings left out where the shell is
 
 **The factory's roadmap 296, read off cold run 9377's package** (the factory's
