@@ -128,11 +128,30 @@ CACHE_DIR = ".godot"
 #: ships (0.163.1).
 MODEL_SUFFIXES = (".glb", ".gltf")
 
+#: A sidecar that keeps its file as the file it is: Godot imports nothing of
+#: it, by design (0.234.1). Deli Counter 0.259.0 ships each building's scout
+#: model so (`drawings/scout.glb`), for a game to read with `GLTFDocument`
+#: when its screen opens rather than every level importing it; cold run 9380
+#: stopped at the export, "the import pass left 3 of 537 model(s) unimported
+#: ... first: lot/deli_a03/drawings/scout.glb", waiting for an import that was
+#: never going to come. Matched on the importer line, as Godot reads it.
+_KEEP = re.compile(r'^importer="keep"\s*$', re.M)
+
+
+def kept(model: Path) -> bool:
+    """Whether ``model``'s sidecar keeps it, unimported, as the file it is."""
+    try:
+        text = Path(str(model) + ".import").read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return bool(_KEEP.search(text))
+
 
 def package_models(export_dir: Path) -> list:
     """Every model in the package, package-relative and sorted. `.godot/` is
     the cache, not the package; a folder holding `.gdignore` is one Godot
-    never imports, and is skipped the way Godot skips it."""
+    never imports, and is skipped the way Godot skips it -- and so is a model
+    its sidecar keeps (`kept`, 0.234.1)."""
     export_dir = Path(export_dir)
     ignored = [g.parent for g in export_dir.rglob(".gdignore")]
     out = []
@@ -141,6 +160,8 @@ def package_models(export_dir: Path) -> list:
             continue
         rel = p.relative_to(export_dir)
         if rel.parts[0] == CACHE_DIR or any(d in p.parents for d in ignored):
+            continue
+        if kept(p):
             continue
         out.append(rel.as_posix())
     return sorted(out)

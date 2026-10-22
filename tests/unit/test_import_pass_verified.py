@@ -90,6 +90,25 @@ def test_a_sidecar_that_names_no_files_fails_rather_than_passes(tmp_path):
     assert unimported_models(pkg) == ["lot/b/site_base.glb"]
 
 
+def test_a_model_its_sidecar_keeps_is_not_waited_for(tmp_path):
+    """0.234.1: cold run 9380 stopped at the export on Deli Counter 0.259.0's
+    `drawings/scout.glb`, which its sidecar keeps -- `[remap]` and
+    `importer="keep"`, the file a game reads with `GLTFDocument` -- and which
+    Godot therefore never imports. It is no model of the import's; a sidecar
+    that only mentions keep somewhere else is not a keep."""
+    from packages.exporting.occluders import kept, package_models
+    pkg = _package(tmp_path, rels=("lot/a/art/wall.glb", "lot/a/drawings/scout.glb",
+                                   "lot/b/art/odd.glb"))
+    (pkg / "lot/a/drawings/scout.glb.import").write_text('[remap]\n\nimporter="keep"\n',
+                                                        encoding="utf-8")
+    (pkg / "lot/b/art/odd.glb.import").write_text('[remap]\n\nimporter="scene"\n; not "keep"\n',
+                                                  encoding="utf-8")
+    _import_one(pkg, "lot/a/art/wall.glb")
+    assert kept(pkg / "lot/a/drawings/scout.glb") and not kept(pkg / "lot/b/art/odd.glb")
+    assert package_models(pkg) == ["lot/a/art/wall.glb", "lot/b/art/odd.glb"]
+    assert unimported_models(pkg) == ["lot/b/art/odd.glb"]
+
+
 def test_a_folder_godot_ignores_is_ignored(tmp_path):
     pkg = _package(tmp_path, rels=("lot/a/art/wall.glb", "docs/ref/model.glb"))
     (pkg / "docs" / ".gdignore").write_text("", encoding="utf-8")

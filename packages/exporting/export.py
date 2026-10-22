@@ -1149,7 +1149,9 @@ def _write_import_sidecars(export_dir: Path, godot_executable, *,
     # where two exports of the same code always do.
     from packages.exporting.light_bake import DYNAMIC, glb_has_uv2, mark_imports
     lightmaps = bake_spawned is not None
-    models = [p for p in sorted(export_dir.rglob("*.glb")) if ".godot" not in p.parts]
+    # a model its sidecar keeps is never imported, so it is never held (0.234.1, `occluders.kept`)
+    from packages.exporting.occluders import kept
+    models = [p for p in sorted(export_dir.rglob("*.glb")) if ".godot" not in p.parts and not kept(p)]
     own = {}
     if lightmaps:
         spawned = set(bake_spawned)

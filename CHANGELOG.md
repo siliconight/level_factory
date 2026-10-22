@@ -1,3 +1,20 @@
+## [0.234.1] - a model its sidecar keeps is not waited for
+
+**Cold run 9380 stopped at the export.** Deli Counter 0.259.0 ships each building's scout model as
+`drawings/scout.glb` beside a keep sidecar (`importer="keep"`): a game reads it with `GLTFDocument` when its screen
+opens, so no level pays to import it. The export's import check counts every `.glb` as a model Godot must import, and
+waited for one that was never going to come: "the import pass left 3 of 537 model(s) unimported after 3 attempt(s)
+... first: lot/deli_a03/drawings/scout.glb". The level was not shipped.
+
+### Fixed
+- **`occluders.kept`**: a model whose sidecar keeps it -- its importer line `importer="keep"`, as Godot reads it -- is
+  not one Godot imports. `package_models` skips it, as it skips a folder holding `.gdignore`, so `unimported_models`
+  does not wait for it; and the export's three import passes neither hold it nor count it.
+
+### Tests
+- `test_import_pass_verified.py`: a kept model is not waited for, an imported one is not, an unimported one still is,
+  and a sidecar that only mentions keep somewhere else is no keep. On 0.234.0 it fails on the new name (`kept`).
+
 ## [0.234.0] - a level's index names each building's scout model
 
 **The factory's roadmap 295.** The walker wants the scout view as something players turn all the way round -- "They
