@@ -937,7 +937,7 @@ CORNER_PREFIX = "gs_cornershop_"
 
 def empty_rows(build_dir, prefix=EMPTY_PREFIX, family="empty") -> list[dict]:
     """Every Empty in a Deli Counter build dir that can be themed, sorted by
-    id: ``{"id", "family", "glb", "gameplay", "slots"}``, ``family`` as
+    id: ``{"id", "family", "glb", "gameplay", "slots", "spec"}``, ``family`` as
     given -- ``empty``, or ``corner`` for the corner blocks (0.206.0). An Empty is one
     Deli Counter says is (`facade` true in its validation manifest) and whose
     id carries `EMPTY_PREFIX`; it has no lights by design (its lit windows
@@ -946,9 +946,15 @@ def empty_rows(build_dir, prefix=EMPTY_PREFIX, family="empty") -> list[dict]:
     out = []
     for glb in sorted(d.glob(prefix + "*.glb")):
         aid = glb.stem
+        spec = d.parent / "specs" / (aid + ".json")
         row = {"id": aid, "family": family, "glb": str(glb),
                "gameplay": str(d / f"{aid}.gameplay.json"),
-               "slots": str(d / f"{aid}.slots.json")}
+               "slots": str(d / f"{aid}.slots.json"),
+               # THE SPEC IT WAS BUILT FROM, as `index` reports it (0.232.1, the
+               # factory's roadmap 296): an Empty's rows come from here, not from
+               # `index`, so cold run 9377 composed all 26 with no spec and their
+               # packages carried no record of why they have no drawing.
+               "spec": str(spec) if spec.is_file() else ""}
         if not all(Path(row[k]).exists() for k in ("gameplay", "slots")):
             continue
         if (_manifest(d / (aid + ".validation.json")) or {}).get("facade") is not True:

@@ -1,3 +1,25 @@
+## [0.232.1] - the Empties named, and the shell's drawings left out where the shell is
+
+**The factory's roadmap 296, read off cold run 9377's package** (the factory's
+`patches/lf_drawings/package_check_9377.out.txt`): its three buildings drawn, ten drawings each named and present,
+every `.import` the keep file, no texture made of any drawing, the closure verdict clean -- and two holes.
+
+### Fixed
+- **The Empties named their spec.** An Empty's row comes from `building_library.empty_rows`, not `index`, and carried
+  no `spec`, so 9377 composed all 26 with none: their packages held no record, and `buildings.json` gave each the
+  reason "its package carries no drawings" where the reason is that it is a facade. `empty_rows` reports the spec as
+  `index` does, never used to exclude.
+- **The mission shell's drawings stay out where the shell does.** Deli Counter draws the composed root's building --
+  the mission's own shell -- into `drawings/` beside it, and a varied lot does not stand that shell: 9377 shipped its
+  nine files at the package's root beside an index of three buildings. `_root_left_out` leaves the root's `drawings/`
+  out with its scene pair (`_COMPOSED_ROOT_PAIR`), and leaves every root file in where the root ships; a lot
+  building's `lot/<id>/drawings/` is never asked.
+
+### Tests
+- **test_compose_draws_its_buildings.py**, two more: an Empty's row names its spec where Deli Counter has one; the
+  composed root's drawings stay out with its scene. On 0.232.0 the first fails on behaviour (the row has no `spec`)
+  and the second on the new name (the factory's `patches/lf_drawings_fix/prove_tests_on_0232.out.txt`).
+
 ## [0.232.0] - a level's package names the buildings it stands, and carries their drawings
 
 **The factory's roadmap 296.** The walker, of Deli Counter's exploded axonometric (roadmap 293), asked where it is

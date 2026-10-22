@@ -96,3 +96,34 @@ def test_the_driver_asks_for_drawings_only_where_they_can_be_answered(tmp_path):
     kw, why = d._drawing_kwargs(new, str(tmp_path / "missing.json"))
     assert kw == {} and "no spec" in why
     assert d._drawing_kwargs(new, "") == ({}, "")
+
+
+def test_an_empty_row_names_its_spec_too(tmp_path):
+    """0.232.1: an Empty's row comes from `empty_rows`, not `index`, and cold run 9377 composed all 26 of its Empties
+    with no spec. A row names its spec where Deli Counter has one, and an empty string where it has none."""
+    build = tmp_path / "build"
+    build.mkdir()
+    for aid in ("gs_empty_rowhome_a", "gs_empty_rowhome_b"):
+        for suf in (".glb", ".gameplay.json", ".slots.json"):
+            (build / (aid + suf)).write_text("{}", encoding="utf-8")
+        (build / (aid + ".validation.json")).write_text(json.dumps({"facade": True}), encoding="utf-8")
+    _with_specs(build, ["gs_empty_rowhome_a"])
+    rows = {r["id"]: r for r in bl.empty_rows(build)}
+    assert rows["gs_empty_rowhome_a"]["spec"] == str(tmp_path / "specs" / "gs_empty_rowhome_a.json")
+    assert rows["gs_empty_rowhome_b"]["spec"] == ""
+
+
+def test_the_composed_roots_drawings_stay_out_with_its_scene(tmp_path):
+    """0.232.1: cold run 9377's package carried the mission shell's drawings at its root, a building its varied lot
+    does not stand. Where the root's scene pair stays out, its `drawings/` does too; a lot building's drawings, and
+    every root file where the root ships, are left alone."""
+    from packages.exporting import export as ex
+    root = tmp_path / "presentation"
+    (root / "drawings").mkdir(parents=True)
+    (root / "lot" / "office" / "drawings").mkdir(parents=True)
+    for rel in ("site.tscn", "site_base.glb", "zoo_worldskin.gd", "drawings/axonometric.svg",
+                "drawings/axonometric.svg.import", "drawings/drawings.json", "lot/office/drawings/axonometric.svg"):
+        (root / rel).write_text("x", encoding="utf-8")
+    assert ex._root_left_out(root, False) == {"site.tscn", "site_base.glb", "drawings/axonometric.svg",
+                                              "drawings/axonometric.svg.import", "drawings/drawings.json"}
+    assert ex._root_left_out(root, True) == set()

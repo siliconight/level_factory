@@ -480,6 +480,27 @@ def _standing_lot_ids(themed_site_dir):
 #: at the root. The copies under `lot/<id>/` are named by nothing.
 _COMPOSED_ROOT_PAIR = frozenset({"site.tscn", "site_base.glb"})
 
+#: THE COMPOSER'S ROOT DRAWINGS (0.232.1, the factory's roadmap 296): Deli
+#: Counter 0.257.0 draws the composed root's building -- the mission's own
+#: shell -- into `drawings/` beside it. Where the root pair stays out (a varied
+#: lot, whose assembly stands the lot and not the shell), those drawings are of
+#: a building nothing stands, and they stay out with it. Cold run 9377's package
+#: carried the shell's nine files at its root beside an index of three buildings.
+_COMPOSED_ROOT_DRAWINGS = "drawings"
+
+
+def _root_left_out(composed_root, keep_root) -> set:
+    """The composed root's own files a package leaves out (`_copy_tree`'s
+    `skip_rel`): none where its scene ships (`keep_root`), else the root pair
+    and every file of the root's `drawings/` -- never a building's under
+    `lot/<id>/`."""
+    if keep_root:
+        return set()
+    d = Path(composed_root) / _COMPOSED_ROOT_DRAWINGS
+    drawn = ({p.relative_to(composed_root).as_posix() for p in d.rglob("*") if p.is_file()}
+             if d.is_dir() else set())
+    return set(_COMPOSED_ROOT_PAIR) | drawn
+
 
 def _assembly_building_dir(themed_site_dir, composed_root) -> str:
     """``"lot/<id>"`` when the composed root belongs under it, else ``""``.
@@ -2169,8 +2190,7 @@ def export_mission(
                          "portable_resource_manifest.json",
                          "compose.summary.json",
                          "site_main.tscn"},
-                   skip_rel=(set() if (wanted or building_rel)
-                             else set(_COMPOSED_ROOT_PAIR)),
+                   skip_rel=_root_left_out(composed_root, wanted or building_rel),
                    skip_dirs={".godot", "addons"},
                    skip_lot=set(idle))
 
