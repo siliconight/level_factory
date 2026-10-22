@@ -44,10 +44,11 @@ def _package(tmp_path: Path, *, office_drawn=True) -> Path:
     d.mkdir()
     for f in ("axonometric.svg", "scout.svg", "floorB1.svg", "floor0.svg"):
         (d / f).write_text("<svg/>", encoding="utf-8")
+    (d / "scout.glb").write_bytes(b"glTF")
     # deli_a03 composed by Deli Counter 0.258.0, with a scout view; office (below) by 0.257.0, without
     (d / "drawings.json").write_text(json.dumps({
         "schema": "deli_counter.drawings.v1", "spec": "deli_a03", "axonometric": "axonometric.svg",
-        "scout": "scout.svg",
+        "scout": "scout.svg", "scout_model": "scout.glb",
         "plans": [{"storey": -1, "file": "floorB1.svg"}, {"storey": 0, "file": "floor0.svg"}]}), encoding="utf-8")
     if office_drawn:
         d = root / "lot" / "office" / "drawings"
@@ -117,3 +118,17 @@ def test_the_scout_view_is_named_where_a_package_carries_one(tmp_path):
     (root / "lot" / "deli_a03" / "drawings" / "scout.svg").unlink()
     issues = [i for i in scan_closure(root).issues if i.startswith(BI.INDEX_NAME)]
     assert issues == ["%s: unresolved res://lot/deli_a03/drawings/scout.svg" % BI.INDEX_NAME], issues
+
+
+def test_the_scout_model_is_named_where_a_package_carries_one(tmp_path):
+    """0.234.0, the factory's roadmap 295: a building whose package carries Deli Counter 0.259.0's scout model is named
+    with it, res://; one composed before has none and says null; a facade has none; and the closure verdict proves the
+    path -- take the model away and it names the index's reference to it."""
+    root = _package(tmp_path)
+    by_node = {e["node"]: e for e in BI.write(root)["buildings"]}
+    assert by_node["b0"]["scout_model"] == "res://lot/deli_a03/drawings/scout.glb"
+    assert by_node["b1"]["scout_model"] is None and by_node["blocker_0"]["scout_model"] is None
+    assert not [i for i in scan_closure(root).issues if i.startswith(BI.INDEX_NAME)]
+    (root / "lot" / "deli_a03" / "drawings" / "scout.glb").unlink()
+    issues = [i for i in scan_closure(root).issues if i.startswith(BI.INDEX_NAME)]
+    assert issues == ["%s: unresolved res://lot/deli_a03/drawings/scout.glb" % BI.INDEX_NAME], issues

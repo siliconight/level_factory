@@ -1,3 +1,20 @@
+## [0.234.0] - a level's index names each building's scout model
+
+**The factory's roadmap 295.** The walker wants the scout view as something players turn all the way round -- "They
+can scout out the buildings and rotate the schemas in a 360 degree way" -- and Deli Counter 0.259.0 builds it into
+each building's package as `drawings/scout.glb`: one mesh a storey, one material, kept as the file it is, so a game
+loads it with `GLTFDocument` when its screen opens.
+
+### Added
+- **`buildings.json` names it**: each entry carries `scout_model`, the model's `res://` path where its package has
+  one, null where it has none (a facade, or a package composed before Deli Counter 0.259.0). The closure verdict
+  resolves it as it does the drawings.
+
+### Tests
+- `test_buildings_index.py`: a building composed with a scout model is named with it, one composed before has null, a
+  facade null, and the closure verdict names the index's reference when the model is taken away. On 0.233.0 it fails
+  on the new name (`KeyError: 'scout_model'`).
+
 ## [0.233.0] - a level's index names each building's scout view
 
 **The factory's roadmap 296.** The walker judged the exploded axonometric too busy to scout from on two of three

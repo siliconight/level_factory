@@ -14,6 +14,11 @@ signals needed" -- and Deli Counter 0.258.0 draws each building a second way, wi
 by, as `drawings/scout.svg`. Each entry names it under `scout`; a package composed before 0.258.0 has none, and the
 entry says null there rather than guessing a path.
 
+THE SCOUT MODEL (0.234.0). The walker wants the scout view as something players turn all the way round -- "They
+can scout out the buildings and rotate the schemas in a 360 degree way" (roadmap 295) -- and Deli Counter 0.259.0
+builds it, `drawings/scout.glb`, one mesh a storey, kept as the file it is so a game loads it with `GLTFDocument`
+when its screen opens. Each entry names it under `scout_model`, null where a package has none.
+
 THE PATHS ARE res:// ON PURPOSE. The export's closure scan resolves every `res://` a package's JSON names
 (`closure.scan_closure`), so an index naming a drawing the package does not carry fails the package's own verdict.
 """
@@ -52,7 +57,7 @@ def build(package_dir) -> dict | None:
         entry = {"node": name, "id": lot_id, "kind": "empty" if name.startswith("blocker_") else "building",
                  # the Transform3D's last three numbers are its origin, however its basis is written
                  "at": [round(v, 3) for v in nums[9:12]] if len(nums) == 12 else None,
-                 "spec": None, "axonometric": None, "scout": None, "plans": []}
+                 "spec": None, "axonometric": None, "scout": None, "scout_model": None, "plans": []}
         rec_path = root / "lot" / lot_id / "drawings" / "drawings.json"
         if rec_path.is_file():
             rec = json.loads(rec_path.read_text(encoding="utf-8"))
@@ -62,6 +67,8 @@ def build(package_dir) -> dict | None:
                 entry["axonometric"] = base + rec["axonometric"]
             if rec.get("scout"):
                 entry["scout"] = base + rec["scout"]
+            if rec.get("scout_model"):
+                entry["scout_model"] = base + rec["scout_model"]
             entry["plans"] = [{"storey": p["storey"], "file": base + p["file"]} for p in rec.get("plans") or []]
             if rec.get("none_because"):
                 entry["none_because"] = rec["none_because"]
