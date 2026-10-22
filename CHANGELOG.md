@@ -1,3 +1,46 @@
+## [0.232.0] - a level's package names the buildings it stands, and carries their drawings
+
+**The factory's roadmap 296.** The walker, of Deli Counter's exploded axonometric (roadmap 293), asked where it is
+seen: "both" -- a review page and a level's export -- "It could even get into the game where the players can 'scope
+out' the level and see the buildings the level assembles". Deli Counter 0.257.0 draws a building into its package's
+`drawings/` when the compose names the spec it was built from; nothing here named it, and which buildings a level
+stands, and where, was written only into its assembly scene, as instances.
+
+### Added
+- **`building_library.index` reports each row's `spec`**: `specs/<id>.json` beside the build dir, where Deli Counter
+  has one -- it names a build by its spec's file stem. Reported, never used to exclude, like `lights` and `navgate`:
+  the lot a seed draws is the lot it drew.
+- **The compose names it.** The presentation adapter passes `--spec` for each building of the lot, and for the
+  mission's own shell the spec the Deli Counter job writes (`shell_spec`, `lf_<mission>_<seed>`). The driver passes it
+  on to `build_package` only where it can be answered -- a spec that is a file, and a composer that takes one
+  (`_drawing_kwargs`) -- and says why when not: a drawing is never worth a compose.
+- **`buildings.json` at a package's root** (`packages/exporting/buildings_index.py`): every instance the assembly
+  scene stands -- a building `b<n>` or an Empty `blocker_<n>` -- with its package id, the spec it was drawn from, its
+  axonometric and plans as `res://` paths or why it has none, and where it stands (the instance's origin in
+  `site.tscn`, Godot metres, Y up). Written after every step that writes a scene and before the closure verdict, which
+  resolves every `res://` a package's JSON names: an index naming a drawing the package does not carry fails the
+  package's own verdict. The game builds the screen; this is what it reads.
+
+### Tests
+- **test_buildings_index.py**, new, four: every standing instance named, with where it stands and its drawings; a
+  package with none says so; a package with no assembly scene gets no index; the closure verdict proves every drawing
+  the index names (one taken away, the verdict names the index's reference to it). On 0.231.0 the file cannot be
+  collected: the module is new.
+- **test_compose_draws_its_buildings.py**, new, four: a library row names its spec where Deli Counter has one; the lot
+  is the same lot with or without specs; each building's compose names its own spec and the shell its own; the driver
+  asks for drawings only where they can be answered. On 0.231.0 three fail -- a row has no `spec`, a compose names
+  none, the driver has no `_drawing_kwargs` -- and the same-lot test passes, as it must on both (the factory's
+  `patches/lf_drawings/prove_tests_on_0231.out.txt`).
+- **And three cases more, unwritten**: `test_sibling_locator`'s rule that nothing reaches above this repo by counting
+  parents, parametrized over every source file, asked of the three new files. In clones against a fresh 0.231.0, each
+  with the factory's Laser Tag, Lot and Deli Counter named: the same 15 failures on both sides, each needing the
+  factory tree beside the clone, and no other; 2,564 passed against 2,553, the eleven named (the factory's
+  `patches/lf_drawings/suite_clone_vs_base.out.txt`, `passed_diff.out.txt`).
+
+### Left
+- (the factory's roadmap 296) a walker-review page built from a cold run's package; the in-game screen, which is the
+  game's.
+
 ## [0.231.0] - the enemy sights from the contract's body too
 
 **The factory's roadmap 292.** `adapters/laser_tag` writes the contract's body into every run's scenario (roadmap

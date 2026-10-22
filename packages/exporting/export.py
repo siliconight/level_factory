@@ -2693,6 +2693,17 @@ def export_mission(
           % (pins["shared_sidecars"], pins["shared_sidecars"],
              pins["shared_repinned"], pins["sign_repinned"], pins["skin_repinned"]))
 
+    # 4.89 THE BUILDINGS INDEX (0.232.0, the factory's roadmap 296): which
+    # buildings the level stands, where, and the drawings each package carries
+    # (`buildings_index`), read off the shipped assembly scene and the packages'
+    # own records after every step that writes a scene. Before the verdict on
+    # purpose: it names each drawing res://, so the closure scan proves every
+    # drawing it names is in the package.
+    from packages.exporting import buildings_index
+    bidx = buildings_index.write(export_dir)
+    if bidx is not None:
+        print("[export] buildings index: %s" % buildings_index.summary(bidx))
+
     # 4.9 Resource-closure VERDICT -- see `_closure_verdict`. LAST, after
     # every step that writes into the package and before the manifests, which
     # describe it and so cannot be in it.

@@ -158,7 +158,7 @@ def index(build_dir) -> tuple[list[dict], list[dict], list[dict]]:
     """``(complete, incomplete, non_source)`` found in a Deli Counter build dir.
 
     ``complete`` entries are ``{"id", "family", "glb", "gameplay", "slots",
-    "lights", "navgate"}``, sorted by id so a listing order cannot change what
+    "lights", "navgate", "spec"}``, sorted by id so a listing order cannot change what
     a seed selects. ``incomplete`` entries say what each one is missing, because a
     silently shorter library is how a lot quietly stops being varied.
     ``non_source`` entries are ``{"id", "reason"}`` — files in this directory
@@ -212,6 +212,7 @@ def index(build_dir) -> tuple[list[dict], list[dict], list[dict]]:
             continue
         lights = root / (aid + ".lights.json")
         navgate = root / (aid + ".navgate.json")
+        spec = root.parent / "specs" / (aid + ".json")
         complete.append({
             "id": aid, "family": family(aid),
             "glb": str(parts[".glb"]),
@@ -222,6 +223,12 @@ def index(build_dir) -> tuple[list[dict], list[dict], list[dict]]:
             # `nav_gate` writes it and `themed_fitness` reads it; adding it to
             # REQUIRED would reshuffle every draw already graded.
             "navgate": str(navgate) if navgate.is_file() else "",
+            # THE SPEC IT WAS BUILT FROM (0.232.0, the factory's roadmap 296):
+            # Deli Counter names a build by its spec's file stem, so the spec is
+            # `specs/<id>.json` beside the build dir. The compose hands it on and
+            # Deli Counter 0.257.0 draws the building into its package. Reported,
+            # never used to EXCLUDE -- same rule as `lights`.
+            "spec": str(spec) if spec.is_file() else "",
         })
     return complete, incomplete, non_source
 

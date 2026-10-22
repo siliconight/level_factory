@@ -377,7 +377,8 @@ class PresentationAdapter(BaseAdapter):
         # the failure the comment above that loop names. A layer that is not
         # visible at the call site is a layer nobody notices is shared.
         def compose(*, slots, gameplay, greybox, out, bid, scene_rel,
-                    dressing, fixtures, roofprops, modules, parallel=False):
+                    dressing, fixtures, roofprops, modules, parallel=False,
+                    spec=None):
             args = [
                 str(_driver_path()),
                 "--deli-repo", deli_repo,
@@ -405,6 +406,10 @@ class PresentationAdapter(BaseAdapter):
                 args += ["--fixtures", str(fixtures)]
             if roofprops:
                 args += ["--roofprops", str(roofprops)]
+            # the spec the building was built from, so its package carries its
+            # drawings (0.232.0, roadmap 296; Deli Counter 0.257.0 draws them)
+            if spec:
+                args += ["--spec", str(spec)]
             return PlannedCommand(
                 executable=Path(str(py)), arguments=tuple(args),
                 working_directory=cwd, expected_outputs=(scene_rel,),
@@ -443,6 +448,7 @@ class PresentationAdapter(BaseAdapter):
             dressing=dressing.get(""), fixtures=fixtures.get(""),
             roofprops=roofprops.get(""),
             modules=modules.get(""),
+            spec=job_spec.get("shell_spec") or None,
         )]
 
         # ONE COMPOSE PER ARCHETYPE. Each building is dressed AS ITSELF: its
@@ -469,6 +475,8 @@ class PresentationAdapter(BaseAdapter):
                 fixtures=fixtures.get(str(a["id"])),
                 roofprops=roofprops.get(str(a["id"])),
                 modules=modules.get(str(a["id"])),
+                # ...and the spec it was built from, for its drawings (0.232.0)
+                spec=a.get("spec") or None,
                 # SIDE BY SIDE (0.186.0): each building clears and writes only
                 # its own folder under the lot's. The mission shell's compose
                 # above is not parallel: Deli Counter's `build_package` clears

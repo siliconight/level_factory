@@ -1206,6 +1206,15 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                 # own output instead. See docs/VARIED_THEMED_LOT.md.
                 "lot_archetypes": _lot_rows(job.candidate_id),
                 "deli_repo": str(repos.get("deli_counter", "")),
+                # THE SHELL'S SPEC (0.232.0, the factory's roadmap 296): the Deli
+                # Counter job writes it into its repo's specs/ as `lf_<mission>`
+                # and the candidate's seed (`level_name` above,
+                # `DeliCounterAdapter._level_name`), so the mission's own building
+                # can be drawn into its package too.
+                "shell_spec": (str(Path(str(repos["deli_counter"])) / "specs" / (
+                    "lf_%s_%d.json" % (model.mission_id,
+                                       int(job.candidate_id.rsplit("_", 1)[-1]))))
+                               if repos.get("deli_counter") else ""),
                 "slots_path": str(_latest_output(deli_out, "shell.slots.json")),
                 "gameplay_path": str(_latest_output(deli_out, "shell.gameplay.json")),
                 "greybox_glb": str(_latest_output(deli_out, "shell.glb")),

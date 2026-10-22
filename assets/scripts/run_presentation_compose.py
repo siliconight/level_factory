@@ -184,6 +184,22 @@ def zfight_gate(z: dict) -> tuple[str, str | None]:
     return line, warn
 
 
+def _drawing_kwargs(build_package, spec):
+    """``({"spec_path": spec}, "")`` when a spec is named, is a file, and this Deli
+    Counter's composer takes one (0.257.0 and later); ``({}, why)`` otherwise
+    (0.232.0, the factory's roadmap 296). A DRAWING IS NEVER WORTH A COMPOSE: an
+    older composer asked for one raises, and a spec that is not there would fail
+    in Deli Counter's loader, so neither is asked -- and the log says which."""
+    import inspect
+    if not spec:
+        return {}, ""
+    if not Path(spec).is_file():
+        return {}, "no spec at %s" % spec
+    if "spec_path" not in inspect.signature(build_package).parameters:
+        return {}, "this Deli Counter's build_package takes no spec_path (it draws from 0.257.0)"
+    return {"spec_path": spec}, ""
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--deli-repo", required=True,
@@ -203,6 +219,8 @@ def main() -> int:
                     help="zoo fixtures GLB (light fixtures + LuxEmit markers)")
     ap.add_argument("--roofprops", default="",
                     help="zoo roof props GLB (rooftop units) to bundle + instance")
+    ap.add_argument("--spec", default="",
+                    help="the DC spec the building was built from -> its drawings in the package")
     ap.add_argument("--out", required=True, help="output dir for the composed scene")
     a = ap.parse_args()
 
@@ -265,6 +283,12 @@ def main() -> int:
         layer_kwargs["fixtures_glb"] = a.fixtures
     if a.roofprops:
         layer_kwargs["roofprops_glb"] = a.roofprops
+    # THE DRAWINGS (0.232.0, the factory's roadmap 296) -- asked only where they
+    # can be answered: `_drawing_kwargs` says why when they are not.
+    drawing_kwargs, why_not = _drawing_kwargs(portable_building.build_package, a.spec)
+    layer_kwargs.update(drawing_kwargs)
+    if why_not:
+        print("[compose] drawings: none -- %s" % why_not, file=sys.stderr)
     try:
         man = portable_building.build_package(
             a.slots, (a.gameplay or None), a.modules, a.out,
