@@ -1,3 +1,31 @@
+## [0.235.0] - every package carries the scout window, and the gameplay layer calls it
+
+**The factory's roadmap 295.** The walker: "Goal is we have the ability to open up a 'window' at runtime that shows
+the various buildings and their 3d schematics", in "the style of a 1990s palm pilot...but with a little more
+backlight and color" -- "we will have the asset for the palm pilot, so just make sure the window can be called by
+something on the gameplay layer (seam is clear and visible)".
+
+### Added
+- **`scout/scout_window.gd`, class `LFScoutWindow`, in every package** (`packages/exporting/scout_window.py`, export
+  step 4.891, after the buildings index it reads and before the closure verdict): the handheld's SCREEN -- a backlit
+  LCD with its pixel grid, an inverse title bar, the level's buildings listed, the selected one turning as its 3D
+  schematic with its storeys lifted apart and the score and the props of interest lit (the score pulsing), a legend
+  of what lights up. Its seam is the whole of what a caller needs: `open(as_overlay)`, `close()`, `is_open()`,
+  `buildings()`, `select(id)`, `get_screen_texture()` for the game's handheld, `set_points(id, points)` for the
+  gameplay layer's own score, `turn(degrees)`, `set_spread(t)`; signals `opened`, `closed`,
+  `building_selected(id)`; its own input while open, off with `handle_input = false`. It reads `buildings.json` and
+  each building's `drawings/scout.glb` with `GLTFDocument` when it opens, and costs nothing closed: no nodes, no
+  drawing. `scout/README.md` beside it states the seam. A package with no `buildings.json` ships no window and says
+  why.
+- **The walk copy calls it on F6** (`assets/godot/debug_overlay.gd`, debug builds only): open as an overlay, mouse
+  freed; again to close -- the stand-in for the gameplay layer, the same calls.
+
+### Tests
+- `test_scout_window.py`: the window ships once the index is there and says why not without it, its files the
+  assets' bytes; every call the README shows is a function of the script and every signal it names declared, the
+  class named; the walk copy's overlay calls it on F6, debug builds only. On 0.234.1 the file fails to collect (no
+  `scout_window` module).
+
 ## [0.234.1] - a model its sidecar keeps is not waited for
 
 **Cold run 9380 stopped at the export.** Deli Counter 0.259.0 ships each building's scout model as

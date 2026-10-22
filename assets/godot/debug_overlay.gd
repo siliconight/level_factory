@@ -340,6 +340,8 @@ func _input(event: InputEvent) -> void:
 		if key.keycode == KEY_F3 and _label != null:
 			_shown = not _shown
 			_label.get_parent().visible = _shown
+		elif key.keycode == KEY_F6:
+			_toggle_scout()
 		elif key.keycode == KEY_F4 and _perf != null:
 			_perf_shown = not _perf_shown
 			_perf.get_parent().visible = _perf_shown
@@ -350,6 +352,30 @@ func _input(event: InputEvent) -> void:
 			# would be reported as if they were now.
 			_set_measuring(_perf_shown)
 			_reset_window()
+
+
+# F6: THE SCOUT WINDOW (Level Factory 0.235.0), called the way the gameplay layer will call it -- these lines are
+# the whole of a caller, and the stand-in for one until the game has its handheld. The package's `scout/README.md`
+# states the seam.
+var _scout: Node
+
+
+func _toggle_scout() -> void:
+	if not ResourceLoader.exists("res://scout/scout_window.gd"):
+		return
+	if _scout == null:
+		_scout = (load("res://scout/scout_window.gd") as GDScript).new()
+		add_child(_scout)
+	if _scout.call("is_open"):
+		_scout.call("close")
+		Input.mouse_mode = _scout_mouse
+	else:
+		_scout_mouse = Input.mouse_mode
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		_scout.call("open", true)
+
+
+var _scout_mouse: int = Input.MOUSE_MODE_VISIBLE
 
 
 func _set_measuring(on: bool) -> void:

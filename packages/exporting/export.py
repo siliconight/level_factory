@@ -2726,6 +2726,18 @@ def export_mission(
     if bidx is not None:
         print("[export] buildings index: %s" % buildings_index.summary(bidx))
 
+    # 4.891 THE SCOUT WINDOW (0.235.0, the factory's roadmap 295): the screen a
+    # player scouts the level's buildings on, for the gameplay layer to call --
+    # `scout/scout_window.gd` and the README stating its seam. After the index,
+    # which it reads; before the verdict, so the closure scan reads it too.
+    from packages.exporting import scout_window
+    scout = scout_window.install(export_dir)
+    if scout["installed"]:
+        print("[export] scout window: %s, %d building(s) with a schematic"
+              % (", ".join("res://" + f for f in scout["installed"]), scout["models"]))
+    else:
+        print("[export] scout window: not shipped -- %s" % scout["why_not"])
+
     # 4.9 Resource-closure VERDICT -- see `_closure_verdict`. LAST, after
     # every step that writes into the package and before the manifests, which
     # describe it and so cannot be in it.
