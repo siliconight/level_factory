@@ -133,7 +133,9 @@ def test_with_the_meshes_extracted_the_scene_is_a_multimesh_a_module_a_side(tmp_
     assert report["meshes"] == 9 and report["draw_calls"] == 9
     assert report["by_side"] == {"N": 3, "S": 3, "E": 3, "W": 3} and report["towers"] == 1
     text = (export_dir / "site_backdrop.tscn").read_text(encoding="utf-8")
-    assert text.count("MultiMeshInstance3D") == 9
+    # the nine modules' nodes, and the ground's own (0.237.0: a MultiMesh of its strips)
+    assert text.count("MultiMeshInstance3D") == 10
+    assert text.count('[node name="BackdropGround" type="MultiMeshInstance3D"') == 1
     assert sorted(p.name for p in (export_dir / "backdrop").iterdir()) == [f"{s}.res" for s in sorted(STEMS)]
     # the four sides of a module share one extracted mesh
     paths = {a: p for a, p in report["mesh_paths"].items() if STEMS[0] in a}

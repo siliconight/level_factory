@@ -1,3 +1,40 @@
+## [0.237.0] - the backdrop's ground is a frame round the plate, never a lid on a basement
+
+**The walker's walk of cold run 9383** (the factory's `docs/findings/walk_2026-10-23_deli/`, finding 1), of the stair
+opening onto deli_a03's basement: "this shouldn't look pitch black". 0.211.0 laid one dark unshaded plane under the
+whole backdrop at `GROUND_Y` (-0.10), "so the plate covers it wherever both stand". The plate does; a building's ground
+slab does not, where it has a hole -- a stair, a ladder, a broken floor -- down into a basement: there the plane, a
+tenth of a metre down inside the slab, showed as a black lid at floor level. Measured on cold run 9384's walk copy:
+the ground floor's ladder hole read luma 0 through its rim with a lamp lit beside it below, black even under the
+inspection light; with this plane alone hidden, the ladder and the lit basement floor. Every level since 0.211.0 with
+a basement under an opening had it.
+
+### Fixed
+- **`with_ground(text, orders, keep_out=)`** lays the ground round `keep_out`, never across it: `ground_strips`, the
+  four strips of the old extent outside it -- south and north the full width, west and east between -- each a unit
+  quad scaled into place in ONE MultiMesh, so still one draw. The extent reaches `GROUND_MARGIN` past `keep_out` too
+  when the plate is wider than the pieces. The report carries `keep_out` and `strips`.
+- **`plate_bound(drawn)`**: the declared plate (`ground.size_x`/`size_y`, at `ground.at` or centred on the origin)
+  and every building's footprint, quarter-turns swapping its axes and any other turn bounded by its box, as Lot's
+  `site_extent.rotated_footprint` turns them. Lot grows its plate to cover both and never shrinks it, so the frame's
+  inner edge is always under the plate. `ship_backdrop` passes it.
+- Priced on cold run 9384's walk copy with the frame laid from its own drawn spec against the plate as shipped, the
+  same eleven stations, one session, with the shipped package shot twice for a control: over the east and south
+  fences, at the overview, the elevations, the street stations, p50 and mean identical on every arm; GPU time moves
+  inside what the unchanged package moves between two shots (the control: elev_W -1.71 ms, ladder4 -0.46, elev_N
+  +0.39), so no cost is measurable, and the ground is one object either way. The ladder hole's frame mean 45.3 to
+  51.9, the ladder and the lit basement floor where there was black (the factory's `patches/lf_backdrop_frame/`).
+
+### Tests
+- `tests/unit/test_backdrop_ground.py`: THE TEST THAT MATTERS -- no strip stands under the plate or any building,
+  deli_a03's ground-floor ladder hole among them, and together the strips are all the ground there was less the
+  plate; `plate_bound` reads the plate and turns a building as Lot does; the ground reaches past a plate wider than
+  its pieces; without a plate it is one quad over the old extent; the scene's three resources and its
+  MultiMeshInstance3D; the package passes `plate_bound`. On 0.236.1 six of the seven fail; the seventh, that the
+  ground takes no light, holds on both.
+- `tests/unit/test_backdrop_layer.py` counted every MultiMeshInstance3D in the scene as a module's: nine. The ground's
+  is the tenth, and the test names it. The first apply of this change ran the suite into exactly that one failure.
+
 ## [0.236.1] - a building is clicked in the scout window's list
 
 **The factory's roadmap 295.** The walker: "(also clicking on the buttons in the screen should change the

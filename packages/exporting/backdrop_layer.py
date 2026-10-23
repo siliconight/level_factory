@@ -28,6 +28,16 @@ THE GROUND UNDER IT (0.211.0). One dark plane under the whole backdrop, `GROUND_
 `GROUND_Y` under the plate, which covers it wherever both stand: without it the pieces stood on nothing, and
 the walker at urban_row_001's east fence saw "the bottom of the level just disappears". One draw.
 
+A FRAME AROUND THE PLATE, NEVER A PLANE UNDER IT (0.237.0). "The plate covers it wherever both stand" held for the
+plate and not for what stands on it: a building's ground slab has holes -- a stair, a ladder, a broken floor -- down
+into its basement, and through every one of them the plane, a tenth of a metre down inside the slab, showed as an
+unlit black lid at floor level. The walker, walking cold run 9383, of the stair opening onto deli_a03's basement:
+"this shouldn't look pitch black"; measured, the ground floor's ladder hole read luma 0 through its rim with a lamp
+beside it below, and showed the ladder and the lit floor the moment this plane alone was hidden (the factory's
+`docs/findings/walk_2026-10-23_deli/`). Since 0.211.0 every level with a basement under an opening had it. The
+ground is now four strips round `plate_bound` -- the declared plate and every building's footprint, which Lot's plate
+always covers -- one MultiMesh of one quad, so still one draw, and nothing it lays stands under a building.
+
 WHAT IS NOT HERE. No collision (every order says so, and `dressing_scene.check_manifest`
 refuses otherwise), no navmesh, no lightmap: a backdrop is seen and never reached. The kit
 build that made the modules is the site kit Lot's `cover_modules` names, so a package whose
@@ -59,6 +69,8 @@ SIDES = ("N", "S", "E", "W")
 #: level, and on cold run 9308's package it cost +1 to +7 draws a heading and +7.20 ms on the p95 at the
 #: heaviest heading; unshaded, +1 draw everywhere and at most +0.52 ms. The lamps' pools past the fence
 #: are what the shaded one bought (`docs/findings/walk_2026-10-14/ground_frames/`).
+#: A FRAME (0.237.0): `with_ground` lays it round `plate_bound`, never across it, so `GROUND_Y` sits under the
+#: plate's edge only -- inside a building's slab it lidded every opening into a basement.
 GROUND_Y = -0.10
 GROUND_MARGIN = 30.0
 GROUND_RGB = (0.045, 0.045, 0.05)
@@ -123,33 +135,93 @@ def pieces_by_side(orders) -> dict:
             for s in SIDES}
 
 
-def with_ground(text: str, orders) -> tuple:
-    """The backdrop scene with one ground plane under it, and what was laid (`None` with no orders).
+def plate_bound(drawn) -> tuple | None:
+    """``(x0, y0, x1, y1)`` in the spec's metres that the backdrop's ground must stay out of: the declared plate
+    (`ground.size_x`/`size_y`, at `ground.at` or centred on the origin) and every building's footprint, rotated the
+    way Lot's `site_extent.rotated_footprint` rotates it. Lot grows the plate to cover both and never shrinks it, so
+    this rect is always under the plate; `None` when the spec says neither."""
+    rects = []
+    g = drawn.get("ground") or {}
+    try:
+        sx, sy = float(g["size_x"]), float(g["size_y"])
+        ax, ay = (float(v) for v in (g.get("at") or (0.0, 0.0))[:2])
+        if sx > 0 and sy > 0:
+            rects.append((ax - sx / 2.0, ay - sy / 2.0, ax + sx / 2.0, ay + sy / 2.0))
+    except (KeyError, TypeError, ValueError):
+        pass
+    for b in drawn.get("buildings") or []:
+        fp, at = b.get("_footprint") or b.get("footprint"), b.get("at")
+        if not fp or not at:
+            continue
+        fx, fy = float(fp[0]), float(fp[1])
+        rot = (float(b.get("rot", 0) or 0) % 360 + 360) % 360
+        if rot % 180 == 90:
+            fx, fy = fy, fx
+        elif rot % 90 != 0:
+            th = math.radians(rot)
+            fx, fy = (abs(fx * math.cos(th)) + abs(fy * math.sin(th)),
+                      abs(fx * math.sin(th)) + abs(fy * math.cos(th)))
+        x, y = float(at[0]), float(at[1])
+        rects.append((x - fx / 2.0, y - fy / 2.0, x + fx / 2.0, y + fy / 2.0))
+    if not rects:
+        return None
+    return (min(r[0] for r in rects), min(r[1] for r in rects), max(r[2] for r in rects), max(r[3] for r in rects))
 
-    0.211.0, the walker at urban_row_001's east fence: "the bottom of the level just disappears". The plane spans
-    the pieces' extent and `GROUND_MARGIN` past it, at `GROUND_Y`, the spec's (x, y) Godot's (x, -z) as
-    `dressing_scene` maps it. Two resources and one node; `load_steps` counts the two."""
+
+def ground_strips(outer, keep_out) -> list:
+    """The rects of `outer` outside `keep_out`, as four strips -- south and north the full width, west and east
+    between them -- each of positive area; `outer` alone when there is nothing to keep out of."""
+    if keep_out is None:
+        return [outer]
+    ox0, oy0, ox1, oy1 = outer
+    kx0, ky0, kx1, ky1 = (max(ox0, keep_out[0]), max(oy0, keep_out[1]),
+                          min(ox1, keep_out[2]), min(oy1, keep_out[3]))
+    strips = [(ox0, oy0, ox1, ky0), (ox0, ky1, ox1, oy1), (ox0, ky0, kx0, ky1), (kx1, ky0, ox1, ky1)]
+    return [s for s in strips if s[2] - s[0] > 1e-6 and s[3] - s[1] > 1e-6]
+
+
+def with_ground(text: str, orders, keep_out=None) -> tuple:
+    """The backdrop scene with its ground under it, and what was laid (`None` with no orders).
+
+    0.211.0, the walker at urban_row_001's east fence: "the bottom of the level just disappears". The ground spans
+    the pieces' extent and `GROUND_MARGIN` past it -- and `keep_out`, when it reaches further -- at `GROUND_Y`, the
+    spec's (x, y) Godot's (x, -z) as `dressing_scene` maps it. 0.237.0: it is laid round `keep_out` (`plate_bound`),
+    never across it -- `ground_strips`, one quad scaled into each, one MultiMesh, one draw. Three resources and one
+    node; `load_steps` counts the three."""
     if not orders:
         return text, None
     xs = [float(o["pos"][0]) for o in orders]
     ys = [float(o["pos"][1]) for o in orders]
     x0, x1 = min(xs) - GROUND_MARGIN, max(xs) + GROUND_MARGIN
     y0, y1 = min(ys) - GROUND_MARGIN, max(ys) + GROUND_MARGIN
+    if keep_out is not None:
+        x0, y0 = min(x0, keep_out[0] - GROUND_MARGIN), min(y0, keep_out[1] - GROUND_MARGIN)
+        x1, y1 = max(x1, keep_out[2] + GROUND_MARGIN), max(y1, keep_out[3] + GROUND_MARGIN)
     w, d = round(x1 - x0, 3), round(y1 - y0, 3)
     cx, cy = round((x0 + x1) / 2.0, 3), round((y0 + y1) / 2.0, 3)
-    subs = ('[sub_resource type="PlaneMesh" id="BackdropGround_mesh"]\nsize = Vector2(%s, %s)\n\n'
+    strips = ground_strips((x0, y0, x1, y1), keep_out)
+    # a unit quad scaled into each strip: the basis rows (sx 0 0 | 0 1 0 | 0 0 sz), the origin its centre
+    buf = []
+    for sx0, sy0, sx1, sy1 in strips:
+        buf += [round(sx1 - sx0, 3), 0, 0, round((sx0 + sx1) / 2.0, 3), 0, 1, 0, GROUND_Y,
+                0, 0, round(sy1 - sy0, 3), round(-(sy0 + sy1) / 2.0, 3)]
+    subs = ('[sub_resource type="PlaneMesh" id="BackdropGround_mesh"]\nsize = Vector2(1, 1)\n\n'
             '[sub_resource type="StandardMaterial3D" id="BackdropGround_mat"]\n'
-            'albedo_color = Color(%s, %s, %s, 1)\nshading_mode = 0\nroughness = 1.0\n\n') % (w, d, *GROUND_RGB)
-    node = ('\n[node name="BackdropGround" type="MeshInstance3D" parent="."]\n'
-            'transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, %s, %s, %s)\n'
-            'mesh = SubResource("BackdropGround_mesh")\n'
+            'albedo_color = Color(%s, %s, %s, 1)\nshading_mode = 0\nroughness = 1.0\n\n'
+            '[sub_resource type="MultiMesh" id="BackdropGround_mm"]\ntransform_format = 1\ninstance_count = %d\n'
+            'mesh = SubResource("BackdropGround_mesh")\nbuffer = PackedFloat32Array(%s)\n\n'
+            ) % (*GROUND_RGB, len(strips), ", ".join(str(v) for v in buf))
+    node = ('\n[node name="BackdropGround" type="MultiMeshInstance3D" parent="."]\n'
+            'multimesh = SubResource("BackdropGround_mm")\n'
             'material_override = SubResource("BackdropGround_mat")\n'
-            'cast_shadow = 0\n') % (cx, GROUND_Y, -cy)
+            'cast_shadow = 0\n')
     first = text.index("\n[node ")
     text = text[:first + 1] + subs + text[first + 1:]
-    text = re.sub(r"load_steps=(\d+)", lambda m: "load_steps=%d" % (int(m.group(1)) + 2), text, count=1)
-    return text.rstrip("\n") + "\n" + node, {"size": [w, d], "y": GROUND_Y, "centre": [cx, cy],
-                                             "draw_calls": 1, "shaded": False}
+    text = re.sub(r"load_steps=(\d+)", lambda m: "load_steps=%d" % (int(m.group(1)) + 3), text, count=1)
+    return text.rstrip("\n") + "\n" + node, {
+        "size": [w, d], "y": GROUND_Y, "centre": [cx, cy], "draw_calls": 1, "shaded": False,
+        "keep_out": [round(v, 3) for v in keep_out] if keep_out is not None else None,
+        "strips": [[round(v, 3) for v in s] for s in strips]}
 
 
 def ship_backdrop(export_dir: Path, drawn_path, godot_executable, *,
@@ -227,7 +299,7 @@ def ship_backdrop(export_dir: Path, drawn_path, godot_executable, *,
         report["reasons"].append(f"dressing_scene refused: {exc}")
         return _done()
     scene_name = f"{site_id}_backdrop.tscn"
-    text, ground = with_ground(text, manifest["orders"])
+    text, ground = with_ground(text, manifest["orders"], keep_out=plate_bound(drawn))
     (export_dir / scene_name).write_text(text, encoding="utf-8", newline="\n")
     report.update(summarise(manifest, "multimesh"))
     report.update({
