@@ -1,3 +1,31 @@
+## [0.236.0] - the scout window focuses a floor, tilts, spins on, and turns itself
+
+**The factory's roadmap 295, the walker trying it in a walk copy:** "the up and down isn't working? also is there a
+way to prioritize the view to focus on where you are as you rotate it so there isn't corners that just stay covered
+as you rotate it?" -- and asked for vertical tilt, a turn that keeps spinning after the drag lets go, a slow automatic
+turn, and "scroll wheel should be the up down as well (floors)".
+
+### Fixed
+- **Up and down did nothing you could see**: the storeys started fully spread, so up was already at its end and each
+  step down moved them 1.5 m. And the walk copy's player polls the arrow keys for itself and recaptures the mouse on
+  any click, so it walked and grabbed the drag while the window had them: the F6 caller now holds the player while
+  the window is open and gives it back on the window's own `closed` -- cancel closes it too.
+
+### Added
+- **A floor in focus** (`focus(i)`, `focused()`): up and down -- and the scroll wheel, a notch a floor -- step it
+  through the building, the whole of it, then the top floor and each one below, and past the top the whole building
+  again. The floors above it step aside, hidden with their points; the ones below dim; the view centres on it and
+  frames it, so turning shows every side of it with nothing standing over it.
+- **Tilt** (`tilt(degrees)`): a drag up and down raises the view towards overhead or lowers it towards level,
+  12-80 degrees.
+- **A flick spins on**, dying away; **left alone** for 3 s it turns itself at 10 degrees a second (`auto_turn`).
+
+### Tests
+- `test_scout_window.py`: the seam carries `tilt`, `focus` and `focused`; up and down step the focus, not the spread;
+  the floors above are hidden and the ones below dimmed; a drag turns, tilts and leaves a spin; it turns itself when
+  left alone; the walk copy holds its player while the window is open. On 0.235.0 all three fail on behaviour, each
+  an assertion: the seam lacks `tilt`, the overlay holds nothing, up and down still move the spread.
+
 ## [0.235.0] - every package carries the scout window, and the gameplay layer calls it
 
 **The factory's roadmap 295.** The walker: "Goal is we have the ability to open up a 'window' at runtime that shows

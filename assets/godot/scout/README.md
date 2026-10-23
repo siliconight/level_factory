@@ -17,6 +17,9 @@ handheld_screen.texture = scout.get_screen_texture()       # show it on the game
 scout.buildings()                              # the ids it lists, as buildings.json names them
 scout.select("deli_a03")                       # show one
 scout.turn(45.0)                               # degrees
+scout.tilt(-10.0)                              # towards level (+ towards overhead), degrees
+scout.focus(1)                                 # one floor, by order from the lowest; -1 the whole building
+scout.focused()                                # which
 scout.set_spread(0.0)                          # 0 floors stacked as built .. 1 lifted apart
 scout.set_points("deli_a03", [                 # the gameplay layer's own points, instead of the model's
     {"label": "SCORE", "kind": "score", "at": Vector3(3.0, 3.6, 2.0), "storey": 1},
@@ -27,8 +30,11 @@ scout.is_open()                                # whether it is drawing
 
 Signals: `opened`, `closed`, `building_selected(id)`.
 
-While open it reads its own input -- left/right the building, up/down the floors, a mouse drag turns it, cancel
-closes it. Set `handle_input = false` to drive it from the game's own controls.
+While open it reads its own input -- left/right the building; up/down the floor in focus (the floors above it step
+aside, the ones below dim, the view centres on it; past the top, the whole building); a mouse drag turns and tilts
+it, a flick keeps it turning, the scroll wheel steps the floors as up/down do; left alone it turns itself slowly (`auto_turn`); cancel closes it. Set
+`handle_input = false` to drive it from the game's own controls. The caller holds its own player while it is open:
+the window takes its input events, not keys a player script polls.
 
 ## What it reads
 

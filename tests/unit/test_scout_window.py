@@ -15,7 +15,7 @@ from packages.exporting import scout_window as SW
 
 LF = Path(__file__).resolve().parents[2]
 SEAM = ("open", "close", "is_open", "buildings", "get_screen_texture", "select", "set_points", "turn",
-        "set_spread")
+        "set_spread", "tilt", "focus", "focused")
 SIGNALS = ("opened", "closed", "building_selected")
 
 
@@ -57,3 +57,19 @@ def test_the_walk_copy_calls_it_on_f6_debug_builds_only():
     ov = (LF / "assets" / "godot" / "debug_overlay.gd").read_text(encoding="utf-8")
     assert "KEY_F6" in ov and 'res://scout/scout_window.gd' in ov and '"open", true' in ov
     assert "OS.is_debug_build()" in ov
+    # 0.236.0: it holds the player while the window is open, and gives it back on the window's own close
+    assert "PROCESS_MODE_DISABLED" in ov and 'connect("closed"' in ov
+
+
+def test_up_and_down_focus_a_floor_and_a_drag_turns_and_tilts():
+    """0.236.0, the walker: "the up and down isn't working? also is there a way to prioritize the view to focus on
+    where you are as you rotate it so there isn't corners that just stay covered". Up and down step the focus through
+    the floors, the floors above it hidden and the ones below dimmed; a drag turns and tilts it and leaves a spin; it
+    turns itself when left alone."""
+    gd = (SW.SOURCE / "scout_window.gd").read_text(encoding="utf-8")
+    keys = gd[gd.index("func _unhandled_input"):]
+    assert 'is_action_pressed("ui_down")' in keys and 'is_action_pressed("ui_up")' in keys
+    assert "focus(" in keys[keys.index('"ui_down"'):] and "set_spread" not in keys
+    assert "mi.visible = _focus < 0 or k <= _focus" in gd and "_dim_mat if (_focus >= 0 and k < _focus)" in gd
+    assert "tilt(rel.y" in keys and "_spin = " in keys
+    assert "auto_turn and _idle > IDLE_S" in gd

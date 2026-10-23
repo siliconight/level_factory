@@ -366,16 +366,49 @@ func _toggle_scout() -> void:
 	if _scout == null:
 		_scout = (load("res://scout/scout_window.gd") as GDScript).new()
 		add_child(_scout)
+		# the window closes itself on cancel too: give the player back whichever way it closes
+		_scout.connect("closed", _scout_closed)
 	if _scout.call("is_open"):
 		_scout.call("close")
-		Input.mouse_mode = _scout_mouse
 	else:
 		_scout_mouse = Input.mouse_mode
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		_hold_player(true)
 		_scout.call("open", true)
 
 
+# THE PLAYER IS HELD WHILE IT IS OPEN (0.236.0). The walker, trying it: up and down did nothing -- the walk player
+# polls the arrow keys for itself, and recaptures the mouse on any click, so it walked and grabbed the drag while the
+# window had them. A gameplay layer holds its player while the handheld is up; so does this stand-in.
 var _scout_mouse: int = Input.MOUSE_MODE_VISIBLE
+var _held: Node
+
+
+func _hold_player(hold: bool) -> void:
+	if hold:
+		_held = _find_player(get_tree().current_scene)
+		if _held != null:
+			_held.process_mode = Node.PROCESS_MODE_DISABLED
+	elif _held != null and is_instance_valid(_held):
+		_held.process_mode = Node.PROCESS_MODE_INHERIT
+		_held = null
+
+
+func _find_player(n: Node) -> Node:
+	if n == null:
+		return null
+	if n is CharacterBody3D:
+		return n
+	for c in n.get_children():
+		var hit: Node = _find_player(c)
+		if hit != null:
+			return hit
+	return null
+
+
+func _scout_closed() -> void:
+	_hold_player(false)
+	Input.mouse_mode = _scout_mouse
 
 
 func _set_measuring(on: bool) -> void:

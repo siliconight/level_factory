@@ -19,9 +19,12 @@ class_name LFScoutWindow
 ##
 ##   signals: opened, closed, building_selected(id)
 ##
-## While open it takes its own input: left/right (ui_left/ui_right) the building, up/down (ui_up/ui_down) the floors
-## apart or together, a mouse drag turns it, ui_cancel closes it. A caller that wants its own controls turns that
-## off with `handle_input = false` and calls `select`, `turn` and `set_spread`.
+## While open it takes its own input: left/right (ui_left/ui_right) the building; up/down (ui_up/ui_down) the floor
+## it focuses -- the floors above it step aside, the ones below dim, the view centres on it, so no corner of it stays
+## covered as it turns (0.236.0) -- and past the top the whole building again; a mouse drag turns it and tilts it, a
+## flick keeps it turning, and left alone it turns itself slowly; ui_cancel closes it. A caller that wants its own
+## controls turns that off with `handle_input = false` and calls `select`, `focus`, `turn`, `tilt` and
+## `set_spread`.
 ##
 ## WHAT IT READS: the package's `buildings.json` (Level Factory 0.232.0 on) and each building's
 ## `drawings/scout.glb` (Deli Counter 0.259.0 on), loaded with GLTFDocument when the screen opens -- kept, never
@@ -40,6 +43,8 @@ signal building_selected(id: String)
 @export var screen_size: Vector2i = Vector2i(960, 640)
 ## Whether the window reads the keyboard and mouse itself while open.
 @export var handle_input: bool = true
+## Whether, left alone, it turns itself slowly.
+@export var auto_turn: bool = true
 
 const LCD := Color(0.56, 0.68, 0.53)
 const LCD_GLOW := Color(0.78, 0.95, 0.82)
@@ -50,6 +55,16 @@ const LEGEND := [["SCORE", Color(1.00, 0.22, 0.22)], ["SAFE / CAMERA", Color(0.8
 		["HOLE", Color(1.00, 0.40, 0.70)], ["WINDOW", Color(0.45, 0.85, 0.95)]]
 ## How far apart the storeys stand when spread, metres.
 const SPREAD_M := 6.0
+## The slow turn when it is left alone, degrees a second, and how long alone first, seconds.
+const AUTO_TURN_DPS := 10.0
+const IDLE_S := 3.0
+## How far the view tilts: from nearly overhead to nearly level, degrees above the horizon.
+const PITCH_MIN := 12.0
+const PITCH_MAX := 80.0
+## How quickly a flick's turn dies away, per second.
+const SPIN_DAMP := 2.5
+## How much a floor under the focused one is dimmed.
+const DIM := 0.4
 
 const SCREEN_SHADER := """
 shader_type canvas_item;
@@ -67,8 +82,9 @@ void fragment() {
 const BODY_SHADER := """
 shader_type spatial;
 uniform float pulse = 0.0;
+uniform float dim = 1.0;
 void fragment() {
-	ALBEDO = COLOR.rgb;
+	ALBEDO = COLOR.rgb * dim;
 	ROUGHNESS = 0.9;
 	float lit = (1.0 - COLOR.a) * 2.4 + pulse * (0.9 + 0.6 * sin(TIME * 4.0));
 	EMISSION = COLOR.rgb * lit;
@@ -90,10 +106,15 @@ var _list: VBoxContainer
 var _title: Label
 var _note: Label
 var _yaw: float = 35.0
+var _pitch: float = 36.0
+var _spin: float = 0.0            # degrees a second, what a flick left behind
+var _idle: float = 0.0            # seconds since the player last touched it
+var _focus: int = -1              # the floor in focus, by order from the lowest; -1 the whole building
 var _spread: float = 1.0
 var _radius: float = 10.0
 var _dragging: bool = false
 var _body_mat: ShaderMaterial
+var _dim_mat: ShaderMaterial
 var _point_mat: ShaderMaterial
 
 
@@ -165,6 +186,23 @@ func set_points(id: String, points: Array) -> void:
 func turn(degrees: float) -> void:
 	_yaw = fmod(_yaw + degrees, 360.0)
 	_aim()
+
+
+func tilt(degrees: float) -> void:
+	"""Raise the view towards overhead (positive) or lower it towards level, within PITCH_MIN..PITCH_MAX."""
+	_pitch = clampf(_pitch + degrees, PITCH_MIN, PITCH_MAX)
+	_aim()
+
+
+func focus(floor_index: int) -> void:
+	"""Focus one floor, by order from the lowest (0), -1 the whole building: the floors above it step aside, the
+	ones below dim, the view centres on it."""
+	_focus = clampi(floor_index, -1, _floors.size() - 1)
+	_place_floors()
+
+
+func focused() -> int:
+	return _focus
 
 
 func set_spread(t: float) -> void:
@@ -294,6 +332,8 @@ func _build() -> void:
 		chip.add_child(_label(" %s " % item[0], 11, item[1], false))
 		leg.add_child(chip)
 	_body_mat = _shader_mat(BODY_SHADER)
+	_dim_mat = _shader_mat(BODY_SHADER)
+	_dim_mat.set_shader_parameter("dim", DIM)
 	_point_mat = _shader_mat(BODY_SHADER)
 	_point_mat.set_shader_parameter("pulse", 1.0)
 	_overlay = CanvasLayer.new()
@@ -348,11 +388,11 @@ func _show() -> void:
 		if not is_points:
 			_floors.append({"node": mi, "y": mi.position.y})
 	_floors.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a["y"]) < float(b["y"]))
+	_focus = -1
 	if _points_override.has(id):
 		for p in _points_override[id]:
 			_add_override_point(p)
 	_place_floors()
-	_note.text = "%d FLOOR(S)  -  DRAG TO TURN  -  UP/DOWN FOR FLOORS" % _floors.size()
 
 
 func _add_override_point(p: Dictionary) -> void:
@@ -386,14 +426,24 @@ func _add_override_point(p: Dictionary) -> void:
 func _place_floors() -> void:
 	if _model == null or _floors.is_empty():
 		return
+	# FOCUS (0.236.0): the floors above the focused one step aside -- hidden, their points with them -- and the ones
+	# below dim, so turning shows every side of the focused floor with nothing standing over it; the view frames it
 	var box := AABB()
+	var first: bool = true
 	for k in range(_floors.size()):
 		var mi: MeshInstance3D = _floors[k]["node"]
 		mi.position.y = float(_floors[k]["y"]) + k * SPREAD_M * _spread
+		mi.visible = _focus < 0 or k <= _focus
+		mi.material_override = _dim_mat if (_focus >= 0 and k < _focus) else _body_mat
+		if _focus >= 0 and k != _focus:
+			continue
 		var b: AABB = mi.transform * mi.get_aabb()
-		box = b if k == 0 else box.merge(b)
+		box = b if first else box.merge(b)
+		first = false
 	_model.position = -box.get_center()
-	_radius = box.size.length() * 0.5
+	_radius = maxf(box.size.length() * 0.5, 4.0)
+	var where: String = "WHOLE BUILDING" if _focus < 0 else "FLOOR %d OF %d" % [_focus + 1, _floors.size()]
+	_note.text = "%s  -  DRAG TO TURN AND TILT  -  UP/DOWN: FLOOR" % where
 	_aim()
 
 
@@ -401,7 +451,7 @@ func _aim() -> void:
 	if _cam == null:
 		return
 	var r: float = deg_to_rad(_yaw)
-	var el: float = deg_to_rad(36.0)
+	var el: float = deg_to_rad(_pitch)
 	var d: float = _radius / sin(deg_to_rad(_cam.fov * 0.5))
 	_cam.position = Vector3(cos(r) * cos(el), sin(el), sin(r) * cos(el)) * d
 	_cam.look_at(Vector3.ZERO, Vector3.UP)
@@ -414,23 +464,53 @@ func _collect(n: Node, out: Array) -> void:
 		_collect(c, out)
 
 
+func _process(delta: float) -> void:
+	if not _open or _cam == null:
+		return
+	_idle += delta
+	if _dragging:
+		return
+	# a flick keeps turning and dies away; left alone, it turns itself slowly
+	if absf(_spin) > 0.5:
+		turn(_spin * delta)
+		_spin *= exp(-SPIN_DAMP * delta)
+	elif auto_turn and _idle > IDLE_S:
+		turn(AUTO_TURN_DPS * delta)
+
+
+func _wheel(event: InputEvent, button: MouseButton) -> bool:
+	"""One notch of the scroll wheel, the walker's: "scroll wheel should be the up down as well (floors)"."""
+	var b: InputEventMouseButton = event as InputEventMouseButton
+	return b != null and b.pressed and b.button_index == button
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if not _open or not handle_input or _entries.is_empty():
 		return
+	var n: int = _floors.size()
 	if event.is_action_pressed("ui_cancel"):
 		close()
 	elif event.is_action_pressed("ui_right"):
 		select(String(_entries[(_index + 1) % _entries.size()]["id"]))
 	elif event.is_action_pressed("ui_left"):
 		select(String(_entries[(_index - 1 + _entries.size()) % _entries.size()]["id"]))
-	elif event.is_action_pressed("ui_up"):
-		set_spread(_spread + 0.25)
-	elif event.is_action_pressed("ui_down"):
-		set_spread(_spread - 0.25)
+	elif event.is_action_pressed("ui_down") or _wheel(event, MOUSE_BUTTON_WHEEL_DOWN):
+		# down through the building: the whole of it, then the top floor, then each one below -- the arrow or the wheel
+		focus(n - 1 if _focus < 0 else maxi(_focus - 1, 0))
+	elif event.is_action_pressed("ui_up") or _wheel(event, MOUSE_BUTTON_WHEEL_UP):
+		# up through it, and past the top floor the whole building again
+		focus(-1 if (_focus < 0 or _focus >= n - 1) else _focus + 1)
 	elif event is InputEventMouseButton and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
 		_dragging = (event as InputEventMouseButton).pressed
+		if _dragging:
+			_spin = 0.0
 	elif event is InputEventMouseMotion and _dragging:
-		turn((event as InputEventMouseMotion).relative.x * 0.4)
+		var rel: Vector2 = (event as InputEventMouseMotion).relative
+		turn(rel.x * 0.4)
+		tilt(rel.y * 0.25)
+		# what the turn would carry on at if let go now: this motion's degrees over a frame's time
+		_spin = rel.x * 0.4 / maxf(get_process_delta_time(), 1.0 / 240.0)
 	else:
 		return
+	_idle = 0.0
 	get_viewport().set_input_as_handled()
