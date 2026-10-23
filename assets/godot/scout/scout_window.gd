@@ -96,6 +96,8 @@ var _index: int = -1
 var _points_override: Dictionary = {}
 var _open: bool = false
 var _overlay: CanvasLayer
+var _shown: TextureRect           # the screen as the overlay shows it
+var _rows: Array = []             # [{id, node}] each listed building's row; its rect is in the screen's own pixels
 var _screen: SubViewport
 var _view3d: SubViewport
 var _pivot: Node3D
@@ -181,6 +183,18 @@ func set_points(id: String, points: Array) -> void:
 		_points_override[id] = points
 	if _index >= 0 and String(_entries[_index]["id"]) == id:
 		_show()
+
+
+func click(screen_pos: Vector2) -> bool:
+	"""A click at ``screen_pos``, in the screen's own pixels (0..screen_size): on a building's row, show it. For a
+	game whose handheld shows `get_screen_texture()` on a mesh -- turn the hit's UV into pixels (uv * screen_size)
+	and pass it here. Returns whether the click landed on something."""
+	for r in _rows:
+		# the row's own laid-out rect: inside the screen's viewport, global is the screen's pixels
+		if is_instance_valid(r["node"]) and (r["node"] as Control).get_global_rect().has_point(screen_pos):
+			select(String(r["id"]))
+			return true
+	return false
 
 
 func turn(degrees: float) -> void:
@@ -340,12 +354,12 @@ func _build() -> void:
 	_overlay.layer = 90
 	_overlay.visible = false
 	add_child(_overlay)
-	var shown := TextureRect.new()
-	shown.texture = _screen.get_texture()
-	shown.set_anchors_preset(Control.PRESET_CENTER)
-	shown.position = -Vector2(w, h) * 0.5
-	shown.size = Vector2(w, h)
-	_overlay.add_child(shown)
+	_shown = TextureRect.new()
+	_shown.texture = _screen.get_texture()
+	_shown.set_anchors_preset(Control.PRESET_CENTER)
+	_shown.position = -Vector2(w, h) * 0.5
+	_shown.size = Vector2(w, h)
+	_overlay.add_child(_shown)
 
 
 func _show() -> void:
@@ -354,6 +368,7 @@ func _show() -> void:
 	for c in _list.get_children():
 		c.free()
 	_list.add_child(_label("BUILDINGS", 15, INK_SOFT, false))
+	_rows.clear()
 	for j in range(_entries.size()):
 		var sel: bool = j == _index
 		var row := PanelContainer.new()
@@ -361,6 +376,7 @@ func _show() -> void:
 		var shown_name: String = String(_entries[j]["id"]).to_upper().replace("_", " ")
 		row.add_child(_label("  %s %s" % [">" if sel else " ", shown_name], 15, LCD_GLOW if sel else INK, false))
 		_list.add_child(row)
+		_rows.append({"id": String(_entries[j]["id"]), "node": row})
 	if _model != null:
 		_model.free()
 		_model = null
@@ -478,6 +494,12 @@ func _process(delta: float) -> void:
 		turn(AUTO_TURN_DPS * delta)
 
 
+func _to_screen(viewport_pos: Vector2) -> Vector2:
+	"""A point of the game's viewport, as the overlay shows the screen, in the screen's own pixels."""
+	var r: Rect2 = _shown.get_global_rect()
+	return (viewport_pos - r.position) * Vector2(screen_size) / r.size
+
+
 func _wheel(event: InputEvent, button: MouseButton) -> bool:
 	"""One notch of the scroll wheel, the walker's: "scroll wheel should be the up down as well (floors)"."""
 	var b: InputEventMouseButton = event as InputEventMouseButton
@@ -500,6 +522,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("ui_up") or _wheel(event, MOUSE_BUTTON_WHEEL_UP):
 		# up through it, and past the top floor the whole building again
 		focus(-1 if (_focus < 0 or _focus >= n - 1) else _focus + 1)
+	elif event is InputEventMouseButton and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT \
+			and (event as InputEventMouseButton).pressed and _overlay.visible \
+			and click(_to_screen((event as InputEventMouseButton).position)):
+		pass                         # a row clicked in the overlay: it shows that building, and no drag starts
 	elif event is InputEventMouseButton and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
 		_dragging = (event as InputEventMouseButton).pressed
 		if _dragging:

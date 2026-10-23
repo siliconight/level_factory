@@ -15,7 +15,7 @@ from packages.exporting import scout_window as SW
 
 LF = Path(__file__).resolve().parents[2]
 SEAM = ("open", "close", "is_open", "buildings", "get_screen_texture", "select", "set_points", "turn",
-        "set_spread", "tilt", "focus", "focused")
+        "set_spread", "tilt", "focus", "focused", "click")
 SIGNALS = ("opened", "closed", "building_selected")
 
 
@@ -59,6 +59,20 @@ def test_the_walk_copy_calls_it_on_f6_debug_builds_only():
     assert "OS.is_debug_build()" in ov
     # 0.236.0: it holds the player while the window is open, and gives it back on the window's own close
     assert "PROCESS_MODE_DISABLED" in ov and 'connect("closed"' in ov
+
+
+def test_a_click_on_a_buildings_row_shows_it():
+    """0.236.1, the walker: "(also clicking on the buttons in the screen should change the buildings)". The screen is
+    drawn off-screen and shown as a texture, so a click reaches it only by being mapped: `click` takes the screen's
+    own pixels and asks each row for its laid-out rect -- never a layout guessed from spacing -- and the overlay maps
+    the mouse to those pixels; a click on a row selects and starts no drag."""
+    gd = (SW.SOURCE / "scout_window.gd").read_text(encoding="utf-8")
+    body = gd[gd.index("func click("):gd.index("func turn(")]
+    assert "get_global_rect().has_point(screen_pos)" in body and "select(" in body
+    keys = gd[gd.index("func _unhandled_input"):]
+    assert "click(_to_screen(" in keys and keys.index("click(_to_screen(") < keys.index("_dragging = ")
+    to_screen = gd[gd.index("func _to_screen("):gd.index("func _wheel(")]
+    assert "_shown.get_global_rect()" in to_screen and "screen_size" in to_screen
 
 
 def test_up_and_down_focus_a_floor_and_a_drag_turns_and_tilts():

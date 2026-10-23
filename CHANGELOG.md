@@ -1,3 +1,22 @@
+## [0.236.1] - a building is clicked in the scout window's list
+
+**The factory's roadmap 295.** The walker: "(also clicking on the buttons in the screen should change the
+buildings)".
+
+### Added
+- **`click(screen_pos)`**: a click in the screen's own pixels; on a building's row it shows that building, and it
+  says whether it hit. The screen is drawn off-screen and shown as a texture -- over the game, or on the game's own
+  handheld -- so a click never reaches its controls by itself: a game whose handheld shows `get_screen_texture()` on
+  a mesh turns the hit's UV into pixels and passes them here. Each row is asked for its own laid-out rect, never a
+  layout guessed from the list's spacing. In the overlay the window maps the mouse itself, and a click on a row starts
+  no drag. Driven both ways (`patches/lf_scout_click/drive_click.gd`): `click` on the office's row selects it and on
+  empty screen hits nothing; a mouse press on the overlay's pharmacy row selects it, no drag begun.
+
+### Tests
+- `test_scout_window.py`: the seam carries `click`; it reads each row's laid-out rect and selects; the overlay maps
+  the mouse before any drag begins. On 0.236.0 the seam test fails on behaviour (no `click`), the click test on the
+  new name it reads.
+
 ## [0.236.0] - the scout window focuses a floor, tilts, spins on, and turns itself
 
 **The factory's roadmap 295, the walker trying it in a walk copy:** "the up and down isn't working? also is there a

@@ -24,13 +24,16 @@ scout.set_spread(0.0)                          # 0 floors stacked as built .. 1 
 scout.set_points("deli_a03", [                 # the gameplay layer's own points, instead of the model's
     {"label": "SCORE", "kind": "score", "at": Vector3(3.0, 3.6, 2.0), "storey": 1},
 ])
+scout.click(uv * Vector2(scout.screen_size))   # a click on the game's handheld, in the screen's pixels:
+                                               #   on a building's row it shows it (returns whether it hit)
 scout.close()                                  # stop drawing; costs nothing until opened again
 scout.is_open()                                # whether it is drawing
 ```
 
 Signals: `opened`, `closed`, `building_selected(id)`.
 
-While open it reads its own input -- left/right the building; up/down the floor in focus (the floors above it step
+While open it reads its own input -- a click on a building in the list (in the overlay; on a handheld, pass the
+click in with `click`), left/right the building; up/down the floor in focus (the floors above it step
 aside, the ones below dim, the view centres on it; past the top, the whole building); a mouse drag turns and tilts
 it, a flick keeps it turning, the scroll wheel steps the floors as up/down do; left alone it turns itself slowly (`auto_turn`); cancel closes it. Set
 `handle_input = false` to drive it from the game's own controls. The caller holds its own player while it is open:
