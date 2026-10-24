@@ -93,6 +93,25 @@ def test_only_a_lit_crt_face_is_touched():
     assert "if not _is_crt_face(" in crt
 
 
+def test_a_desk_monitor_s_lit_screen_gets_the_motion_too():
+    """0.239.0, the walker walking cold run 9386: "screens should have the same
+    effect as the tvs in the strip club". Zoo names a desk's lit screen
+    `M_StockScreen_<atlas>_Face`; the pass takes it beside `CRT_Screen`, with
+    the prefix and suffix still asked of both. FAILS ON 0.238.0."""
+    src = _src()
+    assert 'DESK_SCREEN_MARK: String = "StockScreen"' in src
+    body = _func(src, "_is_crt_face")
+    assert "nm.contains(CRT_FACE_MARK) or nm.contains(DESK_SCREEN_MARK)" in body
+    assert "begins_with(CRT_FACE_PREFIX)" in body and "ends_with(CRT_FACE_SUFFIX)" in body
+
+
+def test_the_merge_carries_the_overlay_onto_the_merged_lit_faces():
+    """The desk screens live in the export's merged lit meshes; the merge gives
+    each a DEEP copy of its material, which keeps the next_pass hung here."""
+    merge = (SCRIPT.parent / "merge_buildings.gd").read_text(encoding="utf-8")
+    assert "(pair[1] as Material).duplicate(true)" in merge
+
+
 def test_the_pass_only_sets_next_pass_and_keeps_emission_and_texture():
     crt = _func(_src(), "_crt_motion")
     # exactly one assignment to the screen's own material, and it is next_pass

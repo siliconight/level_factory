@@ -451,6 +451,17 @@ const SCREEN_PROUD_M: float = 0.002
 const CRT_FACE_MARK: String = "CRT_Screen"
 const CRT_FACE_SUFFIX: String = "_Face"
 const CRT_FACE_PREFIX: String = "M_"
+## A DESK'S MONITOR IS A CRT TOO (0.239.0). Zoo 1.115.0 lights a desk's screen
+## on a backlit `M_StockScreen_<atlas>_Face` (`prim_mesh.build_stock`), and
+## this pass took only `CRT_Screen`, so every office monitor was a still
+## picture. The walker, walking cold run 9386: "screens should have the same
+## effect as the tvs in the strip club". Same pass, same numbers: a 1997
+## office's monitors are tubes. They live in the export's MERGED lit meshes
+## (`merge_buildings.gd`, `LitR_*`, one a desk where it stood), whose
+## `duplicate(true)` carries the next_pass this hangs at import. PRICED before
+## it shipped: the factory's `patches/lf_desk_screens/` (three arms, one
+## session).
+const DESK_SCREEN_MARK: String = "StockScreen"
 
 const MOTION_SHADER: String = """
 shader_type spatial;
@@ -1249,7 +1260,7 @@ func _crt_motion(n: Node, seen: Dictionary) -> int:
 ## carries `CRT` without being lit.
 func _is_crt_face(nm: String) -> bool:
 	return nm.begins_with(CRT_FACE_PREFIX) and nm.ends_with(CRT_FACE_SUFFIX) \
-		and nm.contains(CRT_FACE_MARK)
+		and (nm.contains(CRT_FACE_MARK) or nm.contains(DESK_SCREEN_MARK))
 
 
 func _motion_material(bm: BaseMaterial3D) -> ShaderMaterial:

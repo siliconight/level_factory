@@ -1,3 +1,32 @@
+## [0.239.0] - a desk's monitor flickers like the club's TVs
+
+**The walker, walking cold run 9386** (the factory's `docs/findings/walk_2026-10-23_9386/`, finding 5): "screens
+should have the same effect as the tvs in the strip club that give them that little movement/"shimmer" to show
+"life"". The CRT pass (0.89.0) takes a lit screen only by name, `M_*CRT_Screen*_Face`, and Zoo 1.115.0 names a desk's
+lit screen `M_StockScreen_<atlas>_Face` -- so no office monitor was ever given it.
+
+### Changed
+- **`_is_crt_face` takes `StockScreen` beside `CRT_Screen`** (`DESK_SCREEN_MARK`), the prefix and suffix still asked
+  of both: the same darkening overlay on the same numbers, a 1997 office's monitors being tubes. They live in the
+  export's MERGED lit meshes (`merge_buildings.gd`, one `LitR_*` a desk where it stood), whose `duplicate(true)`
+  carries the next_pass hung at import.
+
+### Priced before it shipped
+The factory's `patches/lf_desk_screens/`: cold run 9387's raw package in three arms in one session -- as shipped,
+with the overlay hung on its 23 merged desk screens (`screen_overlay_prep.gd`, the pass's own shader and numbers), as
+shipped again -- through `tools/perf_stations_run.py`.
+- **The package's twelve stations** (53 headings): the overlay adds 0 to 19 draws, on the 23 headings that see into
+  the office or the deli; p95 moves a median +0.02 ms against the control's median spread of 0.17 ms (worst +0.47
+  against the control's 0.90).
+- **The office bullpen** (the harness dropped it from the twelve, so run alone): facing the desks, 91 -> 110 draws and
+  p95 1.98 ms against the controls' 1.82 and 1.85; on its other headings 5 to 9 draws, within the controls' spread.
+- So: 19 draws at worst, against `docs/DRAW_CALL_BUDGET.md`'s provisional 2,000, and a frame time the instrument
+  cannot tell from its own noise. A floor of more desks costs one draw more a desk in view.
+
+### Tests
+- `tests/unit/test_worldskin_crt_motion.py`: a desk screen's name is taken (fails on 0.238.0); the merge's deep copy
+  that carries the overlay is held.
+
 ## [0.238.0] - a junction's two directions take turns, and a passer-by sees them change
 
 **The walker, walking cold run 9386** (the factory's `docs/findings/walk_2026-10-23_9386/`, finding 11): "traffic
