@@ -1,3 +1,34 @@
+## [0.240.0] - a wall's run is one lightmap chart, not one a module
+
+**The walker, walking cold run 9386** (the factory's `docs/findings/walk_2026-10-23_9386/`, finding 2): bands down a
+back room's walls -- and their call, 2026-10-24: "i think we want the look of baking but where we try to not get
+those bands". Measured on cold run 9389's pharmacy (`seams/`): the merge unwrapped each cell's mesh as built, and
+wall modules merged side by side share no vertices, so `lightmap_unwrap` made a chart of every 2 m module, about 10
+texels across at `TEXEL_M`, and the charts landed apart in the lightmap. Projected into the walker's frame, the
+brightness step across a module joint averaged twice the step mid-module, and the two bands first picked out by eye
+are joints.
+
+### Changed
+- **A cell's mesh is unwrapped through a WELDED PROXY** (`merge_buildings.gd`, `_welded_unwrap`): its corners sharing a
+  position and a normal (`WELD_M` 0.1 mm, `WELD_NORMAL` 0.001) made one vertex, so a wall's plane run end to end is one
+  connected surface and one chart; the proxy unwrapped at `TEXEL_M`; its UV2 carried back to the original corners in
+  order and checked corner by corner; the corners indexed again. Where the carry cannot be trusted -- more than one
+  surface, bones, weights or custom arrays, the proxy failing, its corners out of order -- the plain unwrap stands,
+  counted in the report as `unwrapped_plain`. The lit meshes (`LitR_*`), several surfaces on one atlas, keep the plain
+  unwrap. The bake's settings are untouched: the same look, fewer joints in it.
+- **Proved on the real mesh before it shipped** (`seams/welded_unwrap.gd` on 9389's `pharmacy_a01/merged/r1.res`): the
+  wall plane's charts 4 -> 2 (its door splits it), the proxy's 504 corners within 0.000001 m of the corners they were
+  carried to.
+
+### Price, owed and measured in the next cold run
+The bake's own cost moves with its charts -- the lightmap's size, the bake's time -- and only a bake shows it. Cold
+run 9390 measures both against 9389 (`light_bake.json`), the bands from the walker's eye, and frame time at the
+package's stations; this release is reverted if it costs more than it buys.
+
+### Tests
+- `tests/unit/test_merge_buildings.py::test_a_cell_s_mesh_is_unwrapped_through_a_welded_proxy` (fails on 0.239.0);
+  `test_merge_buildings_godot.py` runs the Godot half, the new unwrap in it, on a small building.
+
 ## [0.239.0] - a desk's monitor flickers like the club's TVs
 
 **The walker, walking cold run 9386** (the factory's `docs/findings/walk_2026-10-23_9386/`, finding 5): "screens

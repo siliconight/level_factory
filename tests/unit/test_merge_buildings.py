@@ -278,3 +278,21 @@ def test_a_room_unit_is_cut_into_cells():
     assert 'return "room %s %s" % [best, _cell(px, py)]' in room
     unit = _func(text, "_unit")
     assert 'return "room %s %s" % [rid, _cell(origin.x, -origin.z)]' in unit
+
+
+
+def test_a_cell_s_mesh_is_unwrapped_through_a_welded_proxy():
+    """0.240.0, the walker's walk of cold run 9386, finding 2: a chart a 2 m module put bands down the walls. A
+    cell's mesh is unwrapped through a proxy whose corners sharing a position and a normal are welded, its UV2 carried
+    back in order and checked corner by corner; the plain unwrap is kept, and counted, where the carry cannot be
+    trusted. FAILS ON 0.239.0."""
+    text = M.MERGE_SCRIPT.read_text(encoding="utf-8")
+    body = _func(text, "_welded_unwrap")
+    assert "proxy.lightmap_unwrap(Transform3D.IDENTITY, TEXEL_M)" in body
+    assert "if (ov[oidx[c]] - verts[idx[c]]).length() > WELD_M:" in body and "return null" in body
+    assert "Mesh.ARRAY_BONES" in body and "get_surface_count() != 1" in body
+    assert "st.index()" in body
+    assert re.search(r"^const WELD_M := 0\.0001$", text, re.M)
+    assert re.search(r"^const WELD_NORMAL := 0\.001$", text, re.M)
+    assert "var welded: ArrayMesh = _welded_unwrap(am)" in text
+    assert 'row["unwrapped_plain"]' in text
