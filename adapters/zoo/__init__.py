@@ -326,6 +326,11 @@ class ZooAdapter(BaseAdapter):
             if job_spec.get("fixture_types"):
                 zoo_args += ["--fixture-types",
                              *[str(t) for t in job_spec["fixture_types"]]]
+            # one sign a building (0.241.0): what this shell leaves out, as ONE
+            # comma list -- Zoo's CLI reads `--fixture-types` and this the same way
+            if job_spec.get("skip_fixture_types"):
+                zoo_args += ["--skip-fixture-types",
+                             ",".join(str(t) for t in job_spec["skip_fixture_types"])]
             # the business the shell's band was dealt (0.148.0): its door box
             # wears the same pack (Zoo 1.79.0)
             if job_spec.get("sign_pack"):

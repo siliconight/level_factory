@@ -1,3 +1,21 @@
+## [0.241.0] - one sign a building: a banded shell builds no door box
+
+**The walker, walking cold run 9386** (the factory's `docs/findings/walk_2026-10-23_9386/`, finding 1): a pharmacy's
+band along the parapet and a lit box over its door -- "in real life this would be 1 sign".
+
+### Changed
+- **A shell dealt a band builds no door box**: its fixtures job is told `skip_fixture_types: ["sign"]`, which reaches
+  Zoo 1.123.0 as `--skip-fixture-types sign`, one comma list. Lot 0.129.0 leaves that box's lamp out of the site's
+  lights. A shell dealt none keeps its box. The door pack (0.148.0) is still handed over; with no `sign` anchor built
+  there is nothing for it to dress.
+
+### Noted, not changed
+- The adapter passes `--fixture-types` as separate arguments, and Zoo's CLI reads one comma list. Nothing sets
+  `fixture_types` today, so it has never run; the new flag is passed the way the CLI reads it.
+
+### Tests
+- `tests/unit/test_fixture_pipeline.py::test_a_banded_shell_s_fixtures_leave_out_its_door_box` (fails on 0.240.0).
+
 ## [0.240.1] - 0.240.0 reverted: one chart a wall run did not remove the bands
 
 **Measured, cold run 9390 against 9389** (the factory's `docs/findings/walk_2026-10-23_9386/seams/`), as 0.240.0 said

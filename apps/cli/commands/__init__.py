@@ -978,6 +978,15 @@ def _job_specs_for_plan(ws: Workspace, batch: dict, model: MissionBrief, plan) -
                         _latest_output(jobs_dir / pix_job, "."))
                     if door:
                         specs[job.job_id]["sign_pack"] = door
+                        # ONE SIGN A BUILDING (0.241.0). The walker, walking
+                        # cold run 9386, of a pharmacy with its band along the
+                        # parapet and a lit box over its door: "in real life
+                        # this would be 1 sign". A shell dealt a band keeps
+                        # the band and builds no door box (Zoo 1.123.0's
+                        # `--skip-fixture-types`); Lot 0.129.0 leaves that
+                        # box's lamp out of the site's lights. A shell dealt
+                        # none keeps its box as its one sign.
+                        specs[job.job_id]["skip_fixture_types"] = ["sign"]
             elif job.stage_id == "zoo_roof_props_build":
                 # ROOF PROPS (0.179.0, roadmap 181): ITS OWN SLOTS, as the kit
                 # branch below reads them -- the library row's for an

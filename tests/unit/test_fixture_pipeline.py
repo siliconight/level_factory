@@ -87,6 +87,27 @@ def test_zoo_fixtures_mode_passes_the_door_its_pack(tmp_path):
     assert args[args.index("--sign-pack") + 1] == pack
 
 
+def test_a_banded_shell_s_fixtures_leave_out_its_door_box(tmp_path):
+    """0.241.0, one sign a building (the walker, cold run 9386): a fixtures job told to skip `sign` passes Zoo
+    `--skip-fixture-types sign` as one comma list, and the planner tells every shell it deals a band to. FAILS ON
+    0.240.0."""
+    lights = tmp_path / "shell.lights.json"
+    lights.write_text(json.dumps({
+        "light_manifest_version": "1.1", "building_id": "lf_m1",
+        "anchors": [{"id": "a", "type": "sign", "pos": [0, 0, 3]}]}))
+    spec = {"mode": "fixtures", "lights_path": str(lights), "theme": "delco",
+            "skip_fixture_types": ["sign", "neon"]}
+    cmds = ZooAdapter().plan_commands(spec, {
+        "repository": str(tmp_path), "work_dir": str(tmp_path / "work"),
+        "blender_executable": "blender"})
+    args = list(cmds[0].arguments)
+    assert args[args.index("--skip-fixture-types") + 1] == "sign,neon"
+    src = (Path(__file__).resolve().parents[2] / "apps" / "cli" / "commands" / "__init__.py").read_text(
+        encoding="utf-8")
+    at = src.index('specs[job.job_id]["sign_pack"] = door')
+    assert 'specs[job.job_id]["skip_fixture_types"] = ["sign"]' in src[at:at + 900]
+
+
 def test_zoo_fixtures_marker_contract_blocks(tmp_path):
     ad = ZooAdapter()
     pre = tmp_path / "x_fixtures.built.json"
