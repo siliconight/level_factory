@@ -1,3 +1,20 @@
+## [0.240.1] - 0.240.0 reverted: one chart a wall run did not remove the bands
+
+**Measured, cold run 9390 against 9389** (the factory's `docs/findings/walk_2026-10-23_9386/seams/`), as 0.240.0 said
+it would be, with its own condition: reverted if it costs more than it buys.
+
+- **It did what it said to the lightmap.** The back room's north wall in 9390 is one continuous row of the lightmap --
+  every module side by side, the shared joints at one coordinate (`wall_islands_9390.out.txt`) -- where 9389's
+  modules landed in different rows. The lightmap was one layer smaller (1024 x 17408 -> 1024 x 16384, 54.0 -> 51.7 MB).
+- **It did not do what it was for.** From the walker's eye, the brightness step across a module joint against one
+  mid-module (`joints_9389_vs_9390.out.txt`, same instrument, both packages in one session): 9389 joints 3.11 grey codes
+  to mid-module 1.55 (2.0x), 9390 joints 3.98 to 1.32 (3.0x). The bands are not separate lightmap charts meeting at the
+  joints -- REFUTED, and kept in the finding above the result it replaced.
+- **It cost** the bake 36.0 -> 52.7 s (`bake_ms`).
+
+So `merge_buildings.gd` and `tests/unit/test_merge_buildings.py` are 0.239.0's again; the welded unwrap, its test and
+its numbers live in 0.240.0's entry below and in the factory's `patches/lf_wall_charts/`. The bands' cause is open.
+
 ## [0.240.0] - a wall's run is one lightmap chart, not one a module
 
 **The walker, walking cold run 9386** (the factory's `docs/findings/walk_2026-10-23_9386/`, finding 2): bands down a
