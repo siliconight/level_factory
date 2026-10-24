@@ -1,3 +1,40 @@
+## [0.238.0] - a junction's two directions take turns, and a passer-by sees them change
+
+**The walker, walking cold run 9386** (the factory's `docs/findings/walk_2026-10-23_9386/`, finding 11): "traffic
+lights done change?" Measured on that package and on 9387's: every lens carried 0.165.0's clock (`cycle_s` 60, green
+0-33 s, amber 33-37, red 37-60), so the lights DID change -- once a minute, and someone walking past saw one state.
+And Lot 0.128.0 now faces every approach of a signalised junction (finding 12), so on 0.165.0's one clock the side
+street and the main road went green together: in cold run 9387's package, every head at the junction showed green in
+the same frame.
+
+### Changed
+- **A head's facing picks its half of the cycle.** The lens shader reads the node's own basis in the vertex stage
+  (`MODEL_MATRIX[2]`, the axis both of Zoo's signal forms face along): heads facing along world X run on the clock,
+  heads facing along Z half a cycle later. A junction's two directions face perpendicular axes and the two ways along
+  one road face the same one, so a junction takes turns with no table of junctions; every junction still runs in step,
+  as a coordinated arterial does. Said in the pass's notes: a junction whose roads both lie near the diagonal to the
+  world's axes would put both directions on one half -- the grammars lay roads on the axes, and that gap is Lot's to
+  close if it opens.
+- **The cycle is 48 s**: green 18 s, amber 4 s (MUTCD's yellow change interval is 3 to 6 s), red 26 s, the last 2 s
+  of it the all-red clearance before the other half's green. Every head changes within 24 s of anyone arriving. The
+  green is the taste knob; there is no physical number for how long a player watches a corner.
+
+### Cost
+- None added: the same three lens surfaces a signal, the same materials, the same draws; a step and a few multiplies
+  more in the lens's vertex stage, six signals a junction pair.
+
+### Measured
+- On a copy of cold run 9387's walk copy with this import script swapped in and the signal module re-imported
+  (`[worldskin] ... 3 signal lens surface(s) given the junction's clock`), one station at the junction's corner (eye
+  36, 1.7, 9 -> 24, 4.6, 22, Godot), against the copy as shipped: as shipped every head green; with this the head
+  facing the other axis red while the two on the right are green (the factory's
+  `patches/lf_signal_opposition/heads_shipped_over_trial.png`, `corner_*.webp`). The shader compiles and draws.
+
+### Tests
+- `tests/unit/test_worldskin_signal_lenses.py`: the halves by facing (the node's basis, never a hash or a position),
+  the two halves never green or amber together with an all-red moment between them, a change within half a cycle and
+  a cycle under a minute -- all three failing on 0.237.0, the second at t = 0 with both halves green.
+
 ## [0.237.0] - the backdrop's ground is a frame round the plate, never a lid on a basement
 
 **The walker's walk of cold run 9383** (the factory's `docs/findings/walk_2026-10-23_deli/`, finding 1), of the stair

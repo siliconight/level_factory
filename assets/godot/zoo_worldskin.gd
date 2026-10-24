@@ -583,13 +583,26 @@ var _shutter_materials: Dictionary = {}
 ## mod(TIME, SIGNAL_CYCLE_S) is in its colour's window, and is its own glass,
 ## dark, otherwise.
 ##
-## ONE CLOCK FOR EVERY SIGNAL: no instance term, where the shutters and the
-## turning parts have one. Lot stands a signal only on a yielding leg's
-## corner, its heads facing the through road -- both directions of it at a
-## crossroads, measured on Lot's tee and cross junctions -- so every head at a
-## junction serves the same traffic and must show the same lens. Two heads on
-## one pole share one lens mesh a colour, and agree whatever the clock. Every
+## ONE CLOCK FOR EVERY SIGNAL, AND TWO DIRECTIONS ON IT (0.238.0). Until
+## Lot 0.128.0 a signal stood only on a yielding leg's corner with its heads
+## facing the through road, so every head at a junction served the same
+## traffic and showed the same lens. Lot now faces EVERY approach from its far
+## right (the walker, walking cold run 9386: "where are the traffic lights for
+## this side of the road?"), and on one clock the side street and the main
+## road went green together. So a head's own FACING picks its half of the
+## cycle: heads facing along world X run on the clock, heads facing along Z
+## half a cycle later. The two directions of a junction face perpendicular
+## axes and the two ways along one road face the same axis, so a junction
+## takes turns with no table of junctions -- read off the node's own basis in
+## the vertex stage (`MODEL_MATRIX[2]`, the axis both of Zoo's forms face
+## along). Two heads on one pole share one lens mesh a colour and agree. Every
 ## junction in a level runs in step, as a coordinated arterial does.
+##
+## WHERE THE AXIS RULE FAILS, said rather than hidden: a junction whose roads
+## both lie within a few degrees of the diagonal to the world's axes would put
+## its two directions on one half. Level Factory's grammars lay roads on the
+## axes; a diagonal junction is a gap to close in Lot (a junction phase on the
+## slot), not here.
 ##
 ## A LIT SHADER, not an unshaded one: the lens keeps its lightmap and the
 ## street's light, so an unlit lens is glass in that light. The model keeps
@@ -598,11 +611,24 @@ var _shutter_materials: Dictionary = {}
 ## Lux's: its binder takes `_Lens`, `_Diffuser` and `_Face` endings, and these
 ## end in their colour.
 const SIGNAL_LENS_PREFIX: String = "M_TrafficSignal_Lens_"
-const SIGNAL_CYCLE_S: float = 60.0
-## Each colour's window, seconds into the cycle, tiling it: green 33 s, amber
-## 4 s (MUTCD's yellow change interval is 3 to 6 s), red 23 s. Whole seconds,
-## so the boundary two windows share is one float in both.
-const SIGNAL_WINDOWS_S: Dictionary = {"Green": [0.0, 33.0], "Amber": [33.0, 37.0], "Red": [37.0, 60.0]}
+## The whole cycle, and each colour's window in it for a head on the X half,
+## seconds, tiling it: green 18 s, amber 4 s (MUTCD's yellow change interval
+## is 3 to 6 s), red 26 s -- of which the last 2 s are the ALL-RED clearance,
+## while the other half's red has not yet ended. A Z head reads the same
+## windows half a cycle on (`SIGNAL_HALF_CYCLE_S`), so its green begins as
+## the X half's all-red ends. Whole seconds, so a boundary two windows share
+## is one float in both.
+##
+## 0.165.0 ran 60 s (green 33). The walker, walking cold run 9386, of a
+## junction they passed: "traffic lights done change?" -- measured, the
+## package's lenses carried the 0.165.0 clock, so the lights DID change, once
+## a minute, and a passer-by saw one state. 48 s keeps a real signal's order
+## and amber and changes within 24 s of anyone arriving. The green is the
+## taste knob: there is no physical number for how long a level's player
+## watches a corner.
+const SIGNAL_CYCLE_S: float = 48.0
+const SIGNAL_HALF_CYCLE_S: float = SIGNAL_CYCLE_S / 2.0
+const SIGNAL_WINDOWS_S: Dictionary = {"Green": [0.0, 18.0], "Amber": [18.0, 22.0], "Red": [22.0, 48.0]}
 ## Unlit glass: the lens's own colour at this fraction. A coloured lens with
 ## no lamp behind it reads as dark glass, not as a painted disc.
 const SIGNAL_GLASS: float = 0.12
@@ -615,13 +641,23 @@ uniform vec4 glass : source_color = vec4(0.1, 0.1, 0.1, 1.0);
 uniform vec4 lamp : source_color = vec4(1.0);
 uniform float energy = 1.0;
 uniform float roughness : hint_range(0.0, 1.0) = 0.35;
-uniform float cycle_s = 60.0;
+uniform float cycle_s = 48.0;
+uniform float half_cycle_s = 24.0;
 uniform float lit_from_s = 0.0;
 uniform float lit_to_s = 0.0;
 
+// which half of the cycle this head runs on: 0 facing along world X, 1 along Z
+// -- the node's own basis, so a junction's two directions take turns
+varying float half_;
+
+void vertex() {
+	vec3 face = MODEL_MATRIX[2].xyz;
+	half_ = step(abs(face.x), abs(face.z));
+}
+
 void fragment() {
-	// one clock for every signal: no instance term (the pass's notes)
-	float t = mod(TIME, cycle_s);
+	// one clock for every signal, its two directions half a cycle apart
+	float t = mod(TIME + half_ * half_cycle_s, cycle_s);
 	float on = step(lit_from_s, t) * (1.0 - step(lit_to_s, t));
 	ALBEDO = glass.rgb;
 	ROUGHNESS = roughness;
@@ -1334,6 +1370,7 @@ func _signal_lens_material(bm: BaseMaterial3D, colour: String) -> ShaderMaterial
 	sm.set_shader_parameter("energy", bm.emission_energy_multiplier)
 	sm.set_shader_parameter("roughness", bm.roughness)
 	sm.set_shader_parameter("cycle_s", SIGNAL_CYCLE_S)
+	sm.set_shader_parameter("half_cycle_s", SIGNAL_HALF_CYCLE_S)
 	var w: Array = SIGNAL_WINDOWS_S[colour]
 	sm.set_shader_parameter("lit_from_s", float(w[0]))
 	sm.set_shader_parameter("lit_to_s", float(w[1]))

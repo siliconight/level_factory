@@ -102,13 +102,49 @@ def test_the_amber_is_a_yellow_change_interval():
     assert 3.0 <= b - a <= 6.0, (a, b)
 
 
-def test_every_signal_keeps_one_clock():
-    """No per-node term: every head at a junction faces the through road and
-    must show the same lens; the shutters' and turning parts' hash is the
-    opposite of what a signal needs."""
-    sh = _shader(_src())
+def test_a_junction_s_two_directions_take_turns_on_one_clock():
+    """0.238.0: Lot faces every approach (0.128.0), so a head's FACING picks its
+    half of the cycle -- the node's own basis, never a hash or a position,
+    which would split one junction's heads apart. FAILS ON 0.237.0: one clock
+    and no half, so the side street and the main road went green together."""
+    src = _src()
+    sh = _shader(src)
     assert "NODE_POSITION_WORLD" not in sh and "hash" not in sh
-    assert "mod(TIME, cycle_s)" in sh
+    assert "MODEL_MATRIX[2]" in sh and "half_ = step(abs(face.x), abs(face.z));" in sh
+    assert "mod(TIME + half_ * half_cycle_s, cycle_s)" in sh
+    m = re.search(r"^const SIGNAL_HALF_CYCLE_S: float = SIGNAL_CYCLE_S / 2\.0$", src, re.M)
+    assert m, "the half cycle is not half the cycle"
+    assert '"half_cycle_s", SIGNAL_HALF_CYCLE_S' in _func(src, "_signal_lens_material")
+
+
+def test_the_two_halves_never_go_together_and_clear_on_all_red():
+    """At every instant at most one half shows green or amber, and each change
+    of right of way passes through a moment when both show red (the all-red
+    clearance) -- read off the windows the shader is given."""
+    src = _src()
+    cycle, wins = _cycle(src), _windows(src)
+    half = cycle / 2.0
+
+    def lit(t):
+        t %= cycle
+        return next(c for c, (a, b) in wins.items() if a <= t < b)
+
+    all_red = 0
+    for k in range(int(cycle * 4)):
+        t = k * 0.25
+        x, z = lit(t), lit(t + half)
+        assert not (x != "Red" and z != "Red"), (t, x, z)
+        all_red += x == "Red" and z == "Red"
+    assert all_red > 0, "no all-red clearance between the halves"
+
+
+def test_a_passer_by_sees_a_change():
+    """The walker, walking cold run 9386: "traffic lights done change?" -- the
+    lights changed once a minute on 0.165.0's 60 s clock. Each half changes
+    within half the cycle, and the cycle is under a minute."""
+    cycle = _cycle(_src())
+    assert cycle < 60.0, cycle
+    assert _windows(_src())["Green"][1] <= cycle / 2.0
 
 
 def test_the_lens_is_lit_glass_and_keeps_its_bake():
