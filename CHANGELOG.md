@@ -1,3 +1,32 @@
+## [0.257.0] - a walk whose preview did not finish importing fails, and says why
+
+### Fixed
+- **A failed import no longer passes the walk.** The walker, on the first windowed run of the authoring loop
+  (2026-10-26): "fell through the floor of the first building i walked in".
+  - The walk's headless `--import` had been killed at its 600 s timeout with 96 of 758 imports unwritten, every
+    building's shell among them. A Godot opening a project to play does not import, so those meshes and their
+    collision never loaded.
+  - The walk printed a warning and finished ok; the panel said "walk it and see". The code's own comment named the
+    consequence ("invisible walls over live collision, dead ladders") and still only warned (the factory's
+    `docs/findings/walk_2026-10-26_panel/`, L1).
+  - **`packages/preview/import_gate.py`** judges the import by what it left. `missing_imports` reads every `.import`
+    sidecar and asks whether the cache file it names exists, the measurement that found the 96. `import_preview`
+    runs the pass with the light bake's bound for importing the same package (`light_bake.IMPORT_TIMEOUT_S`,
+    1,800 s, was 600). A timeout, a non-zero exit or any import left unwritten is not ok.
+  - `walk` stops with `BLOCKED: the walk preview is not playable: ...` and `EXIT_BLOCKED`, before the self-check.
+    The panel's walk error quotes that line instead of "the preview exited 2".
+- **Opening the authoring project no longer dirties the repository.** The Godot editor rewrites `project.godot` in
+  its own format on save, and did the first time the walker closed it. The file is committed in that format; the note
+  that headed it is in `apps/godot/README.md`.
+
+### Tests
+- `tests/unit/test_walk_import_gate.py` (fails on 0.256.0):
+  - a complete import is ok;
+  - an unwritten import fails and is named;
+  - a timeout fails at the light bake's 1,800 s bound;
+  - a failing exit fails even with everything written;
+  - `walk` returns `EXIT_BLOCKED` on the gate and the old warning is gone.
+
 ## [0.256.0] - six fixes from the first windowed run of the authoring loop
 
 **The walker ran the loop in the Godot editor, 2026-10-26** (the factory's roadmap 318). Each fix is a defect they hit.

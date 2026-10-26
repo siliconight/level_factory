@@ -1,5 +1,10 @@
-; The Gabagool Factory authoring project: open this folder in Godot 4.7 and the Factory panel appears in the
-; right-hand dock. It finds the factory by walking up from here (`docs/AUTHORING_LOOP.md` at the factory root).
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
 
 config_version=5
 

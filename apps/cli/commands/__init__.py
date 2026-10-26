@@ -3797,15 +3797,22 @@ def cmd_walk(args) -> int:
     # (invisible walls over live collision, dead ladders). Run the headless
     # import HERE so the preview is playable the moment it is handed over;
     # a human must never have to remember `-e` first.
+    #
+    # AND A FAILED IMPORT FAILS THE WALK (0.257.0). It was a warning, and the
+    # walker fell through the floor of the first building they walked into: the
+    # import had been killed at its 600 s timeout with 96 of 758 imports
+    # unwritten, every shell among them, and the walk finished ok (the
+    # factory's docs/findings/walk_2026-10-26_panel/, L1). Judged by what the
+    # pass left, with the light bake's bound for importing the same package.
     godot_exe = str(ws.load_tools_local().get("godot_executable") or "")
     if godot_exe:
-        try:
-            subprocess.run([godot_exe, "--headless", "--path", report["dest"],
-                            "--import"], capture_output=True, timeout=600)
-            print("  imported: resources ready (headless --import pass)")
-        except (OSError, subprocess.SubprocessError) as exc:
-            print(f"  WARNING: headless import failed ({exc}) -- open once "
-                  f"with -e before playing", file=sys.stderr)
+        from packages.preview import import_gate
+        imported, said = import_gate.import_preview(godot_exe, Path(report["dest"]))
+        if not imported:
+            print(f"BLOCKED: the walk preview is not playable: {said}. Walk "
+                  f"again; it re-runs the import.", file=sys.stderr)
+            return EXIT_BLOCKED
+        print(f"  {said}")
 
     origin = report["spawn_transform"][9:]
     print(f"walk preview: {report['dest']}")

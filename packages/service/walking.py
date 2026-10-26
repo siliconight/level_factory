@@ -86,7 +86,12 @@ def walk(path: str, events, run_dir: Path, leg=layouts.run_leg) -> dict:
         if name == "preview":
             # `walk` exits 1 when the preview is built but its self-check found something: the preview stands
             if code not in (0, 1):
-                raise layouts.LayoutError("leg_failed", "the preview exited %d; its output is in %s" % (code, log))
+                # say WHY when the walk said it (0.257.0: a preview that did not finish importing BLOCKS)
+                blocked = [ln for ln in log.read_text(encoding="utf-8", errors="replace").splitlines()
+                           if ln.startswith("BLOCKED:")] if log.exists() else []
+                raise layouts.LayoutError("leg_failed", (blocked[-1][len("BLOCKED: "):] if blocked else
+                                                         "the preview exited %d" % code)
+                                          + "; its output is in %s" % log)
             verdict = "passed" if code == 0 else "findings"
         elif code not in (0, 1):
             raise layouts.LayoutError("leg_failed", "%s exited %d; its output is in %s" % (name, code, log))
