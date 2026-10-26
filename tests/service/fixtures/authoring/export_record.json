@@ -1,0 +1,38 @@
+{
+ "schema": "gabagool.snapshot.v1",
+ "design_id": "8d903a10d83d46cc8e267b50638ecf27",
+ "design_name": "Panel Trial",
+ "design_revision": 2,
+ "mission_id": "panel_trial_001",
+ "layout": "panel_trial_001.candidate.seed_9205",
+ "package_fingerprint": "acf44b9bf280b4ed2dd93af90c3545e67f76ef33255cba78fabb66f6efb57128",
+ "checklist": [
+  {
+   "item": "Package complete",
+   "state": "ok",
+   "detail": "2786 files, 0 missing, 0 outside the package"
+  },
+  {
+   "item": "Opens without the factory",
+   "state": "ok",
+   "detail": "portability PASS, engine check passed"
+  },
+  {
+   "item": "Lights baked",
+   "state": "ok",
+   "detail": "baked, 2750 lightmapped"
+  },
+  {
+   "item": "Renderer",
+   "state": "ok",
+   "detail": "gl_compatibility"
+  },
+  {
+   "item": "Findings left",
+   "state": "ok",
+   "detail": "0 major on the chosen layout"
+  }
+ ],
+ "exported_at": "2026-10-26T07:32:49",
+ "snapshot": "C:\\Projects\\gabagool_studios\\gabagool_factory\\_scratch\\exports_trial\\panel_trial_r2"
+}

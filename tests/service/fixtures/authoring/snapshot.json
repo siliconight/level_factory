@@ -1,0 +1,37 @@
+{
+ "schema": "gabagool.snapshot.v1",
+ "design_id": "2708fc970b364b1990c599d22940ba50",
+ "design_name": "Launcher Trial",
+ "design_revision": 1,
+ "mission_id": "launcher_trial_001",
+ "layout": "launcher_trial_001.candidate.seed_9205",
+ "package_fingerprint": "ceeb4094eb353f7efe94f7988c8077292d428b3e3b5f3405f081080b5becee67",
+ "checklist": [
+  {
+   "item": "Package complete",
+   "state": "ok",
+   "detail": "2814 files, 0 missing, 0 outside the package"
+  },
+  {
+   "item": "Opens without the factory",
+   "state": "ok",
+   "detail": "portability PASS, engine check passed"
+  },
+  {
+   "item": "Lights baked",
+   "state": "ok",
+   "detail": "baked, 2750 lightmapped"
+  },
+  {
+   "item": "Renderer",
+   "state": "ok",
+   "detail": "gl_compatibility"
+  },
+  {
+   "item": "Findings left",
+   "state": "ok",
+   "detail": "0 major on the chosen layout"
+  }
+ ],
+ "exported_at": "2026-10-26T08:32:12"
+}

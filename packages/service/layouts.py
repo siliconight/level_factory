@@ -201,13 +201,15 @@ def generate(path: str, events, run_dir: Path, leg=run_leg) -> dict:
     plan_image.write_plans(ws / ".level_factory", mission, result["candidates"],
                            folder / "builds" / "plans" / ("revision_%d" % doc["revision"]))
     result["plan_key"] = plan_image.KEY
-    record = _write_json(folder / "builds" / ("revision_%d.json" % doc["revision"]),
+    from packages.service import schemas
+    record = _write_json(folder / "builds" / ("revision_%d.json" % doc["revision"]), schemas.require(
                          {"schema": "gabagool.build_record.v1", "design_id": doc["design_id"],
                           "design_revision": doc["revision"], "mission_id": mission, "brief": brief,
                           "workspace": str(ws), "candidates": result["candidates"],
                           "recommended": result["recommended"], "every_out": result["every_out"],
                           "recommendation": result["recommendation"], "plan_key": result["plan_key"],
-                          "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())})
+                          "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())},
+                         "gabagool.build_record.v1"))
     events.emit("layouts", "ok", "%d layouts" % len(result["candidates"]), progress=1.0)
     return dict(result, workspace=str(ws), mission_id=mission, build_record=str(record),
                 design_revision=doc["revision"])

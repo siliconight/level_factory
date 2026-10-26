@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gabagool.service.request.v1",
+  "title": "Service request",
+  "description": "request.json in a run directory: one operation for the worker to run (packages/service/worker.py). A request this schema refuses still gets a result saying why.",
+  "type": "object",
+  "required": ["schema", "request_id", "operation"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "gabagool.service.request.v1"},
+    "request_id": {"type": "string", "minLength": 1, "description": "The client's name for this request; every event and the result carry it back."},
+    "operation": {"type": "string", "minLength": 1, "description": "One of packages/service/operations.py's OPERATIONS."},
+    "arguments": {"type": "object", "description": "The operation's arguments; each operation refuses keys it does not take. Absent means {}."},
+    "design_revision": {"type": ["integer", "null"], "minimum": 0, "description": "The design revision the client was showing, carried into the result."}
+  }
+}

@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 
 from packages.service import design as design_mod
-from packages.service import layouts
+from packages.service import layouts, schemas
 
 SNAPSHOT_FILE = "GABAGOOL_SNAPSHOT.json"
 
@@ -115,6 +115,7 @@ def export(path: str, destination: str, events, run_dir: Path, leg=layouts.run_l
                 "design_revision": doc["revision"], "mission_id": mission, "layout": walked.get("candidate_id"),
                 "package_fingerprint": closure.get("package_fingerprint"), "checklist": items,
                 "exported_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())}
+    schemas.require(manifest, "gabagool.snapshot.v1")          # before anything is copied
     staging = dest.with_name(".%s.partial" % dest.name)
     if staging.exists():
         shutil.rmtree(staging)
@@ -125,6 +126,6 @@ def export(path: str, destination: str, events, run_dir: Path, leg=layouts.run_l
         dest.rmdir()                     # empty, checked above
     os.replace(staging, dest)
     layouts._write_json(folder / "builds" / ("revision_%d.export.json" % doc["revision"]),
-                        dict(manifest, snapshot=str(dest)))
+                        schemas.require(dict(manifest, snapshot=str(dest)), "gabagool.snapshot.v1"))
     events.emit("copy", "ok", "Exported to %s" % dest, progress=1.0)
     return {"snapshot": str(dest), "checklist": items, "manifest": manifest}

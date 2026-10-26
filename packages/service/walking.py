@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 
 from packages.service import design as design_mod
-from packages.service import layouts
+from packages.service import layouts, schemas
 
 AUTOMATIC = "recorded by the Factory panel so the level can be built; automatic, not a review"
 
@@ -101,8 +101,9 @@ def walk(path: str, events, run_dir: Path, leg=layouts.run_leg) -> dict:
     out = {"preview": str(preview), "godot": godot, "self_check": verdict, "mission_id": mission,
            "candidate_id": chosen, "design_revision": doc["revision"],
            "label": "%s, revision %d, layout seed %s" % (doc["name"], doc["revision"], chosen.rsplit("_", 1)[-1])}
-    layouts._write_json(folder / "builds" / ("revision_%d.walk.json" % doc["revision"]),
+    layouts._write_json(folder / "builds" / ("revision_%d.walk.json" % doc["revision"]), schemas.require(
                         dict(out, schema="gabagool.walk_record.v1", design_id=doc["design_id"],
-                             recorded_at=time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())))
+                             recorded_at=time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())),
+                        "gabagool.walk_record.v1"))
     events.emit("preview", "ok", "Ready to walk: %s" % out["label"], progress=1.0)
     return out

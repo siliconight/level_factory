@@ -1,0 +1,32 @@
+{
+ "schema": "gabagool.design.v1",
+ "design_id": "8d903a10d83d46cc8e267b50638ecf27",
+ "revision": 2,
+ "template": "restaurant_row",
+ "name": "Panel Trial",
+ "slug": "panel_trial",
+ "choices": {
+  "time_of_day": "midnight",
+  "weather": "clear",
+  "road_grammar": "T",
+  "surroundings": "",
+  "candidate_count": 3,
+  "roof_props": true
+ },
+ "intent": {
+  "route_shape": "linear_push",
+  "objective_hypotheses": [
+   "enter_kitchen",
+   "reach_office",
+   "crack_safe",
+   "extract"
+  ],
+  "extraction_relationship": "alley_backtrack",
+  "verticality": "low",
+  "landmark": "neon_sign",
+  "seed_policy": "",
+  "notes": ""
+ },
+ "created_at": "2026-10-26T06:18:55",
+ "updated_at": "2026-10-26T07:02:46"
+}

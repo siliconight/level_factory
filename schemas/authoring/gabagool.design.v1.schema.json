@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gabagool.design.v1",
+  "title": "Level design",
+  "description": "levels/<slug>/design.json: the authored source of a level (packages/service/design.py). The values under choices and intent are checked against the template's control catalog (design.capabilities), which this file does not restate: the catalog is read off the owning tools' code.",
+  "$comment": "additionalProperties is true on purpose: a field this factory does not know is kept and reported to the designer as an unknown field, never dropped or refused.",
+  "type": "object",
+  "required": ["schema", "design_id", "revision", "template", "name", "slug", "choices", "intent", "created_at", "updated_at"],
+  "additionalProperties": true,
+  "properties": {
+    "schema": {"const": "gabagool.design.v1"},
+    "design_id": {"type": "string", "pattern": "^[0-9a-f]{32}$", "description": "Stable for the life of the design."},
+    "revision": {"type": "integer", "minimum": 1, "description": "+1 on every saved change; a save naming an older revision is refused."},
+    "template": {"type": "string", "pattern": "^[a-z0-9_]+$", "description": "A gabagool.template.v1 template_id."},
+    "name": {"type": "string", "pattern": "\\S", "description": "The designer's name for the level."},
+    "slug": {"type": "string", "pattern": "^[a-z0-9_]{1,40}$", "description": "The name made safe for folders and mission ids, fixed at creation."},
+    "choices": {"type": "object", "description": "Controls that change what is built (supported or conditional)."},
+    "intent": {"type": "object", "description": "Controls that are saved for the designer and review; nothing builds from them yet."},
+    "created_at": {"$ref": "#/$defs/local_time"},
+    "updated_at": {"$ref": "#/$defs/local_time"}
+  },
+  "$defs": {
+    "local_time": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$"}
+  }
+}

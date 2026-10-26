@@ -1,0 +1,12 @@
+{
+ "preview": "C:\\Projects\\gabagool_studios\\gabagool_factory\\levels\\panel_trial\\workspace\\.level_factory\\preview\\panel_trial_001_walk",
+ "godot": "C:/Godot/4.7/Godot_v4.7-stable_win64_console.exe",
+ "self_check": "passed",
+ "mission_id": "panel_trial_001",
+ "candidate_id": "panel_trial_001.candidate.seed_9205",
+ "design_revision": 2,
+ "label": "Panel Trial, revision 2, layout seed 9205",
+ "schema": "gabagool.walk_record.v1",
+ "design_id": "8d903a10d83d46cc8e267b50638ecf27",
+ "recorded_at": "2026-10-26T07:10:07"
+}

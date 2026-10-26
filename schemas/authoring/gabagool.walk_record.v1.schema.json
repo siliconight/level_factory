@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gabagool.walk_record.v1",
+  "title": "Walk record",
+  "description": "levels/<slug>/builds/revision_<n>.walk.json: the walk preview walk_level built for revision n and its chosen layout (packages/service/walking.py). Export reads it to know what was walked.",
+  "type": "object",
+  "required": ["schema", "design_id", "design_revision", "mission_id", "candidate_id", "preview", "godot", "self_check", "label", "recorded_at"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "gabagool.walk_record.v1"},
+    "design_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+    "design_revision": {"type": "integer", "minimum": 1},
+    "mission_id": {"type": "string", "minLength": 1},
+    "candidate_id": {"type": "string", "minLength": 1, "description": "The chosen layout that was walked."},
+    "preview": {"type": "string", "minLength": 1, "description": "The preview's Godot project folder."},
+    "godot": {"type": "string", "description": "The Godot the workspace records; empty when none is."},
+    "self_check": {"enum": ["passed", "findings"], "description": "The preview's own check: findings means it was built and found something to look at."},
+    "label": {"type": "string", "minLength": 1, "description": "Name, revision and layout, as the panel shows it."},
+    "recorded_at": {"$ref": "#/$defs/local_time"}
+  },
+  "$defs": {
+    "local_time": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$"}
+  }
+}

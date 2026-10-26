@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gabagool.build_record.v1",
+  "title": "Layout build record",
+  "description": "levels/<slug>/builds/revision_<n>.json: what generate_layouts built for revision n -- the brief it was asked, every layout with its evidence, and the automated recommendation (packages/service/layouts.py).",
+  "type": "object",
+  "required": ["schema", "design_id", "design_revision", "mission_id", "brief", "workspace", "candidates", "recommended", "every_out", "recorded_at"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "gabagool.build_record.v1"},
+    "design_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+    "design_revision": {"type": "integer", "minimum": 1},
+    "mission_id": {"type": "string", "minLength": 1},
+    "brief": {"type": "object", "description": "The level_factory.mission_brief.v0.1 the pipeline was given."},
+    "workspace": {"type": "string", "minLength": 1},
+    "candidates": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/candidate"}},
+    "recommended": {"type": "string", "minLength": 1, "description": "A candidate_id; when every_out is true it is the one that failed least, not a recommendation."},
+    "every_out": {"type": "boolean"},
+    "recommendation": {"type": "string", "description": "What the ranking weighed, as shown. Since Level Factory 0.251.0."},
+    "plan_key": {"type": "string", "description": "The key to the plans' colours. Since Level Factory 0.250.0."},
+    "recorded_at": {"$ref": "#/$defs/local_time"}
+  },
+  "$defs": {
+    "local_time": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$"},
+    "codes": {"type": "array", "items": {"type": "string"}},
+    "candidate": {
+      "type": "object",
+      "required": ["candidate_id", "seed", "state", "major_findings", "not_counted", "out_for", "route_completion", "grade", "score", "walked", "summary"],
+      "additionalProperties": false,
+      "properties": {
+        "candidate_id": {"type": "string", "minLength": 1},
+        "seed": {"type": "integer"},
+        "state": {"enum": ["valid", "needs attention", "failed", "not checked"]},
+        "major_findings": {"type": "integer", "minimum": 0},
+        "not_counted": {"$ref": "#/$defs/codes", "description": "Findings shown but not counted (advisory, or answered by the walk test)."},
+        "out_for": {"$ref": "#/$defs/codes", "description": "Why the layout is out; empty when it is not."},
+        "route_completion": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "grade": {"type": "string", "description": "Laser Tag's grade, or ? when there is no report."},
+        "score": {"type": ["number", "null"]},
+        "walked": {"type": "boolean", "description": "The walk test walked every leg."},
+        "summary": {"type": "string"},
+        "plan": {"type": ["string", "null"], "description": "The layout's top-down plan (SVG), or null. Since Level Factory 0.250.0."},
+        "plan_problem": {"type": ["string", "null"], "description": "Why there is no plan."}
+      }
+    }
+  }
+}

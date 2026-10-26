@@ -1,0 +1,28 @@
+{
+ "schema": "gabagool.service.result.v1",
+ "request_id": "choose_layout",
+ "operation": "choose_layout",
+ "design_revision": null,
+ "started_at": "2026-10-26T08:21:22",
+ "level_factory": "0.249.0",
+ "status": "ok",
+ "data": {
+  "chosen": {
+   "candidate_id": "launcher_trial_001.candidate.seed_9205",
+   "seed": 9205,
+   "state": "valid",
+   "major_findings": 0,
+   "not_counted": [],
+   "out_for": [],
+   "route_completion": 1.0,
+   "grade": "PASS",
+   "score": 100,
+   "walked": true,
+   "summary": "seed 9205: 0 major, route completion 1.00, grade PASS 100, out for nothing"
+  },
+  "mission_id": "launcher_trial_001",
+  "design_revision": 1
+ },
+ "error": null,
+ "finished_at": "2026-10-26T08:21:22"
+}

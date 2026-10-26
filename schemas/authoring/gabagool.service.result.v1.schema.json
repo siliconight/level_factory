@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gabagool.service.result.v1",
+  "title": "Service result",
+  "description": "result.json in a run directory, written last and atomically (packages/service/worker.py). Exactly one of data and error is set. The shape of data is the operation's own and is not described here.",
+  "type": "object",
+  "required": ["schema", "request_id", "operation", "design_revision", "started_at", "finished_at", "level_factory", "status", "data", "error"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "gabagool.service.result.v1"},
+    "request_id": {"type": ["string", "null"], "description": "null only when the request could not be read."},
+    "operation": {"type": ["string", "null"], "description": "null only when the request could not be read."},
+    "design_revision": {"type": ["integer", "null"], "minimum": 0},
+    "started_at": {"$ref": "#/$defs/local_time"},
+    "finished_at": {"$ref": "#/$defs/local_time"},
+    "level_factory": {"type": "string", "minLength": 1, "description": "The Level Factory VERSION that answered."},
+    "status": {"enum": ["ok", "error"]},
+    "data": {"type": ["object", "null"]},
+    "error": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/error"}]}
+  },
+  "anyOf": [
+    {"properties": {"status": {"const": "ok"}, "data": {"type": "object"}, "error": {"type": "null"}}},
+    {"properties": {"status": {"const": "error"}, "data": {"type": "null"}, "error": {"type": "object"}}}
+  ],
+  "$defs": {
+    "local_time": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$"},
+    "error": {
+      "type": "object",
+      "required": ["code", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "code": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$", "description": "Stable: a client branches on it (request_malformed, walk_first, cancelled, internal_error...)."},
+        "message": {"type": "string", "minLength": 1, "description": "For the designer."},
+        "traceback": {"type": "string", "description": "Only on internal_error."}
+      }
+    }
+  }
+}

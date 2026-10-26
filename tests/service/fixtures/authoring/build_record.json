@@ -1,0 +1,83 @@
+{
+ "schema": "gabagool.build_record.v1",
+ "design_id": "8d903a10d83d46cc8e267b50638ecf27",
+ "design_revision": 1,
+ "mission_id": "panel_trial_001",
+ "brief": {
+  "schema": "level_factory.mission_brief.v0.1",
+  "archetype": "corner_deli",
+  "building_count": 3,
+  "site_shape": "strip",
+  "route_shape": "linear_push",
+  "objective_hypotheses": [
+   "enter_kitchen",
+   "reach_office",
+   "crack_safe",
+   "extract"
+  ],
+  "extraction_relationship": "alley_backtrack",
+  "verticality": "low",
+  "landmark": "neon_sign",
+  "time_of_day": "evening",
+  "weather": "clear",
+  "theme": "delco_1997",
+  "candidate_count": 3,
+  "target_minutes": [
+   25,
+   35
+  ],
+  "mission_id": "panel_trial_001",
+  "display_name": "Panel Trial",
+  "road_grammar": "",
+  "surroundings": "",
+  "roof_props": true,
+  "seed_policy": ""
+ },
+ "workspace": "C:\\Projects\\gabagool_studios\\gabagool_factory\\levels\\panel_trial\\workspace",
+ "candidates": [
+  {
+   "candidate_id": "panel_trial_001.candidate.seed_9003",
+   "seed": 9003,
+   "state": "valid",
+   "major_findings": 0,
+   "not_counted": [
+    "LOT_DESTINATION_ABOVE_FLOOR"
+   ],
+   "out_for": [],
+   "route_completion": 1.0,
+   "grade": "PASS",
+   "score": 90,
+   "walked": true,
+   "summary": "seed 9003: 0 major (not counted: LOT_DESTINATION_ABOVE_FLOOR), route completion 1.00, grade PASS 90, out for nothing"
+  },
+  {
+   "candidate_id": "panel_trial_001.candidate.seed_9104",
+   "seed": 9104,
+   "state": "valid",
+   "major_findings": 0,
+   "not_counted": [],
+   "out_for": [],
+   "route_completion": 0.92,
+   "grade": "PASS_WITH_TUNING",
+   "score": 89,
+   "walked": true,
+   "summary": "seed 9104: 0 major, route completion 0.92, grade PASS_WITH_TUNING 89, out for nothing"
+  },
+  {
+   "candidate_id": "panel_trial_001.candidate.seed_9205",
+   "seed": 9205,
+   "state": "valid",
+   "major_findings": 0,
+   "not_counted": [],
+   "out_for": [],
+   "route_completion": 1.0,
+   "grade": "PASS",
+   "score": 100,
+   "walked": true,
+   "summary": "seed 9205: 0 major, route completion 1.00, grade PASS 100, out for nothing"
+  }
+ ],
+ "recommended": "panel_trial_001.candidate.seed_9205",
+ "every_out": false,
+ "recorded_at": "2026-10-26T06:21:05"
+}

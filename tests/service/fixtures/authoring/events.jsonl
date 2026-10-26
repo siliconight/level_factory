@@ -1,0 +1,6 @@
+{"schema": "gabagool.service.event.v1", "request_id": "walk_level", "operation": "walk_level", "seq": 1, "time": "2026-10-26T08:21:23", "stage": "start", "status": "running", "message": ""}
+{"schema": "gabagool.service.event.v1", "request_id": "walk_level", "operation": "walk_level", "seq": 2, "time": "2026-10-26T08:21:23", "stage": "import", "status": "running", "message": "Reading revision 1 of the level"}
+{"schema": "gabagool.service.event.v1", "request_id": "walk_level", "operation": "walk_level", "seq": 3, "time": "2026-10-26T08:21:23", "stage": "brief", "status": "running", "message": "Recording the brief"}
+{"schema": "gabagool.service.event.v1", "request_id": "walk_level", "operation": "walk_level", "seq": 6, "time": "2026-10-26T08:21:25", "stage": "art", "status": "running", "message": "12 of 12 steps done", "progress": 1.0}
+{"schema": "gabagool.service.event.v1", "request_id": "walk_level", "operation": "walk_level", "seq": 7, "time": "2026-10-26T08:21:26", "stage": "art", "status": "running", "message": "12 of 12 steps done", "progress": 1.0}
+{"schema": "gabagool.service.event.v1", "request_id": "walk_level", "operation": "walk_level", "seq": 239, "time": "2026-10-26T08:30:37", "stage": "finish", "status": "ok", "message": ""}

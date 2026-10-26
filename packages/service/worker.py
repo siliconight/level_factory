@@ -26,10 +26,13 @@ import traceback
 import uuid
 from pathlib import Path
 
+from packages.service import schemas
+
 REQUEST_SCHEMA = "gabagool.service.request.v1"
 RESULT_SCHEMA = "gabagool.service.result.v1"
 EVENT_SCHEMA = "gabagool.service.event.v1"
-REQUEST_KEYS = {"schema", "request_id", "operation", "arguments", "design_revision"}
+#: The request's fields, read off its schema (schemas/authoring/gabagool.service.request.v1.schema.json).
+REQUEST_KEYS = set(schemas.load(REQUEST_SCHEMA)["properties"])
 #: A request is a few fields; anything near this is not one.
 MAX_REQUEST_BYTES = 1 << 20
 
@@ -59,21 +62,22 @@ class EventSink:
         self.operation = operation
         self.seq = 0
 
-    def emit(self, stage: str, status: str, message: str = "", progress: float | None = None,
-             **extra) -> None:
+    def emit(self, stage: str, status: str, message: str = "", progress: float | None = None) -> None:
         self.seq += 1
         event = {"schema": EVENT_SCHEMA, "request_id": self.request_id, "operation": self.operation,
                  "seq": self.seq, "time": _now(), "stage": stage, "status": status, "message": message}
         if progress is not None:
             event["progress"] = max(0.0, min(1.0, float(progress)))
-        event.update(extra)
+        schemas.require(event, EVENT_SCHEMA)        # an event the panel could not read is never written
         with open(self.path, "a", encoding="utf-8", newline="\n") as f:
             f.write(json.dumps(event, ensure_ascii=False) + "\n")
             f.flush()
 
 
 def write_result(run_dir: Path, result: dict) -> Path:
-    """Write ``result.json`` atomically: the whole file or none of it."""
+    """Write ``result.json`` atomically: the whole file or none of it. A result that is not a valid
+    ``gabagool.service.result.v1`` raises `schemas.SchemaError` and is not written."""
+    schemas.require(result, RESULT_SCHEMA)
     path = run_dir / "result.json"
     tmp = run_dir / (".result.%s.tmp" % uuid.uuid4().hex)
     tmp.write_text(json.dumps(result, ensure_ascii=False, indent=1) + "\n", encoding="utf-8", newline="\n")
@@ -102,17 +106,12 @@ def read_request(run_dir: Path) -> dict:
     unknown = sorted(set(req) - REQUEST_KEYS)
     if unknown:
         raise RequestError("request_unknown_keys", "unknown keys: %s" % ", ".join(unknown))
-    if not isinstance(req.get("request_id"), str) or not req["request_id"]:
-        raise RequestError("request_malformed", "request_id must be a non-empty string")
-    if not isinstance(req.get("operation"), str) or not req["operation"]:
-        raise RequestError("request_malformed", "operation must be a non-empty string")
-    args = req.get("arguments", {})
-    if not isinstance(args, dict):
-        raise RequestError("request_malformed", "arguments must be an object")
-    rev = req.get("design_revision")
-    if rev is not None and (isinstance(rev, bool) or not isinstance(rev, int) or rev < 0):
-        raise RequestError("request_malformed", "design_revision must be a non-negative integer")
-    req["arguments"] = args
+    # every other rule is the schema's (0.252.0): one statement of the request, read by the worker and the panel
+    problems = schemas.check(req, REQUEST_SCHEMA)
+    if problems:
+        raise RequestError("request_malformed", "request.json is not a valid %s: %s"
+                           % (REQUEST_SCHEMA, "; ".join(problems)))
+    req["arguments"] = req.get("arguments", {})
     return req
 
 
@@ -152,7 +151,7 @@ def run_service(run_dir: Path, operations: dict | None = None) -> int:
         write_result(run_dir, dict(base, status="error", data=None, finished_at=_now(),
                                    error={"code": exc.code, "message": str(exc)}))
         return EXIT_REFUSED
-    except Exception as exc:  # the result must say so, whatever broke
+    except Exception as exc:  # the result must say so, whatever broke -- an answer the schema refuses included
         write_result(run_dir, dict(base, status="error", data=None, finished_at=_now(),
                                    error={"code": "internal_error", "message": "%s: %s"
                                           % (type(exc).__name__, exc),

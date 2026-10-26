@@ -24,6 +24,8 @@ import time
 import uuid
 from pathlib import Path
 
+from packages.service import schemas
+
 DESIGN_SCHEMA = "gabagool.design.v1"
 TEMPLATE_SCHEMA = "gabagool.template.v1"
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
@@ -51,6 +53,10 @@ def templates() -> dict[str, dict]:
         t = json.loads(p.read_text(encoding="utf-8"))
         if t.get("schema") != TEMPLATE_SCHEMA:
             raise DesignError("template_unreadable", "%s is not a %s" % (p.name, TEMPLATE_SCHEMA))
+        problems = schemas.check(t, TEMPLATE_SCHEMA)
+        if problems or t["template_id"] != p.stem:
+            raise DesignError("template_unreadable", "%s: %s" % (
+                p.name, "; ".join(problems) or "template_id %r is not the file's name" % t["template_id"]))
         out[t["template_id"]] = t
     return out
 
@@ -196,17 +202,15 @@ def validate(doc) -> tuple[list[str], list[str]]:
         problems.append("schema is %r; this factory reads %r" % (doc.get("schema"), DESIGN_SCHEMA))
         return problems, []
     unknown = sorted(set(doc) - DESIGN_KEYS)
-    rev = doc.get("revision")
-    if isinstance(rev, bool) or not isinstance(rev, int) or rev < 1:
-        problems.append("revision must be a whole number of at least 1")
+    # the document's shape is the schema's (0.252.0); the values under choices and intent are the catalog's, below
+    problems += schemas.check(doc, DESIGN_SCHEMA)
     try:
         controls = _controls(str(doc.get("template")))
     except DesignError as exc:
         return problems + [str(exc)], unknown
     for part in ("choices", "intent"):
         if not isinstance(doc.get(part), dict):
-            problems.append("%s must be an object" % part)
-            continue
+            continue                                 # the schema has said so
         for key, value in doc[part].items():
             c = controls.get(key)
             if c is None:
@@ -216,13 +220,13 @@ def validate(doc) -> tuple[list[str], list[str]]:
                 check_value(c, value)
             except DesignError as exc:
                 problems.append(str(exc))
-    if not isinstance(doc.get("name"), str) or not doc["name"].strip():
-        problems.append("a level needs a name")
     return problems, unknown
 
 
 def write_design(folder: Path, doc: dict) -> Path:
-    """Save ``doc`` as ``folder/design.json``, atomically: the whole file or the previous one."""
+    """Save ``doc`` as ``folder/design.json``, atomically: the whole file or the previous one. A document that is
+    not a valid ``gabagool.design.v1`` raises `schemas.SchemaError` and nothing is written."""
+    schemas.require(doc, DESIGN_SCHEMA)
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / DESIGN_FILE
     tmp = folder / (".design.%s.tmp" % uuid.uuid4().hex)

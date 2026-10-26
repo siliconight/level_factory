@@ -1,3 +1,50 @@
+## [0.252.0] - the authoring loop's records as data schemas
+
+**Data schemas for every record the no-AI authoring loop reads or writes** (the factory's `docs/AUTHORING_LOOP.md`).
+
+### Added
+- **`schemas/authoring/`**: eight JSON Schema (draft 2020-12) files, each named by its record's own `schema` field.
+  - The service protocol: `gabagool.service.request.v1`, `.event.v1`, `.result.v1` (a result carries data or an
+    error, never both).
+  - The design and its template: `gabagool.design.v1` (the values under `choices` and `intent` stay the template
+    catalog's to check; unknown top-level fields are still kept and reported) and `gabagool.template.v1`.
+  - The step records: `gabagool.build_record.v1`, `gabagool.walk_record.v1`, `gabagool.snapshot.v1` (the snapshot
+    manifest, and the export record beside the design).
+  - Each says what writes it, and what each field means where the name does not.
+- **`packages/service/schemas.py`**: the check. It is built in, because the tools run on interpreters without the
+  `jsonschema` package (Blender's own Python among them). It implements the keywords these files use, and refuses to
+  load a schema that uses any other, so it cannot pass what a schema forbids by skipping it. Problems are reported
+  with JSON-pointer paths.
+
+### Changed
+- The worker checks the request it reads against its schema: unknown keys stay `request_unknown_keys`, and anything
+  else the schema refuses is `request_malformed`, naming the field. Every event and result is checked before it is
+  written. One the schema refuses becomes an `internal_error` result, never a file the panel cannot read.
+- A design is checked when read (its problems now include the schema's, with paths) and refused when written. A
+  template is checked when loaded, and its `template_id` must be its file's name.
+- The build, walk and export records are checked before they reach disk. An export's manifest is checked before
+  anything is copied.
+- `EventSink.emit` no longer takes extra keyword fields. Nothing passed any, and the event schema allows none.
+
+### Measured
+- Every loop record on disk passes both this check and `jsonschema` 4.26.0, and the two agree on all of them:
+  - the trial levels' 2 designs, 2 build records, 3 walk records and 2 export records;
+  - 2 snapshot manifests kept in the factory's patch records;
+  - 14 requests, 14 results and 845 events from 14 run directories.
+
+### Tests
+- `tests/service/test_schemas.py` (fails on 0.251.0). Real records from the factory's trial levels and runs are kept
+  in `tests/service/fixtures/authoring/`.
+  - The eight schemas are standard JSON Schema, each named by its record.
+  - Every real record passes. Each is then broken one field at a time (a required field removed, a field of the wrong
+    type, a field it does not have) and must fail. Where `jsonschema` is installed it judges every case too and must
+    agree.
+  - A result with both data and an error, or neither, fails. A schema using an unimplemented keyword is refused.
+  - The worker: a malformed request is refused naming the field; an answer or event the schema refuses is an
+    internal error, and every file written is valid.
+  - A design is checked when read and refused when written; a template is checked when loaded.
+  - The tests pass without `jsonschema`, as on Blender's Python.
+
 ## [0.251.0] - a reopened level shows where it stands
 
 **Save and reopen** (the factory's roadmap 318; `docs/AUTHORING_LOOP.md`).

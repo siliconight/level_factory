@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gabagool.service.event.v1",
+  "title": "Service progress event",
+  "description": "One line of events.jsonl in a run directory, appended while an operation runs (packages/service/worker.py EventSink). Progress only: the answer is result.json.",
+  "type": "object",
+  "required": ["schema", "request_id", "operation", "seq", "time", "stage", "status", "message"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "gabagool.service.event.v1"},
+    "request_id": {"type": "string", "minLength": 1},
+    "operation": {"type": "string", "minLength": 1},
+    "seq": {"type": "integer", "minimum": 1, "description": "1, 2, 3... in the order written."},
+    "time": {"$ref": "#/$defs/local_time"},
+    "stage": {"type": "string", "minLength": 1, "description": "The step running: start, finish, or an operation's own (import, layouts, art, preview, copy...)."},
+    "status": {"enum": ["running", "ok"], "description": "A failure is never an event: it is the result's error."},
+    "message": {"type": "string", "description": "What to show the designer; may be empty."},
+    "progress": {"type": "number", "minimum": 0, "maximum": 1, "description": "Fraction done, when the step can say."}
+  },
+  "$defs": {
+    "local_time": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$", "description": "Local wall-clock time, to the second, no zone."}
+  }
+}
