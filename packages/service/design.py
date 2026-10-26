@@ -76,6 +76,17 @@ _GRAMMAR_LABELS = {"T": "One street (a T junction)", "cross": "Crossroads",
                    "block": "A block with a service lane behind (a loop)"}
 _SURROUNDING_LABELS = {"": "Chosen by the level", "borough": "More of the borough", "none": "Nothing (the plate's edge)",
                        "yards": "Rail and freight yards", "parkland": "Parkland", "roadside": "Roadside lots"}
+#: The Level Standard's designer brief (docs/LEVEL_STANDARD.md, the walker's section 16) that no tool reads yet:
+#: saved with the design for the designer and for review, and kept OUT of the pipeline's brief, whose fields are
+#: level_factory.mission_brief.v0.1's. Its HEIST, LOCATION and TIME are the template, Streets / Beyond the edge and
+#: Time of day; its PLAYERS is the Players control; its TARGET SESSION is the template's ``target_minutes``, which
+#: Lot's pacing estimate is measured against.
+STANDARD_INTENT = (("fantasy", "Fantasy", "longtext",
+                    "One sentence: what the crew is trying to do here, and what makes this place worth it."),
+                   ("scale", "Scale", "text", "Small, medium or large, in your words."),
+                   ("density", "Density", "text", "How tightly the place is built and used."),
+                   ("tone", "Tone", "text", "Three to five words: familiar, worn, mundane, warm..."),
+                   ("playstyle", "Playstyle", "text", "Stealth, loud, or how one turns into the other."))
 _INTENT_LABELS = {"route_shape": "Route shape", "objective_hypotheses": "Objective steps",
                   "extraction_relationship": "Way out", "verticality": "Verticality", "landmark": "Landmark",
                   "seed_policy": "Seed policy"}
@@ -85,6 +96,7 @@ def capabilities(template_id: str) -> list[dict]:
     """The controls a template offers, in form order, each with its support state, its options or range, its
     default (the template's own value), and what reads it."""
     from apps.cli.commands import UNBUILT_BRIEF_FIELDS
+    from packages.core.models import MissionBrief
     from packages.pipeline.road_grammar import GRAMMARS
     from packages.pipeline.site_variation import SURROUNDINGS
 
@@ -116,7 +128,16 @@ def capabilities(template_id: str) -> list[dict]:
          "consumer": "the planner's candidate seeds (packages.pipeline.planner)", "rebuilds": "layout"},
         {"key": "roof_props", "label": "Roof clutter", "type": "boolean", "default": bool(brief.get("roof_props", True)),
          "support": "supported", "consumer": "Zoo's rooftop scatter", "rebuilds": "art"},
+        # the standard's PLAYERS (0.253.0): one spawn per crew member, and the crew Laser Tag plays
+        {"key": "crew_size", "label": "Players", "type": "integer", "min": 1, "max": 4,
+         "default": int(brief.get("crew_size", MissionBrief.__dataclass_fields__["crew_size"].default)),
+         "support": "supported", "consumer": "Lot's crew spawns (lot/site_spawns.crew_spawns) and Laser Tag's crew",
+         "rebuilds": "layout"},
     ]
+    for key, label, kind, hint in STANDARD_INTENT:
+        rows.append({"key": key, "label": label, "type": kind, "default": "", "support": "intent",
+                     "note": "%s From the Level Standard's designer brief. Saved with the level for you and for "
+                             "review; nothing builds from it yet." % hint})
     for key in UNBUILT_BRIEF_FIELDS:
         value = brief.get(key, [] if key == "objective_hypotheses" else "")
         rows.append({"key": key, "label": _INTENT_LABELS.get(key, key),
@@ -302,6 +323,9 @@ def free_folder(root: Path, slug: str) -> Path:
 
 # ---- what the pipeline receives ---------------------------------------------------------------------------------
 
+_STANDARD_KEYS = {key for key, *_ in STANDARD_INTENT}
+
+
 def mission_id(doc: dict) -> str:
     return "%s_001" % doc["slug"]
 
@@ -316,6 +340,8 @@ def brief_from_design(doc: dict) -> dict:
     for key, value in doc["choices"].items():
         brief[key] = value
     for key, value in doc["intent"].items():
+        if key in _STANDARD_KEYS:
+            continue                    # the designer's, not the pipeline's: no brief field carries it
         if key == "notes":
             if value:
                 brief["notes"] = value

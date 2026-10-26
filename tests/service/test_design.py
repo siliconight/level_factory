@@ -34,7 +34,7 @@ def _controls():
 def test_every_unbuilt_field_is_labelled_intent_and_nothing_else_is():
     c = _controls()
     intent = {k for k, v in c.items() if v["support"] == "intent"}
-    assert intent == set(UNBUILT_BRIEF_FIELDS) | {"notes"}
+    assert intent == set(UNBUILT_BRIEF_FIELDS) | {"notes"} | {k for k, *_ in design.STANDARD_INTENT}
     for k in intent:
         assert c[k]["note"], k
 

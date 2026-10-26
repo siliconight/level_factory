@@ -1,3 +1,32 @@
+## [0.253.0] - the Level Standard's designer brief on the Level tab
+
+**The walker's designer brief (section 16 of `docs/LEVEL_STANDARD.md`'s spine) as controls**, each saying truthfully
+whether it changes what is built.
+
+### Added
+- **Players** (`crew_size`, 1-4, default 4, the brief model's own default): a supported control. Lot places one spawn
+  per crew member (`lot/site_spawns.crew_spawns`) and Laser Tag plays that crew, so changing it rebuilds the
+  layouts.
+- **Fantasy, Scale, Density, Tone, Playstyle**: intent, saved and reopened with the design.
+  - Each says what it asks for and that nothing builds from it yet.
+  - They are kept out of the pipeline's brief, which has no field for them (`design.STANDARD_INTENT`).
+- The brief's other fields already have controls: Heist and Location are the template, Streets and Beyond the edge;
+  Time is Time of day. Target session is the template's `target_minutes`, which Lot's pacing estimate is measured
+  against; it changes nothing built and stays out of the form.
+
+### Compatibility
+- A design saved before this release has no Players. Its brief carries no `crew_size`, so it builds with the default
+  4 exactly as before, and it reads without problems.
+
+### Tests
+- `tests/service/test_brief_fields.py` (4 of 5 fail on 0.252.0; the fifth guards the older design and passes on
+  both):
+  - Players reaches the brief model, refuses 0, 5, true and "4", and rebuilds the layouts when changed;
+  - the five intent fields change nothing built;
+  - the brief is saved and reopened, schema-valid;
+  - a design from before Players builds as it did.
+- `tests/service/test_design.py`'s intent census includes the five.
+
 ## [0.252.0] - the authoring loop's records as data schemas
 
 **Data schemas for every record the no-AI authoring loop reads or writes** (the factory's `docs/AUTHORING_LOOP.md`).
