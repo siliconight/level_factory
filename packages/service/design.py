@@ -246,6 +246,47 @@ def read_design(path: Path) -> dict:
     return {"design": doc, "problems": problems, "unknown_fields": unknown, "path": str(path)}
 
 
+def update_design(doc: dict, expected_revision, choices: dict | None = None, intent: dict | None = None,
+                  name: str | None = None) -> dict:
+    """``doc`` changed by ``choices``, ``intent`` and ``name``, as revision + 1. ``expected_revision`` is the revision
+    the caller edited: when the saved design has moved since, the change is refused (``conflict``) rather than laid
+    over somebody else's. Every value is checked against the template's catalog; an unchanged value is allowed and a
+    change that changes nothing is refused (``nothing_changed``), so a revision always records a difference."""
+    if isinstance(expected_revision, bool) or expected_revision != doc.get("revision"):
+        raise DesignError("conflict", "this level was saved as revision %s since revision %s was opened; open it again"
+                          % (doc.get("revision"), expected_revision))
+    controls = _controls(doc["template"])
+    new = json.loads(json.dumps(doc))
+    for given, part, kinds in ((choices or {}, "choices", ("supported", "conditional")),
+                               (intent or {}, "intent", ("intent",))):
+        for key, value in given.items():
+            c = controls.get(key)
+            if c is None or c["support"] not in kinds:
+                raise DesignError("unknown_control", "%s is not a %s control of %s" % (
+                    key, "choice" if part == "choices" else "intent", doc["template"]))
+            new[part][key] = check_value(c, value)
+    if name is not None:
+        if not isinstance(name, str) or not name.strip():
+            raise DesignError("bad_choice", "a level needs a name")
+        new["name"] = name.strip()
+    if (new["choices"], new["intent"], new["name"]) == (doc["choices"], doc["intent"], doc["name"]):
+        raise DesignError("nothing_changed", "nothing to save: every value is what revision %d says" % doc["revision"])
+    new["revision"] = doc["revision"] + 1
+    new["updated_at"] = _now()
+    return new
+
+
+def rebuilds_between(old: dict, new: dict) -> list[str]:
+    """What a change from ``old`` to ``new`` makes the pipeline rebuild: the `rebuilds` words of every control whose
+    value moved (layout, lighting, backdrop, art), sorted. Intent rebuilds nothing."""
+    controls = _controls(new["template"])
+    words = set()
+    for key, value in new["choices"].items():
+        if old["choices"].get(key) != value and controls.get(key, {}).get("rebuilds"):
+            words.add(controls[key]["rebuilds"])
+    return sorted(words)
+
+
 def free_folder(root: Path, slug: str) -> Path:
     """``root/slug``, or ``root/slug_2``, ``_3``... -- a folder no design is in yet."""
     n, folder = 1, Path(root) / slug

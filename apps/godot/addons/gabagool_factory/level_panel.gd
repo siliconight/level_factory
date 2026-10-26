@@ -42,6 +42,12 @@ var _layouts: Tree
 var _use: Button
 var _walk: Button
 var _walk_status: Label
+var _save: Button
+var _undo: Button
+## The controls the form shows, as `describe_template` returned them.
+var _controls: Array = []
+## The design as it was before the last save, for Undo ({} when there is nothing to undo).
+var _before_save: Dictionary = {}
 ## Open the preview's window when a walk is ready. A test turns it off.
 var launch_previews: bool = true
 ## The last walk the factory built for this design ({} before one).
@@ -94,6 +100,19 @@ func _build() -> void:
 	_form.set_column_title(2, "What it does")
 	_form.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	add_child(_form)
+
+	# EDIT (increment 6, roadmap 316): the form's values are editable; Save makes the next revision
+	var edit_row := HBoxContainer.new()
+	_save = Button.new()
+	_save.text = "Save changes"
+	_save.pressed.connect(save_changes)
+	edit_row.add_child(_save)
+	_undo = Button.new()
+	_undo.text = "Undo last save"
+	_undo.disabled = true
+	_undo.pressed.connect(undo_last_save)
+	edit_row.add_child(_undo)
+	add_child(edit_row)
 
 	# LAYOUTS (increment 4, roadmap 314): generate, watch, stop, choose
 	var build_row := HBoxContainer.new()
@@ -378,6 +397,7 @@ func _on_design(data: Dictionary) -> void:
 
 
 func _on_controls(data: Dictionary) -> void:
+	_controls = data.get("controls", [])
 	_form.clear()
 	var root := _form.create_item()
 	var choices: Dictionary = design.get("choices", {})
@@ -388,13 +408,118 @@ func _on_controls(data: Dictionary) -> void:
 		var item := _form.create_item(root)
 		item.set_text(0, control.get("label", key))
 		var value: Variant = design.get("name", "") if key == "name" else choices.get(key, intent.get(key, ""))
-		item.set_text(1, _shown(control, value))
+		_editable(item, control, value)
 		var support: String = control.get("support", "")
 		var what: String = SUPPORT_TEXT.get(support, support)
 		item.set_text(2, what)
 		item.set_custom_color(2, SUPPORT_COLOURS.get(support, Color.WHITE))
 		var tip: String = str(control.get("note", control.get("consumer", "")))
 		item.set_tooltip_text(2, tip)
+
+
+## Make the form's value cell for `control` editable: a choice as a drop-down of its options' labels, a whole
+## number as a spin range, yes/no as a check box, a list as words joined by commas, text as text.
+func _editable(item: TreeItem, control: Dictionary, value: Variant) -> void:
+	var kind: String = control.get("type", "text")
+	item.set_metadata(1, control.get("key", ""))
+	item.set_editable(1, true)
+	if kind == "choice":
+		var labels: PackedStringArray = PackedStringArray()
+		var index := 0
+		var options: Array = control.get("options", [])
+		for i in range(options.size()):
+			var option: Dictionary = options[i]
+			labels.append(str(option.get("label", option.get("value"))).replace(",", ";"))
+			if option.get("value") == value:
+				index = i
+		item.set_cell_mode(1, TreeItem.CELL_MODE_RANGE)
+		item.set_text(1, ",".join(labels))
+		item.set_range(1, index)
+	elif kind == "integer":
+		item.set_cell_mode(1, TreeItem.CELL_MODE_RANGE)
+		item.set_range_config(1, float(control.get("min", 0)), float(control.get("max", 100)), 1.0)
+		item.set_range(1, float(value))
+	elif kind == "boolean":
+		item.set_cell_mode(1, TreeItem.CELL_MODE_CHECK)
+		item.set_checked(1, bool(value))
+		item.set_text(1, "yes")
+	else:
+		item.set_cell_mode(1, TreeItem.CELL_MODE_STRING)
+		item.set_text(1, _shown(control, value))
+
+
+## The form's values as `update_design` takes them: {"choices", "intent", "name"}.
+func form_values() -> Dictionary:
+	var choices := {}
+	var intent := {}
+	var level_name := ""
+	var root_item := _form.get_root()
+	var rows: Array = root_item.get_children() if root_item != null else []
+	for i in range(mini(rows.size(), _controls.size())):
+		var item: TreeItem = rows[i]
+		var control: Dictionary = _controls[i]
+		var key: String = control.get("key", "")
+		var kind: String = control.get("type", "text")
+		var value: Variant
+		if kind == "choice":
+			var options: Array = control.get("options", [])
+			var option: Dictionary = options[clampi(int(item.get_range(1)), 0, options.size() - 1)]
+			value = option.get("value")
+		elif kind == "integer":
+			value = int(item.get_range(1))
+		elif kind == "boolean":
+			value = item.is_checked(1)
+		elif kind == "list":
+			var words: Array = []
+			for w in item.get_text(1).split(","):
+				if w.strip_edges() != "":
+					words.append(w.strip_edges())
+			value = words
+		else:
+			value = item.get_text(1)
+		if key == "name":
+			level_name = str(value)
+		elif control.get("support", "") == "intent":
+			intent[key] = value
+		else:
+			choices[key] = value
+	return {"choices": choices, "intent": intent, "name": level_name}
+
+
+## Save the form as the design's next revision (`update_design`).
+func save_changes() -> void:
+	if design_path == "" or design.is_empty():
+		_info.text = "Open or start a level first."
+		return
+	var values := form_values()
+	# the snapshot rides with the request and is kept only when the save lands
+	_call("update_design", {"path": design_path, "revision": design.get("revision"), "choices": values["choices"],
+		"intent": values["intent"], "name": values["name"]}, _on_saved.bind(design.duplicate(true)))
+
+
+## Save the values from before the last save, as a new revision: history is never rewritten.
+func undo_last_save() -> void:
+	if _before_save.is_empty():
+		return
+	var back := _before_save
+	_call("update_design", {"path": design_path, "revision": design.get("revision"),
+		"choices": back.get("choices", {}), "intent": back.get("intent", {}), "name": back.get("name", "")},
+		_on_saved.bind({}))
+
+
+func _on_saved(data: Dictionary, before: Dictionary) -> void:
+	_before_save = before
+	_on_design(data)
+	_undo.disabled = _before_save.is_empty()
+	var rebuilds: Array = data.get("rebuilds", [])
+	if rebuilds.has("layout"):
+		_walk_status.text = "Saved revision %s. This change makes new layouts: generate layouts again, then choose one." \
+			% str(design.get("revision"))
+	elif rebuilds.is_empty():
+		_walk_status.text = "Saved revision %s. Nothing to rebuild: it records intent." % str(design.get("revision"))
+	else:
+		_walk_status.text = "Saved revision %s. Walk the level to see it (rebuilds the %s)." \
+			% [str(design.get("revision")), ", ".join(rebuilds)]
 
 
 ## A control's value as the form shows it: an option's label, yes/no, a list joined.

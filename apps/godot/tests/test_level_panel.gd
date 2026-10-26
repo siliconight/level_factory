@@ -55,7 +55,12 @@ func _run() -> void:
 	_check(said.has("drives generation") and said.has("intent only: saved, not built"),
 		"each control says whether it drives generation or only records intent")
 	var time_row: Array = rows.filter(func(it: TreeItem) -> bool: return it.get_text(0) == "Time of day")
-	_check(time_row.size() == 1 and time_row[0].get_text(1) == "Evening", "Time of day shows the template's Evening")
+	# 0.248.0: a choice is a drop-down -- its text every option's label, the range the chosen one's index
+	var shown := ""
+	if time_row.size() == 1:
+		var labels: PackedStringArray = time_row[0].get_text(1).split(",")
+		shown = labels[int(time_row[0].get_range(1))]
+	_check(shown == "Evening", "Time of day shows the template's Evening: %s" % shown)
 
 	var path: String = panel.design_path
 	panel.design = {}

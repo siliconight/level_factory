@@ -47,14 +47,28 @@ def walk(path: str, events, run_dir: Path, leg=layouts.run_leg) -> dict:
     chosen = _selected(ws, mission)
     if not chosen:
         raise layouts.LayoutError("no_choice", "choose a layout first")
+    # THE LAYOUTS MUST BE OF THIS REVISION (0.248.0): a control that rebuilds the layout -- streets, how many to
+    # generate -- changed since they were generated means the chosen layout belongs to the old design
+    last = layouts.latest_layout_record(folder)
+    if last is not None:
+        stale = [c["label"] for c in design_mod.capabilities(doc["template"])
+                 if c.get("rebuilds") == "layout" and last["brief"].get(c["key"]) !=
+                 design_mod.brief_from_design(doc).get(c["key"])]
+        if stale:
+            raise layouts.LayoutError("needs_new_layouts", "%s changed since these layouts were generated: generate "
+                                      "layouts again, then choose one" % ", ".join(stale))
+    # AND THE BRIEF THAT BUILDS IS THIS REVISION'S: re-written and re-imported before the art leg
+    batch_path, _brief = layouts.write_request(folder, doc)
     log = run_dir / "legs.log"
     cancel = run_dir / "cancel"
-    legs = [("brief", ["-C", str(ws), "approve", mission, "brief_approved", "--by", "panel", "--note", AUTOMATIC]),
+    legs = [("import", ["-C", str(ws), "batch", "create", str(batch_path)]),
+            ("brief", ["-C", str(ws), "approve", mission, "brief_approved", "--by", "panel", "--note", AUTOMATIC]),
             ("lock", ["-C", str(ws), "approve", mission, "functional_shell_locked", "--by", "panel",
                       "--note", AUTOMATIC]),
             ("art", ["-C", str(ws), "run", mission, "--art", "--gameplay"]),
             ("preview", ["-C", str(ws), "walk", mission])]
-    said = {"brief": "Recording the brief", "lock": "Locking the chosen layout",
+    said = {"import": "Reading revision %d of the level" % doc["revision"], "brief": "Recording the brief",
+            "lock": "Locking the chosen layout",
             "art": "Dressing and lighting the level. This takes several minutes.",
             "preview": "Building the walk preview and checking it"}
     done, verdict = [], None

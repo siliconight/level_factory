@@ -1,3 +1,46 @@
+## [0.248.0] - change a level's settings and see the change in the next walk
+
+**Increment 6 of the no-AI authoring loop** (the factory's `docs/AUTHORING_LOOP.md`; roadmap 316).
+
+### Added
+- **`update_design`** (`design.update_design`, `design.rebuilds_between`). A change is the design's next revision,
+  never an overwrite.
+  - The caller names the revision it edited; a design saved since is a `conflict`.
+  - Every value is checked against the template's catalog; a save that changes nothing is refused.
+  - The answer says what the change rebuilds (layout, lighting, backdrop, art), so the panel can say what comes
+    next.
+- **The walk builds the current revision**. `walking.walk` re-writes the design's request and re-imports it
+  (`batch create`) before the art leg; `layouts.write_request` is the one writer, shared with generation. It refuses
+  with `needs_new_layouts`, naming the control, when a change that rebuilds the layout (streets, layouts to
+  generate) came after the layouts were generated (`layouts.latest_layout_record`).
+- **An editable form** on the Level tab:
+  - choices as drop-downs of their options, a whole number as a spin range, yes/no as a check box, words and text
+    as text;
+  - Save changes makes the next revision and says whether to walk or to generate again;
+  - Undo last save saves the previous values as a new revision; history is never rewritten.
+
+### Measured
+- On the trial design: time of day evening -> midnight saved as revision 2 (`rebuilds: lighting`), then walked
+  through the worker in 7 min 20 s. The walk is named "Panel Trial, revision 2, layout seed 9205" and its
+  self-check passed.
+  - Re-ran: `lux_apply`, `lot_assemble` (all three layouts), `themed_site_assemble`, `presentation_compose`.
+  - Cache hits: the shells, the kit, dressing, walk tests and Laser Tag.
+- "Lighting" understates it: Lot's site lights follow the time of day, so the site re-assembles too. It does so
+  for every layout, not only the chosen one.
+
+### Changed
+- `tests/service/test_walking.py` expects the walk to start with the re-import.
+- `apps/godot/tests/test_level_panel.gd` reads a choice from its drop-down: the chosen option's label.
+
+### Tests
+- `tests/service/test_revise.py` (fails on 0.247.0):
+  - the next revision and what it rebuilds (time -> lighting, streets -> layout, notes -> nothing);
+  - a stale revision, an unchanged save and a bad value refused;
+  - the walk importing the current revision's brief and naming revision 2;
+  - a layout change asking for new layouts before anything runs.
+- `apps/godot/tests/test_level_edit.gd`: every kind of control read back as the factory takes it, a change read
+  back changed, and the panel's next step after a lighting and a layout change.
+
 ## [0.247.0] - walk the chosen layout from the panel
 
 **Increment 5 of the no-AI authoring loop** (the factory's `docs/AUTHORING_LOOP.md`; roadmap 315).

@@ -323,6 +323,32 @@ def choose_layout(arguments: dict, events) -> dict:
         raise RequestError(getattr(exc, "code", "design_unusable"), str(exc)) from None
 
 
+def update_design(arguments: dict, events) -> dict:
+    """Save a change to the design at ``path`` as its next revision. Arguments: ``path``, ``revision`` (the one the
+    change was made to: a design saved since is a ``conflict``), and any of ``choices``, ``intent``, ``name``.
+    Returns the new design and ``rebuilds`` -- what the change makes the pipeline rebuild (layout, lighting, backdrop,
+    art) -- so the panel can say whether a walk or new layouts come next."""
+    _no_unknown(arguments, {"path", "revision", "choices", "intent", "name"})
+    from packages.service import design
+    for part in ("choices", "intent"):
+        if not isinstance(arguments.get(part, {}), dict):
+            raise RequestError("bad_argument", "%s must be an object" % part)
+    try:
+        got = design.read_design(Path(_text(arguments, "path")))
+        if got["problems"]:
+            raise RequestError("design_unusable", "; ".join(got["problems"]))
+        old = got["design"]
+        new = design.update_design(old, arguments.get("revision"), arguments.get("choices"),
+                                   arguments.get("intent"), arguments.get("name"))
+        path = design.write_design(Path(got["path"]).parent, new)
+    except design.DesignError as exc:
+        raise _design_error(exc) from None
+    rebuilds = design.rebuilds_between(old, new)
+    events.emit("design", "ok", "Saved revision %d" % new["revision"])
+    return {"design": new, "path": str(path), "rebuilds": rebuilds, "problems": [], "unknown_fields": [],
+            "brief": design.brief_from_design(new)}
+
+
 def walk_level(arguments: dict, events) -> dict:
     """Build the walk preview of the design at ``path``'s chosen layout (`packages.service.walking.walk`): the brief
     and shell-lock gates recorded as the panel's automatic steps, the art and gameplay leg, then the preview with its
@@ -348,4 +374,5 @@ OPERATIONS = {
     "generate_layouts": generate_layouts,
     "choose_layout": choose_layout,
     "walk_level": walk_level,
+    "update_design": update_design,
 }

@@ -61,6 +61,9 @@ def test_the_walk_runs_its_legs_names_what_it_shows_and_records_it(level):
     calls = []
     _workspace(level, calls)
     out = walking.walk(got["path"], EventSink(run_dir, "r", "walk_level"), run_dir, leg=_fake(calls))
+    # 0.248.0: the walk re-imports the current revision's brief first
+    assert calls[0][2:4] == ["batch", "create"]
+    calls = calls[1:]
     assert [a[2] for a in calls] == ["approve", "approve", "run", "walk"]
     assert calls[0][3:5] == ["walker_001", "brief_approved"] and calls[1][4] == "functional_shell_locked"
     for gate in calls[:2]:

@@ -127,6 +127,29 @@ def index_progress(ws: Path, mission: str, events, stage: str) -> None:
         events.emit(stage, "running", "%d of %d steps done" % (finished, len(jobs)), progress=finished / len(jobs))
 
 
+def write_request(folder: Path, doc: dict) -> tuple[Path, dict]:
+    """Write the batch and the brief derived from ``doc`` into ``folder/request/``: what the pipeline imports, and the
+    record of what it was asked. Returns the batch's path and the brief."""
+    brief = design_mod.brief_from_design(doc)
+    t = design_mod.template(doc["template"])
+    batch = {"schema": "level_factory.batch.v0.1", "batch_id": doc["slug"], "name": doc["name"],
+             "seed_base": int(t["batch"]["seed_base"]), "theme_family": t["batch"]["theme_family"],
+             "missions": [brief["mission_id"]]}
+    batch_path = _write_json(folder / "request" / "batch.json", batch)
+    _write_json(folder / "request" / "briefs" / ("%s.json" % brief["mission_id"]), brief)
+    return batch_path, brief
+
+
+def latest_layout_record(folder: Path) -> dict | None:
+    """The newest ``builds/revision_<n>.json`` -- the last generation -- or None."""
+    best = None
+    for p in (folder / "builds").glob("revision_*.json"):
+        stem = p.name[len("revision_"):-len(".json")]
+        if stem.isdigit() and (best is None or int(stem) > best[0]):
+            best = (int(stem), p)
+    return json.loads(best[1].read_text(encoding="utf-8")) if best else None
+
+
 def _design_folder(path: str) -> tuple[Path, dict]:
     got = design_mod.read_design(Path(path))
     if got["problems"]:
@@ -138,15 +161,8 @@ def generate(path: str, events, run_dir: Path, leg=run_leg) -> dict:
     """Generate the design at ``path``'s layouts. Returns the candidates (`candidate_rows`), the workspace, the
     mission, and the build record's path."""
     folder, doc = _design_folder(path)
-    brief = design_mod.brief_from_design(doc)
+    batch_path, brief = write_request(folder, doc)
     mission = brief["mission_id"]
-    t = design_mod.template(doc["template"])
-    batch = {"schema": "level_factory.batch.v0.1", "batch_id": doc["slug"], "name": doc["name"],
-             "seed_base": int(t["batch"]["seed_base"]), "theme_family": t["batch"]["theme_family"],
-             "missions": [mission]}
-    request = folder / "request"
-    batch_path = _write_json(request / "batch.json", batch)
-    _write_json(request / "briefs" / ("%s.json" % mission), brief)
     ws = folder / "workspace"
     log = run_dir / "legs.log"
     cancel = run_dir / "cancel"
