@@ -35,6 +35,11 @@ EXIT_INTERNAL = 5
 EXIT_CANCELLED = 130
 
 
+def _cmd_service_run(args) -> int:
+    from packages.service.worker import run_service
+    return run_service(Path(args.run_dir))
+
+
 def _tool_path_flags(sp: argparse.ArgumentParser) -> None:
     sp.add_argument("--blender", default="", help="Blender's executable, if not found")
     sp.add_argument("--godot", default="", help="Godot 4.7's executable, if not found")
@@ -68,6 +73,14 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("doctor", help="check tools and environment")
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(func=cmd_doctor)
+
+    # THE PANEL'S DOOR (0.243.0, the factory's roadmap 310): one service operation per run directory,
+    # request.json in, events.jsonl and result.json out (`packages.service.worker`). For a client that is
+    # not Python; a person has the commands above.
+    sp = sub.add_parser("service-run", help="run the service request in a run directory "
+                                            "(request.json in; events.jsonl and result.json out)")
+    sp.add_argument("run_dir")
+    sp.set_defaults(func=_cmd_service_run)
 
     sp = sub.add_parser("make", help="one level from a batch, start to finish: plan, the "
                                      "shell leg, pick, approvals, the art leg, export")

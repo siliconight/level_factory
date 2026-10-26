@@ -1,0 +1,18 @@
+; The Gabagool Factory authoring project: open this folder in Godot 4.7 and the Factory panel appears in the
+; right-hand dock. It finds the factory by walking up from here (`docs/AUTHORING_LOOP.md` at the factory root).
+
+config_version=5
+
+[application]
+
+config/name="Gabagool Factory Authoring"
+config/features=PackedStringArray("4.7")
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/gabagool_factory/plugin.cfg")
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"

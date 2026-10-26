@@ -1,3 +1,43 @@
+## [0.243.0] - the Factory panel: a Godot authoring project that checks the setup without a terminal
+
+**The walker, 2026-10-26**: level creation that needs only imagination, Blender and Godot, with no terminal, JSON
+editing or AI (the factory's `docs/AUTHORING_LOOP.md`; roadmap items 310 and 311). This is the first increment: the
+panel can ask the factory something and get a structured answer, and it uses that to check the setup.
+
+### Added
+- **Protocol v1** (`packages/service/worker.py`; `service-run <run dir>`). A run directory gets `request.json`
+  (`gabagool.service.request.v1`). The worker appends `events.jsonl` (`gabagool.service.event.v1`) and writes
+  `result.json` (`gabagool.service.result.v1`) last and atomically. All three are UTF-8; nothing is read from
+  stdout. Every request that cannot run still produces an error result naming why:
+  - missing, malformed, another schema, an unknown key, an unknown operation;
+  - arguments the operation refuses;
+  - an operation that raises (with its traceback).
+
+  The exit code mirrors the result: 0, 2 or 5.
+- **Service operations** (`packages/service/operations.py`), plain functions the CLI, the panel and the desktop
+  app can share:
+  - `discover_installation`: the doctor's checks, each with a plain-language label, a readiness word and, when
+    not ready, the fix; `ready` when nothing blocks; writes nothing;
+  - `configure_installation`: records a chosen Blender or Godot in `factory.local.json` (the file `setup` writes)
+    after checking it is a file, then checks again.
+- **The authoring project and its panel** (`apps/godot/`, Godot 4.7, GL Compatibility). Open the folder and the
+  Gabagool Factory dock appears. It finds the factory by walking up for `factory.manifest.json` (Browse overrides
+  it, kept in the editor settings), checks the setup as it opens, lists each check with what to do, and offers
+  Find Blender / Find Godot. `service_client.gd` starts the factory's own launcher with `OS.create_process` and
+  polls the run directory from a Timer, so the editor never blocks; a worker that exits without a result is
+  reported as such.
+
+### Changed
+- `tests/test_archetype_resolution.py` records `funeral_home` as a known unresolvable archetype: the factory's cold
+  run 9394 brief, refused as it should be (roadmap 309).
+
+### Tests
+- `tests/service/test_worker.py` (fails on 0.242.0): each refused request, an operation that breaks, a successful
+  one's events and UTF-8 data, both operations, and `service-run` as a command.
+- `apps/godot/tests/test_service_client.gd`: headless end to end, the client running real operations.
+  `apps/godot/tests/test_factory_dock.gd`: the dock through the installed launcher. Run with Godot; they are not
+  part of pytest.
+
 ## [0.242.0] - a door's hardware keeps its own UVs, so it merges with the stoop railing
 
 **Measured, cold run 9392** (the factory's `docs/cold_runs/cold_9392/`): Zoo 1.127.0 painted a door's knob the stoop

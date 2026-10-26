@@ -144,6 +144,9 @@ _ROOT = factory_root()
 _KNOWN_UNRESOLVABLE = {
     "mixed_block": "rockay_lot_demo_001, 5 buildings, HAS lot_library; "
                    "its brief lives under read-only rockay-ws",
+    # 0.243.0: the factory's cold run 9394, the first civic brief, refused at the shell leg as it should be --
+    # no preset generates a funeral home (the factory's roadmap 309). The brief is that run's record.
+    "funeral_home": "funeral_row_001, cold run 9394's record; no preset generates one (roadmap 309)",
 }
 
 
