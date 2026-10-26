@@ -31,7 +31,7 @@ TOOL_LABELS = {
 FIXES = {
     "godot": "Choose Godot's executable with Find Godot.",
     "blender": "Choose blender.exe with Find Blender.",
-    "tools_python": "Prepare the tools' Python environment (factory setup --venv); it downloads once.",
+    "tools_python": "Press Prepare environment: it gives the tools a Python of their own (downloads once).",
     "python": "Run the factory with Python 3.11 or newer; Blender's own Python qualifies.",
     "git": "Optional: install Git so builds record each tool's commit.",
     "windows_long_paths": "Keep the project in a short folder such as C:\\gabagool, or turn on Windows long paths.",
@@ -145,7 +145,68 @@ def configure_installation(arguments: dict, events) -> dict:
     return out
 
 
+def _streaming_run(run_dir: Path, events):
+    """A `subprocess.run` stand-in for `interpreter.make_venv` that streams a command's output.
+
+    `make_venv` lets pip print to the terminal "because a download that only reports at the end reads as a hang";
+    the panel has no terminal, so each line goes to the run's ``pip.log`` and to an event instead. A call that asks
+    to capture its output (the `-m venv` step) runs as asked."""
+    import subprocess
+
+    def run(cmd, **kw):
+        if kw.get("capture_output"):
+            return subprocess.run(cmd, **kw)
+        timeout = kw.get("timeout")
+        log = run_dir / "pip.log"
+        with open(log, "a", encoding="utf-8", newline="\n") as out:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                    text=True, encoding="utf-8", errors="replace")
+            for line in proc.stdout:
+                out.write(line)
+                text = line.strip()
+                if text:
+                    events.emit("install", "running", text[:300])
+            code = proc.wait(timeout=timeout)
+        return subprocess.CompletedProcess(cmd, code)
+    return run
+
+
+def prepare_environment(arguments: dict, events) -> dict:
+    """Give the tools a Python of their own: what `factory setup --venv` does, from the panel.
+
+    Makes ``<factory>/.venv`` from the interpreter running this worker -- under the launcher, Blender's own
+    Python for somebody who installed nothing else -- installs `interpreter.PINNED` into it (pip fetches them: THE
+    ONE STEP THAT NEEDS THE NETWORK, and the panel says so before the user presses it), and records it as
+    ``python_executable`` in ``factory.local.json``, keeping the recorded Blender and Godot. pip's output streams as
+    events and into ``pip.log`` in the run directory. Returns `discover_installation`'s answer afterwards, or
+    refuses with `environment_failed` naming the step that failed. No arguments."""
+    import sys
+
+    _no_unknown(arguments, set())
+    from packages.tools import discovery, interpreter
+    root = discovery.factory_root()
+    if root is None:
+        raise RequestError("no_factory", "no %s at or above this Level Factory" % discovery.MANIFEST)
+    run_dir = Path(events.path).parent
+    pins = ", ".join("%s %s" % kv for kv in interpreter.PINNED.items())
+    events.emit("venv", "running", "Making the factory's own Python environment from %s" % sys.executable)
+    events.emit("install", "running", "Downloading and installing %s" % pins)
+    py, err = interpreter.make_venv(root, sys.executable, run=_streaming_run(run_dir, events))
+    if err:
+        raise RequestError("environment_failed", err)
+    try:
+        local = discovery.read_local(root)
+    except ValueError as exc:
+        raise RequestError("installation_unreadable", str(exc)) from None
+    keep = {k: v for k, v in local.items() if k in ("blender_executable", "godot_executable")}
+    keep["python_executable"] = py
+    discovery.write_local(root, keep)
+    events.emit("record", "ok", "The tools now run under %s" % py)
+    return _installation(root, "", "")
+
+
 OPERATIONS = {
     "discover_installation": discover_installation,
     "configure_installation": configure_installation,
+    "prepare_environment": prepare_environment,
 }

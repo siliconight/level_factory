@@ -53,6 +53,7 @@ class EventSink:
     the file sees whole lines or none of the last one; a reader keeps a partial last line for its next poll."""
 
     def __init__(self, run_dir: Path, request_id: str, operation: str) -> None:
+        #: ``events.jsonl``; its folder is the run directory an operation may write its own logs into
         self.path = run_dir / "events.jsonl"
         self.request_id = request_id
         self.operation = operation

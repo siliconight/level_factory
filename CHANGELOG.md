@@ -1,3 +1,28 @@
+## [0.244.0] - the panel prepares the tools' Python itself
+
+**Found by 0.243.0's panel on the walker's machine** (the factory's `docs/AUTHORING_LOOP.md`, increment 2;
+roadmap 311). Run through `factory.cmd`, the factory used Blender's own Python, which cannot import `PIL`,
+`pygltflib` or `jsonschema`. The dock named the problem, but its fix was `factory setup --venv`, a terminal step.
+
+### Added
+- **`prepare_environment`** (`packages/service/operations.py`): `setup --venv` as a service operation.
+  - It makes `<factory>/.venv` from the interpreter running the worker and installs `interpreter.PINNED` into it.
+    This is the one step that needs the network.
+  - It records the result as `python_executable` in `factory.local.json`, keeping the recorded Blender and Godot.
+  - pip's output, which `make_venv` sends to a terminal the panel does not have, streams instead as events and
+    into `pip.log` in the run directory (`_streaming_run`).
+  - A failed step is a refusal (`environment_failed`) naming it, with nothing recorded.
+- **Prepare environment (downloads once)** on the dock. It shows only when the tools' Python is what blocks, and
+  says it downloads before it is pressed. The `tools_python` check's fix now names it.
+
+### Tests
+- `tests/service/test_prepare_environment.py` (fails on 0.243.0), with a fake `make_venv` so nothing downloads:
+  records the environment and keeps Blender and Godot; streams pip's lines to events and `pip.log`; a failed
+  install refuses and records nothing; no arguments taken.
+- `apps/godot/tests/test_factory_dock.gd`: the button shows when the tools' Python blocks and hides when nothing
+  does.
+- Not run for real here: the download itself.
+
 ## [0.243.0] - the Factory panel: a Godot authoring project that checks the setup without a terminal
 
 **The walker, 2026-10-26**: level creation that needs only imagination, Blender and Godot, with no terminal, JSON

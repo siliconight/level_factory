@@ -19,6 +19,7 @@ var _root_edit: LineEdit
 var _status: Label
 var _checks: Tree
 var _check_button: Button
+var _prepare_button: Button
 var _dialog: FileDialog
 var _picking: String = ""
 
@@ -69,6 +70,15 @@ func _build() -> void:
 		actions.add_child(b)
 	add_child(actions)
 
+	# shown only when the tools' Python is what blocks (increment 2): it downloads, so it is never pressed for you
+	_prepare_button = Button.new()
+	_prepare_button.text = "Prepare environment (downloads once)"
+	_prepare_button.tooltip_text = "Gives the factory's tools a Python of their own, the same as `factory setup --venv`. " \
+		+ "It downloads Pillow, pygltflib and jsonschema once; after that the factory works offline."
+	_prepare_button.visible = false
+	_prepare_button.pressed.connect(prepare_environment)
+	add_child(_prepare_button)
+
 	_status = Label.new()
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	add_child(_status)
@@ -118,12 +128,18 @@ func check_setup() -> void:
 	_run("discover_installation", {}, "Checking Blender, Godot and the factory's tools...")
 
 
+## Give the tools a Python of their own (`prepare_environment`); downloads once.
+func prepare_environment() -> void:
+	_run("prepare_environment", {}, "Preparing the tools' Python. This downloads once and can take a few minutes...")
+
+
 func _run(operation: String, arguments: Dictionary, message: String) -> void:
 	var why: String = client.start(operation, arguments)
 	if why != "":
 		_status.text = "Could not start: %s" % why
 		return
 	_check_button.disabled = true
+	_prepare_button.disabled = true
 	_status.text = message
 
 
@@ -135,6 +151,7 @@ func _on_event(event: Dictionary) -> void:
 
 func _on_finished(result: Dictionary) -> void:
 	_check_button.disabled = client.factory_root == ""
+	_prepare_button.disabled = false
 	if result.get("status", "") != "ok":
 		var err: Dictionary = result.get("error", {})
 		_status.text = "The factory could not answer: %s" % err.get("message", "unknown error")
@@ -157,6 +174,7 @@ func show_installation(data: Dictionary) -> void:
 		var fix: Variant = check.get("fix")
 		item.set_text(2, fix if fix is String else "")
 	var blocking: Array = data.get("blocking", [])
+	_prepare_button.visible = blocking.has("tools_python")
 	if data.get("ready", false):
 		_status.text = "Ready: the factory can build levels on this machine."
 	else:

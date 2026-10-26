@@ -37,6 +37,11 @@ func _run() -> void:
 	_check(named, "each row has a readiness and a plain-language name")
 	var status: String = dock._status.text
 	_check(status.begins_with("Ready") or status.begins_with("Not ready"), "the status line says: %s" % status)
+	# increment 2: Prepare environment shows only when the tools' Python is what blocks
+	dock.show_installation({"checks": [], "ready": false, "blocking": ["tools_python"]})
+	_check(dock._prepare_button.visible, "Prepare environment shows when the tools' Python blocks")
+	dock.show_installation({"checks": [], "ready": true, "blocking": []})
+	_check(not dock._prepare_button.visible, "and hides when nothing blocks")
 	dock.queue_free()
 	print("DONE failures=%d" % _failures)
 	quit(1 if _failures else 0)
