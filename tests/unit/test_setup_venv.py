@@ -34,6 +34,10 @@ class _Fake:
                 py.parent.mkdir(parents=True, exist_ok=True)
                 py.write_text("stand-in\n", encoding="utf-8")
             return SimpleNamespace(returncode=self.venv_exit, stdout="", stderr="no venv here")
+        if argv[1:2] == ["-c"]:              # 0.255.0: the licence question, answered as recorded
+            held = {**interpreter.PINNED, **interpreter.CONSTRAINED}
+            return SimpleNamespace(returncode=0, stderr="", stdout=json.dumps(
+                {n: [held[n], lic] for n, lic in interpreter.LICENSES.items()}))
         return SimpleNamespace(returncode=self.pip_exit, stdout="", stderr="")
 
 
@@ -73,7 +77,7 @@ def test_a_real_environment_keeps_what_its_base_carries(tmp_path):
         if argv[1:3] == ["-m", "venv"]:
             return subprocess.run(argv, **kw)
         return SimpleNamespace(returncode=0)        # no network here: pip is not run
-    py, err = interpreter.make_venv(tmp_path, sys.executable, run=run)
+    py, err = interpreter.make_venv(tmp_path, sys.executable, run=run, verify=False)   # nothing installed to check
     assert err == "", err
     # json is the standard library; what matters is that the base's own site-packages are
     # visible, so ask for the location of one the suite itself runs on
@@ -187,7 +191,7 @@ def test_blenders_real_python_starts_clean_in_its_environment(tmp_path):
         if argv[1:3] == ["-m", "venv"]:
             return subprocess.run(argv, **kw)
         return SimpleNamespace(returncode=0)         # no network here: pip is not run
-    py, err = interpreter.make_venv(tmp_path, str(base), run=run)
+    py, err = interpreter.make_venv(tmp_path, str(base), run=run, verify=False)   # nothing installed to check
     assert err == "", err
     ask = [py, "-c", "print('started')"]
     clean = subprocess.run(ask, capture_output=True, text=True, timeout=120)

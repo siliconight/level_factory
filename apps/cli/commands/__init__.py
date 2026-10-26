@@ -231,6 +231,7 @@ def cmd_setup(args) -> int:
         print(f"making {root / interpreter.VENV} from {sys.executable}, with {pins}, and the "
               f"{len(interpreter.CONSTRAINED)} packages they bring held at their versions "
               f"({interpreter.CONSTRAINTS})")
+        print(interpreter.downloads_said())
         py, err = interpreter.make_venv(root, sys.executable)
         if err:
             print(f"setup: {err}", file=sys.stderr)

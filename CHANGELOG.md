@@ -1,3 +1,37 @@
+## [0.255.0] - what setup downloads is said first, and every pin is held to its licence
+
+**The walker's call, 2026-10-26: releases carry no third-party package, and the user's own setup downloads them**
+(the factory's `docs/THIRD_PARTY.md`).
+
+### Added
+- **`interpreter.LICENSES`**: the licence each of the twelve downloaded packages declares in its own metadata
+  (`License-Expression`, else its licence classifier), measured in the factory's `.venv`. Ten are MIT; Pillow is
+  MIT-CMU and wrapt BSD-2-Clause.
+- **The downloads are said before anything downloads**:
+  - `interpreter.downloads()` and `downloads_said()`;
+  - printed by `setup --venv` and emitted by `prepare_environment` before pip runs;
+  - returned by `discover_installation`, and shown on the Setup tab beside Prepare environment whenever the button
+    is offered.
+
+### Changed
+- **`make_venv` refuses an environment that is not as recorded.** After pip, the environment's own interpreter
+  reports each package's installed version and declared licence (`licence_problems`). A package that is missing, at
+  another version, or declaring another licence refuses the environment and names it. Moving a pin onto a release
+  that changed its licence now fails setup instead of shipping. An interpreter that does not answer is a problem,
+  never a pass. `verify=False` is for callers that ran no install.
+
+### Tests
+- `tests/unit/test_setup_licences.py` (all 8 fail on 0.254.0):
+  - every download has a recorded licence and is said;
+  - an environment as recorded is accepted;
+  - a changed licence, a changed version or a missing package refuses it;
+  - a silent interpreter is a problem;
+  - the question reads real metadata;
+  - the factory's own `.venv`, where there is one, is as recorded (here: all twelve).
+- `tests/unit/test_setup_venv.py`'s stand-in answers the question as recorded. Its two real-environment tests, which
+  run no install, pass `verify=False`.
+- `apps/godot/tests/test_dock_downloads.gd`: the downloads are said beside the button, and only with it.
+
 ## [0.254.0] - a job's receipt records everything its cache digest hashes
 
 ### Fixed

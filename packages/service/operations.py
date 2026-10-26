@@ -90,8 +90,11 @@ def _installation(root: Path, blender: str, godot: str) -> dict:
                    "problem": found.gaps.get(key)}
              for key in ("blender_executable", "godot_executable", "python_executable")}
     blocking = [r["name"] for r in rows if r["status"] in ("FAIL", "NOT_CONFIGURED")]
+    from packages.tools import interpreter
     return {"factory_root": str(root), "ready": not blocking, "blocking": blocking, "worst": report.worst,
-            "executables": paths, "checks": rows}
+            "executables": paths, "checks": rows,
+            # what Prepare environment would download, said before anybody presses it (0.255.0)
+            "downloads": interpreter.downloads(), "downloads_said": interpreter.downloads_said()}
 
 
 def discover_installation(arguments: dict, events) -> dict:
@@ -188,9 +191,8 @@ def prepare_environment(arguments: dict, events) -> dict:
     if root is None:
         raise RequestError("no_factory", "no %s at or above this Level Factory" % discovery.MANIFEST)
     run_dir = Path(events.path).parent
-    pins = ", ".join("%s %s" % kv for kv in interpreter.PINNED.items())
     events.emit("venv", "running", "Making the factory's own Python environment from %s" % sys.executable)
-    events.emit("install", "running", "Downloading and installing %s" % pins)
+    events.emit("install", "running", interpreter.downloads_said())
     py, err = interpreter.make_venv(root, sys.executable, run=_streaming_run(run_dir, events))
     if err:
         raise RequestError("environment_failed", err)

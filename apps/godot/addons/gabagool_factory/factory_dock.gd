@@ -26,6 +26,7 @@ var _status: Label
 var _checks: Tree
 var _check_button: Button
 var _prepare_button: Button
+var _downloads: Label
 var _dialog: FileDialog
 var _picking: String = ""
 
@@ -89,10 +90,15 @@ func _build() -> void:
 	_prepare_button = Button.new()
 	_prepare_button.text = "Prepare environment (downloads once)"
 	_prepare_button.tooltip_text = "Gives the factory's tools a Python of their own, the same as `factory setup --venv`. " \
-		+ "It downloads Pillow, pygltflib and jsonschema once; after that the factory works offline."
+		+ "It downloads once; after that the factory works offline."
 	_prepare_button.visible = false
 	_prepare_button.pressed.connect(prepare_environment)
 	_setup.add_child(_prepare_button)
+	# what it downloads and under which licences, read before it is pressed (0.255.0)
+	_downloads = Label.new()
+	_downloads.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_downloads.visible = false
+	_setup.add_child(_downloads)
 
 	_status = Label.new()
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -191,6 +197,8 @@ func show_installation(data: Dictionary) -> void:
 		item.set_text(2, fix if fix is String else "")
 	var blocking: Array = data.get("blocking", [])
 	_prepare_button.visible = blocking.has("tools_python")
+	_downloads.text = str(data.get("downloads_said", ""))
+	_downloads.visible = _prepare_button.visible and _downloads.text != ""
 	if data.get("ready", false):
 		_status.text = "Ready: the factory can build levels on this machine."
 	else:
