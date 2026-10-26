@@ -206,6 +206,7 @@ def generate(path: str, events, run_dir: Path, leg=run_leg) -> dict:
                           "design_revision": doc["revision"], "mission_id": mission, "brief": brief,
                           "workspace": str(ws), "candidates": result["candidates"],
                           "recommended": result["recommended"], "every_out": result["every_out"],
+                          "recommendation": result["recommendation"], "plan_key": result["plan_key"],
                           "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())})
     events.emit("layouts", "ok", "%d layouts" % len(result["candidates"]), progress=1.0)
     return dict(result, workspace=str(ws), mission_id=mission, build_record=str(record),

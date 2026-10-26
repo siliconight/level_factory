@@ -494,6 +494,58 @@ func _on_design(data: Dictionary) -> void:
 	_info.text = text
 	_refresh_designs()
 	_call("describe_template", {"template": design.get("template", "")}, _on_controls)
+	show_standing(data.get("standing", {}))
+
+
+## Show where an opened level stands (`open_design`'s ``standing``): its layouts and the chosen one, the last walk and
+## the last export, each saying when the level has changed since. Clears what the last level showed first, so a level
+## opened after another never shows the other's layouts.
+func show_standing(standing: Dictionary) -> void:
+	layouts = {}
+	walk_result = {}
+	export_result = {}
+	_layouts.clear()
+	_recommendation.text = ""
+	_build_status.text = ""
+	_use.disabled = true
+	_plan.texture = null
+	_plan_note.text = ""
+	_walk_status.text = ""
+	_export_status.text = ""
+	_checklist.clear()
+	var revision := int(design.get("revision", 0))
+	var built: Variant = standing.get("layouts")
+	if built is Dictionary:
+		show_layouts(built)
+		var said := "%d layouts, generated for revision %s." % [built.get("candidates", []).size(),
+			str(built.get("design_revision", "?"))]
+		var chosen: String = str(standing.get("chosen", "")) if standing.get("chosen") != null else ""
+		for row in _layouts.get_root().get_children():
+			var item: TreeItem = row
+			if chosen != "" and item.get_metadata(0) == chosen:
+				item.select(0)
+				said += " Using seed %s, chosen earlier." % chosen.get_slice("_", chosen.get_slice_count("_") - 1)
+		var stale: Array = standing.get("layouts_stale", [])
+		if not stale.is_empty():
+			said += " %s changed since they were generated: generate layouts again." % ", ".join(stale)
+		_build_status.text = said
+		_show_plan()
+	var walked: Variant = standing.get("walk")
+	if walked is Dictionary:
+		_walk_status.text = "Last walked: %s." % str(walked.get("label", "?"))
+		if not walked.get("current", false):
+			_walk_status.text += " The level has changed since: walk it to see revision %d." % revision
+	var exported: Variant = standing.get("export")
+	if exported is Dictionary:
+		show_export(exported)
+		var when := "" if exported.get("current", false) else " The level has changed since that export."
+		if not exported.get("snapshot_present", true):
+			when += " That folder is no longer there."
+		_export_status.text = "Last export, revision %s: %s%s" % [str(exported.get("design_revision", "?")),
+			_export_status.text, when]
+	var problems: Array = standing.get("problems", [])
+	if not problems.is_empty():
+		_build_status.text += " Not read: %s" % "; ".join(problems)
 
 
 func _on_controls(data: Dictionary) -> void:

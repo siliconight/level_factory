@@ -272,6 +272,10 @@ def open_design(arguments: dict, events) -> dict:
     except design.DesignError as exc:
         raise _design_error(exc) from None
     got["brief"] = design.brief_from_design(got["design"]) if not got["problems"] else None
+    # where it stands: layouts, choice, last walk and export, read from the records beside it (0.251.0)
+    if not got["problems"]:
+        from packages.service import standing
+        got["standing"] = standing.standing(Path(got["path"]).parent, got["design"])
     return got
 
 

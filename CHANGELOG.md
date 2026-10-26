@@ -1,3 +1,36 @@
+## [0.251.0] - a reopened level shows where it stands
+
+**Save and reopen** (the factory's roadmap 318; `docs/AUTHORING_LOOP.md`).
+
+### Added
+- **`packages/service/standing.py`**, returned by `open_design` as `standing`. It reads the records each step left
+  beside the design (the worker already reads them for its next step):
+  - the newest layouts, as `generate_layouts` answered, with the controls that rebuild the layout and changed since;
+  - the chosen layout, from the workspace's approvals;
+  - the last walk and the last export, each with `current` true only when it is of the design's revision now, and
+    the export saying whether its snapshot folder is still there.
+  - A missing record is `None`; one that cannot be read is listed in `problems`, not skipped.
+- The build record keeps the recommendation and the plans' key, so reopened layouts read as they did when generated.
+- **The Level tab** fills from the standing on every open: the layouts with the chosen one selected and its plan, the
+  last walk and the last export with its checklist, each saying when the level has changed since.
+
+### Fixed
+- Opening a level after another left the other's layouts, walk and export on the Level tab. Every open now clears
+  them first.
+
+### Measured
+- Opened with this release: the factory's two trial levels read back with their three layouts, the chosen seed 9205,
+  and a current walk and export each. The second's snapshot folder had been deleted, which the standing reports.
+
+### Tests
+- `tests/service/test_standing.py` (fails on 0.250.0):
+  - a new level stands nowhere;
+  - after a walk and export both are current, the chosen layout is read, and a deleted snapshot is reported;
+  - a lighting change makes the walk old and keeps the layouts; a layout change makes them stale;
+  - the newest revision's record wins, and an unreadable record is reported.
+- `apps/godot/tests/test_level_reopen.gd`: the chosen layout selected over the recommended one, old walk and export
+  saying so, and a level opened after another showing none of it.
+
 ## [0.250.0] - each layout's top-down plan on the Level tab
 
 **Roadmap 314's plan images** (the factory's `docs/AUTHORING_LOOP.md`, increment 4's remainder).
