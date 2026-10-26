@@ -349,6 +349,19 @@ def update_design(arguments: dict, events) -> dict:
             "brief": design.brief_from_design(new)}
 
 
+def export_level(arguments: dict, events) -> dict:
+    """Export the walked level as a snapshot (`packages.service.exporting.export`): arguments ``path`` (the design)
+    and ``destination`` (a new or empty folder). Refuses when the current revision was not walked. Returns the
+    snapshot's folder and its checklist -- complete, portable, baked, renderer, findings left."""
+    _no_unknown(arguments, {"path", "destination"})
+    from packages.service import exporting, layouts
+    try:
+        return exporting.export(_text(arguments, "path"), _text(arguments, "destination"), events,
+                                Path(events.path).parent)
+    except (layouts.LayoutError, ValueError) as exc:
+        raise RequestError(getattr(exc, "code", "design_unusable"), str(exc)) from None
+
+
 def walk_level(arguments: dict, events) -> dict:
     """Build the walk preview of the design at ``path``'s chosen layout (`packages.service.walking.walk`): the brief
     and shell-lock gates recorded as the panel's automatic steps, the art and gameplay leg, then the preview with its
@@ -375,4 +388,5 @@ OPERATIONS = {
     "choose_layout": choose_layout,
     "walk_level": walk_level,
     "update_design": update_design,
+    "export_level": export_level,
 }

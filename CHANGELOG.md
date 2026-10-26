@@ -1,3 +1,36 @@
+## [0.249.0] - export a level as a snapshot from the panel
+
+**Increment 7 of the no-AI authoring loop** (the factory's `docs/AUTHORING_LOOP.md`; roadmap 317).
+
+### Added
+- **`export_level`** (`packages/service/exporting.py`). The snapshot is the package the designer walked: the walk's
+  baked, closure-scanned export of the current revision.
+  - It is refused when the current revision was not walked.
+  - The existing `portability-test` runs on it.
+  - It is copied into a new folder the designer chose: into a hidden sibling first, then renamed into place, so a
+    folder that exists is a whole snapshot. A folder that already holds anything is refused, never merged.
+  - `GABAGOOL_SNAPSHOT.json` names the design, its revision, the layout and the package fingerprint;
+    `builds/revision_<n>.export.json` records it beside the design.
+  - Later walks and builds never touch it.
+- **The checklist**, each line read from the file that knows it: package complete (closure scan), opens without the
+  factory (portability report), lights baked (`light_bake.json`), renderer (`project.godot`), findings left on the
+  chosen layout. A missing record is "unknown", never a pass.
+- **Export...** on the Level tab: a folder picker, then the snapshot's place and its checklist, saying how many
+  lines are not ok.
+
+### Measured
+- The trial design's walked revision 2, exported through the worker in 85 s. Every checklist line ok: 2,786 files
+  with none missing or outside, portability PASS with the engine check passed, 2,750 lightmapped, GL Compatibility,
+  0 major findings.
+
+### Tests
+- `tests/service/test_exporting.py` (fails on 0.248.0):
+  - the walked package copied whole with its manifest and checklist;
+  - a missing bake record unknown and a failed portability a problem;
+  - a non-empty folder refused untouched; an unwalked revision refused; a relative destination refused.
+- `apps/godot/tests/test_level_export.gd`: the checklist shown and counted, and the destination chosen as a
+  folder.
+
 ## [0.248.0] - change a level's settings and see the change in the next walk
 
 **Increment 6 of the no-AI authoring loop** (the factory's `docs/AUTHORING_LOOP.md`; roadmap 316).

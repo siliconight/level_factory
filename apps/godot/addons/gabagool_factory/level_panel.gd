@@ -15,6 +15,8 @@ const SUPPORT_TEXT := {"supported": "drives generation", "conditional": "drives 
 	"intent": "intent only: saved, not built"}
 const SUPPORT_COLOURS := {"supported": Color(0.45, 0.8, 0.45), "conditional": Color(0.95, 0.75, 0.3),
 	"intent": Color(0.65, 0.65, 0.7)}
+const EXPORT_COLOURS := {"ok": Color(0.45, 0.8, 0.45), "problem": Color(0.95, 0.35, 0.35),
+	"unknown": Color(0.95, 0.75, 0.3)}
 const LAYOUT_COLOURS := {"valid": Color(0.45, 0.8, 0.45), "needs attention": Color(0.95, 0.75, 0.3),
 	"failed": Color(0.95, 0.35, 0.35), "not checked": Color(0.65, 0.65, 0.7)}
 
@@ -44,6 +46,12 @@ var _walk: Button
 var _walk_status: Label
 var _save: Button
 var _undo: Button
+var _export: Button
+var _export_status: Label
+var _checklist: Tree
+var _export_dialog: FileDialog
+## The last snapshot the factory exported ({} before one).
+var export_result: Dictionary = {}
 ## The controls the form shows, as `describe_template` returned them.
 var _controls: Array = []
 ## The design as it was before the last save, for Undo ({} when there is nothing to undo).
@@ -161,6 +169,28 @@ func _build() -> void:
 	_walk_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	add_child(_walk_status)
 
+	# EXPORT (increment 7, roadmap 317): a snapshot of what was walked, into a new folder
+	_export = Button.new()
+	_export.text = "Export..."
+	_export.tooltip_text = "Copies the level you walked into a new folder you choose, with a checklist. " \
+		+ "Later walks and builds never touch it."
+	_export.pressed.connect(_pick_export_folder)
+	add_child(_export)
+	_export_status = Label.new()
+	_export_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	add_child(_export_status)
+	_checklist = Tree.new()
+	_checklist.columns = 3
+	_checklist.hide_root = true
+	_checklist.custom_minimum_size = Vector2(0, 100)
+	add_child(_checklist)
+	_export_dialog = FileDialog.new()
+	_export_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	_export_dialog.file_mode = FileDialog.FILE_MODE_OPEN_DIR
+	_export_dialog.title = "Choose a new, empty folder for the snapshot"
+	_export_dialog.dir_selected.connect(export_level)
+	add_child(_export_dialog)
+
 
 ## Point the panel at a factory and load its templates and saved levels.
 func set_factory_root(root: String) -> void:
@@ -268,6 +298,41 @@ func show_walk(data: Dictionary) -> void:
 		if pid <= 0:
 			said += " Godot could not be started from %s." % command[0]
 	_walk_status.text = said
+
+
+func _pick_export_folder() -> void:
+	if design_path == "":
+		_info.text = "Open or start a level first."
+		return
+	_export_dialog.popup_centered_ratio(0.6)
+
+
+## Export the walked level as a snapshot into `destination` (`export_level`).
+func export_level(destination: String) -> void:
+	_export_status.text = "Exporting to %s..." % destination
+	_call("export_level", {"path": design_path, "destination": destination}, show_export)
+
+
+## Show an `export_level` answer: where the snapshot is and its checklist.
+func show_export(data: Dictionary) -> void:
+	export_result = data
+	_checklist.clear()
+	var root := _checklist.create_item()
+	var problems := 0
+	for row in data.get("checklist", []):
+		var line: Dictionary = row
+		var item := _checklist.create_item(root)
+		var state: String = line.get("state", "unknown")
+		item.set_text(0, state)
+		item.set_custom_color(0, EXPORT_COLOURS.get(state, Color.WHITE))
+		item.set_text(1, str(line.get("item", "")))
+		item.set_text(2, str(line.get("detail", "")))
+		if state != "ok":
+			problems += 1
+	var said := "Exported to %s." % str(data.get("snapshot", "?"))
+	if problems > 0:
+		said += " %d item(s) on the checklist are not ok: read them before you ship it." % problems
+	_export_status.text = said
 
 
 ## The executable and arguments that open a walk preview, or [] when no Godot is recorded.
