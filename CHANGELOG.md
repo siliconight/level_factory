@@ -1,3 +1,40 @@
+## [0.256.0] - six fixes from the first windowed run of the authoring loop
+
+**The walker ran the loop in the Godot editor, 2026-10-26** (the factory's roadmap 318). Each fix is a defect they hit.
+
+### Fixed
+1. **The progress bar went backwards.** It counted finished jobs over the jobs the index had met so far, and the
+   index meets jobs as the run reaches them.
+   - `run` now records its plan before it dispatches anything: `.level_factory/runs/<mission>.json`, every planned
+     job and the start time.
+   - `layouts.index_progress` counts the jobs finished since that start against that fixed total, and says nothing
+     until this run's plan exists.
+2. **Whole numbers read as decimals** ("revision 1.0", "Seed 9003.0"), because Godot reads every JSON number as a
+   float. `LevelPanel.whole()` prints them as written.
+3. **The Setup tab cut every column off in a narrow dock.** Each check's cells carry their whole text as tooltips,
+   and the readiness column is wide enough for "warning".
+4. **The bar sat at 99% through the walk's last stage and read as stuck.** Every walk stage says "Stage n of m",
+   and a stage that cannot count puts the bar in motion (indeterminate) instead of leaving the last number on it.
+5. **A panel that restarted mid-walk lost the walk.** The walk went on, its result landed where nobody watched, and
+   Stop reached another run.
+   - The service client records the operation it starts (`user://factory_runs/current_<owner>.json`).
+   - The Level tab re-attaches to it on load, after its quick loads: a run still going is followed to its result,
+     and one that finished meanwhile is shown once. Stop still reaches it through its cancel file.
+   - A resumed run is followed by its result file alone, because Godot can only ask about processes it started
+     itself.
+6. **Nothing opened a walk already built.** "Open the last walk" launches the preview the last walk record names,
+   on a reopened level too, without building it again.
+
+### Tests
+- `tests/integration/test_run_progress.py`, through the real CLI on the stub tools (fails on 0.255.0):
+  - `run` records exactly the planned jobs;
+  - progress reads N of N at the end;
+  - a stale plan says nothing;
+  - jobs finished before the run started do not count.
+- `apps/godot/tests/test_panel_numbers.gd`: whole numbers, the moving bar, the Setup tab's tooltips.
+- `apps/godot/tests/test_panel_resume.gd`: a walk that finished while nobody watched is shown at once; a running one
+  is followed, Stop reaches it, and its answer lands; "Open the last walk" appears with a walk record, and only then.
+
 ## [0.255.0] - what setup downloads is said first, and every pin is held to its licence
 
 **The walker's call, 2026-10-26: releases carry no third-party package, and the user's own setup downloads them**

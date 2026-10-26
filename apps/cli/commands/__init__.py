@@ -2645,6 +2645,25 @@ def _forget_plan(ws: Workspace, plan) -> tuple:
     return forgotten, missing
 
 
+def _write_run_plan(ws, mission_id: str, plan) -> Path:
+    """Record what this run is about to do: ``<workspace>/.level_factory/runs/<mission>.json`` -- every planned job
+    and the moment it started (UTC, the format the index stamps ``finished_at`` in). Written once, before the first
+    job is dispatched, so a reader counting progress has the whole total from the start (0.256.0: the Factory
+    panel's bar counted against the jobs the index had met so far, and went backwards as it met more)."""
+    import datetime as _dt
+    import json as _json
+    import os as _os
+    path = ws.jobs_dir.parent / "runs" / f"{mission_id}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(_json.dumps({
+        "schema": "level_factory.run_plan.v1", "mission_id": mission_id,
+        "started_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        "jobs": [j.job_id for j in plan.graph.topological_order()]}, indent=1) + "\n", encoding="utf-8")
+    _os.replace(tmp, path)
+    return path
+
+
 def cmd_run(args) -> int:
     ws = _ws(args)
     index = _open_index(ws)
@@ -2696,6 +2715,7 @@ def cmd_run(args) -> int:
         print(f"  --force: forgot {forgotten} cached job(s); "
               f"{missing} had never been evaluated here")
 
+    _write_run_plan(ws, args.mission_id, plan)
     summary = scheduler.run(plan.graph, job_specs=specs, mission_id=args.mission_id,
                             force=bool(getattr(args, "force", False)))
 

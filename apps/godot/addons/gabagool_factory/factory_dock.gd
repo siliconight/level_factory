@@ -112,7 +112,7 @@ func _build() -> void:
 	_checks.set_column_title(2, "What to do")
 	_checks.column_titles_visible = true
 	_checks.set_column_expand(0, false)
-	_checks.set_column_custom_minimum_width(0, 70)
+	_checks.set_column_custom_minimum_width(0, 84)          # room for "warning" (0.256.0: it read "warnin")
 	_checks.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_setup.add_child(_checks)
 
@@ -191,10 +191,15 @@ func show_installation(data: Dictionary) -> void:
 		var readiness: String = check.get("readiness", "unknown")
 		item.set_text(0, readiness)
 		item.set_custom_color(0, COLOURS.get(readiness, Color.WHITE))
-		item.set_text(1, check.get("label", check.get("name", "")))
-		item.set_tooltip_text(1, check.get("technical", ""))
+		var label: String = str(check.get("label", check.get("name", "")))
+		item.set_text(1, label)
 		var fix: Variant = check.get("fix")
 		item.set_text(2, fix if fix is String else "")
+		# a narrow dock cuts every column off: each cell's whole text is its tooltip (0.256.0)
+		item.set_tooltip_text(0, readiness)
+		var technical: String = str(check.get("technical", ""))
+		item.set_tooltip_text(1, label + ("\n" + technical if technical != "" else ""))
+		item.set_tooltip_text(2, fix if fix is String else "")
 	var blocking: Array = data.get("blocking", [])
 	_prepare_button.visible = blocking.has("tools_python")
 	_downloads.text = str(data.get("downloads_said", ""))

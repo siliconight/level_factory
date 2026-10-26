@@ -62,11 +62,13 @@ var _before_save: Dictionary = {}
 var launch_previews: bool = true
 ## The last walk the factory built for this design ({} before one).
 var walk_result: Dictionary = {}
+var _open_walk: Button
 
 
 func _ready() -> void:
 	name = "Level"
 	client = ServiceClient.new()
+	client.record_name = "level"
 	add_child(client)
 	client.finished.connect(_on_finished)
 	client.event_received.connect(_on_event)
@@ -177,6 +179,12 @@ func _build() -> void:
 	_walk.text = "Walk level"
 	_walk.pressed.connect(walk_level)
 	add_child(_walk)
+	# open the walk already built, without building it again (0.256.0)
+	_open_walk = Button.new()
+	_open_walk.text = "Open the last walk"
+	_open_walk.visible = false
+	_open_walk.pressed.connect(open_last_walk)
+	add_child(_open_walk)
 	_walk_status = Label.new()
 	_walk_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	add_child(_walk_status)
@@ -215,6 +223,9 @@ func set_factory_root(root: String) -> void:
 	var last := _setting(SETTING_LAST)
 	if last != "":
 		open_design(last)
+	# an operation an earlier panel started and did not see finish: re-attach once the quick loads are done
+	_queue.append(["__resume__", {}, Callable()])
+	_next()
 
 
 func _refresh_designs() -> void:
@@ -256,6 +267,9 @@ func _next() -> void:
 	if client.is_running() or _queue.is_empty():
 		return
 	var item: Array = _queue.pop_front()
+	if item[0] == "__resume__":
+		_resume()
+		return
 	_pending = item[2]
 	var why: String = client.start(item[0], item[1])
 	if why != "":
@@ -293,9 +307,41 @@ func walk_level() -> void:
 	_call("walk_level", {"path": design_path}, show_walk)
 
 
+## Re-attach to an operation an earlier panel started (`ServiceClient.resume`), routing its answer where it would
+## have gone and saying so meanwhile.
+func _resume() -> void:
+	var operation: String = client.resume()          # client is a Node: annotate, never infer
+	var handlers := {"walk_level": show_walk, "generate_layouts": show_layouts, "export_level": show_export,
+		"choose_layout": _on_chosen}
+	if operation == "":
+		_next()
+		return
+	_pending = handlers.get(operation, Callable())
+	_stop.disabled = false
+	if operation == "walk_level" or operation == "generate_layouts":
+		_walk.disabled = true
+		_generate.disabled = true
+	var said := "Still running from before the panel restarted: %s. It carries on; Stop still stops it." % operation
+	if operation == "walk_level":
+		_walk_status.text = said
+	else:
+		_build_status.text = said
+
+
+## Open the preview the last walk built (`walk_result`), without building it again.
+func open_last_walk() -> void:
+	var command := preview_command(walk_result)
+	if command.is_empty():
+		_walk_status.text = "No walk to open yet: walk the level first."
+		return
+	if launch_previews and OS.create_process(command[0], command[1]) <= 0:
+		_walk_status.text = "Godot could not be started from %s." % command[0]
+
+
 ## Show a `walk_level` answer and, unless turned off, open the preview.
 func show_walk(data: Dictionary) -> void:
 	walk_result = data
+	_open_walk.visible = not preview_command(data).is_empty()
 	var check: String = str(data.get("self_check", ""))
 	var said := "Walking %s." % str(data.get("label", "?"))
 	if check == "findings":
@@ -380,7 +426,7 @@ func show_layouts(data: Dictionary) -> void:
 	for c in data.get("candidates", []):
 		var row: Dictionary = c
 		var item := _layouts.create_item(root)
-		item.set_text(0, "Seed %s" % str(row.get("seed", "?")))
+		item.set_text(0, "Seed %s" % whole(row.get("seed", "?")))
 		item.set_metadata(0, row.get("candidate_id", ""))
 		item.set_metadata(1, row)
 		var state: String = row.get("state", "?")
@@ -403,6 +449,14 @@ func show_layouts(data: Dictionary) -> void:
 	_show_plan()
 
 
+## A number as people write it: Godot reads every JSON number as a float, so a revision or a seed arrives as 1.0
+## or 9003.0 (0.256.0). Whole numbers lose the ".0"; anything else is shown as it is.
+static func whole(value: Variant) -> String:
+	if value is float and is_equal_approx(value, roundf(value)):
+		return str(int(value))
+	return str(value)
+
+
 ## Show the selected layout's plan: the SVG `generate_layouts` drew from that layout's own build, or why there is none.
 func _show_plan() -> void:
 	_plan.texture = null
@@ -421,13 +475,13 @@ func _show_plan() -> void:
 		_plan_note.text = "The plan at %s cannot be shown (error %d)." % [path, err]
 		return
 	_plan.texture = ImageTexture.create_from_image(image)
-	_plan_note.text = "Seed %s. %s" % [str(row.get("seed", "?")), str(layouts.get("plan_key", ""))]
+	_plan_note.text = "Seed %s. %s" % [whole(row.get("seed", "?")), str(layouts.get("plan_key", ""))]
 
 
 func _on_chosen(data: Dictionary) -> void:
 	var chosen: Dictionary = data.get("chosen", {})
 	_build_status.text = "Using seed %s. Choosing records your choice; it does not sign off the layout's quality." \
-		% str(chosen.get("seed", "?"))
+		% whole(chosen.get("seed", "?"))
 
 
 func _on_event(event: Dictionary) -> void:
@@ -441,10 +495,15 @@ func _on_event(event: Dictionary) -> void:
 		else:
 			_walk_status.text = msg
 	if event.has("progress"):
+		_progress.indeterminate = false
 		_progress.value = float(event["progress"])
+	elif event.get("status", "") == "running":
+		# a stage that cannot count shows motion, never the last stage's number (0.256.0: 99% read as stuck)
+		_progress.indeterminate = true
 
 
 func _on_finished(result: Dictionary) -> void:
+	_progress.indeterminate = false
 	var done := _pending
 	_pending = Callable()
 	_generate.disabled = false
@@ -472,7 +531,7 @@ func _on_designs(data: Dictionary) -> void:
 	_design_paths.clear()
 	for d in data.get("designs", []):
 		var row: Dictionary = d
-		var label := "%s (revision %s)" % [row.get("name", "?"), str(row.get("revision", "?"))]
+		var label := "%s (revision %s)" % [row.get("name", "?"), whole(row.get("revision", "?"))]
 		if row.get("problem") != null:
 			label += " -- cannot be used: %s" % row.get("problem")
 		_designs.add_item(label)
@@ -485,7 +544,7 @@ func _on_design(data: Dictionary) -> void:
 	_set_setting(SETTING_LAST, design_path)
 	var problems: Array = data.get("problems", [])
 	var unknown: Array = data.get("unknown_fields", [])
-	var text := "%s -- revision %s, from %s. Saved at %s." % [design.get("name", "?"), str(design.get("revision", "?")),
+	var text := "%s -- revision %s, from %s. Saved at %s." % [design.get("name", "?"), whole(design.get("revision", "?")),
 		design.get("template", "?"), design_path]
 	if not problems.is_empty():
 		text += "\nCannot be built: %s" % "; ".join(problems)
@@ -518,7 +577,7 @@ func show_standing(standing: Dictionary) -> void:
 	if built is Dictionary:
 		show_layouts(built)
 		var said := "%d layouts, generated for revision %s." % [built.get("candidates", []).size(),
-			str(built.get("design_revision", "?"))]
+			whole(built.get("design_revision", "?"))]
 		var chosen: String = str(standing.get("chosen", "")) if standing.get("chosen") != null else ""
 		for row in _layouts.get_root().get_children():
 			var item: TreeItem = row
@@ -531,7 +590,10 @@ func show_standing(standing: Dictionary) -> void:
 		_build_status.text = said
 		_show_plan()
 	var walked: Variant = standing.get("walk")
+	_open_walk.visible = false
 	if walked is Dictionary:
+		walk_result = walked
+		_open_walk.visible = not preview_command(walked).is_empty()
 		_walk_status.text = "Last walked: %s." % str(walked.get("label", "?"))
 		if not walked.get("current", false):
 			_walk_status.text += " The level has changed since: walk it to see revision %d." % revision
@@ -541,7 +603,7 @@ func show_standing(standing: Dictionary) -> void:
 		var when := "" if exported.get("current", false) else " The level has changed since that export."
 		if not exported.get("snapshot_present", true):
 			when += " That folder is no longer there."
-		_export_status.text = "Last export, revision %s: %s%s" % [str(exported.get("design_revision", "?")),
+		_export_status.text = "Last export, revision %s: %s%s" % [whole(exported.get("design_revision", "?")),
 			_export_status.text, when]
 	var problems: Array = standing.get("problems", [])
 	if not problems.is_empty():
@@ -666,12 +728,12 @@ func _on_saved(data: Dictionary, before: Dictionary) -> void:
 	var rebuilds: Array = data.get("rebuilds", [])
 	if rebuilds.has("layout"):
 		_walk_status.text = "Saved revision %s. This change makes new layouts: generate layouts again, then choose one." \
-			% str(design.get("revision"))
+			% whole(design.get("revision"))
 	elif rebuilds.is_empty():
-		_walk_status.text = "Saved revision %s. Nothing to rebuild: it records intent." % str(design.get("revision"))
+		_walk_status.text = "Saved revision %s. Nothing to rebuild: it records intent." % whole(design.get("revision"))
 	else:
 		_walk_status.text = "Saved revision %s. Walk the level to see it (rebuilds the %s)." \
-			% [str(design.get("revision")), ", ".join(rebuilds)]
+			% [whole(design.get("revision")), ", ".join(rebuilds)]
 
 
 ## A control's value as the form shows it: an option's label, yes/no, a list joined.

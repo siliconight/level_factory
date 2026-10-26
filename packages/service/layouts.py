@@ -108,23 +108,32 @@ def _write_json(path: Path, data) -> Path:
     return path
 
 
-def index_progress(ws: Path, mission: str, events, stage: str) -> None:
-    """Report how many of the mission's planned jobs have finished, read from the workspace's job index. A read
-    that races the writer is skipped; the next poll asks again."""
+def index_progress(ws: Path, mission: str, events, stage: str, since: float = 0.0) -> None:
+    """Report how far the running ``run`` has got: of the jobs IT PLANNED (``runs/<mission>.json``, which it writes
+    before dispatching anything), how many have finished SINCE IT STARTED, read from the job index. The total is
+    fixed when the run starts, so the bar only moves forward (0.256.0: it counted against the jobs the index had met
+    so far, and the walker watched it go backwards). A plan written before ``since`` -- the epoch seconds this leg
+    started -- is the last run's, and a job finished before the run started is the last run's: neither counts, and
+    nothing is said until this run's plan exists. A read that races a writer is skipped; the next poll asks again."""
     from packages.core import states
     from packages.project_store.index import Index
-    db = ws / ".level_factory" / "index.sqlite"
-    if not db.exists():
-        return
+    internal = ws / ".level_factory"
+    record, db = internal / "runs" / ("%s.json" % mission), internal / "index.sqlite"
     try:
+        if record.stat().st_mtime < since or not db.exists():
+            return
+        plan = json.loads(record.read_text(encoding="utf-8"))
+        planned, started = set(plan["jobs"]), str(plan["started_at"])
         idx = Index(db)
         jobs = idx.jobs_for_mission(mission)
         idx.close()
     except Exception:
         return
-    if jobs:
-        finished = sum(1 for j in jobs if j.status in states.JOB_TERMINAL)
-        events.emit(stage, "running", "%d of %d steps done" % (finished, len(jobs)), progress=finished / len(jobs))
+    if planned:
+        done = sum(1 for j in jobs if j.job_id in planned and j.status in states.JOB_TERMINAL
+                   and str(j.finished_at or "") >= started)
+        events.emit(stage, "running", "%d of %d build steps done" % (done, len(planned)),
+                    progress=done / len(planned))
 
 
 def write_request(folder: Path, doc: dict) -> tuple[Path, dict]:
@@ -174,13 +183,16 @@ def generate(path: str, events, run_dir: Path, leg=run_leg) -> dict:
              ("layouts", ["-C", str(ws), "run", mission])]
     done = []
 
+    leg_started = time.time()
+
     def progress():
-        index_progress(ws, mission, events, "layouts")
+        index_progress(ws, mission, events, "layouts", since=leg_started)
 
     for i, (name, argv) in enumerate(legs):
         events.emit(name, "running", {"init": "Making the level's workspace", "import": "Reading the level",
                                       "plan": "Planning the layouts", "layouts": "Building the layouts"}[name],
                     progress=i / len(legs) if name != "layouts" else None)
+        leg_started = time.time()
         try:
             code = leg(argv, log, cancel_file=cancel, on_poll=progress if name == "layouts" else None)
         except LayoutError as exc:

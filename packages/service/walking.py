@@ -72,9 +72,10 @@ def walk(path: str, events, run_dir: Path, leg=layouts.run_leg) -> dict:
             "art": "Dressing and lighting the level. This takes several minutes.",
             "preview": "Building the walk preview and checking it"}
     done, verdict = [], None
-    for name, argv in legs:
-        events.emit(name, "running", said[name])
-        poll = (lambda: layouts.index_progress(ws, mission, events, "art")) if name == "art" else None
+    for i, (name, argv) in enumerate(legs):
+        events.emit(name, "running", "Stage %d of %d: %s" % (i + 1, len(legs), said[name]))
+        poll = ((lambda since=time.time(): layouts.index_progress(ws, mission, events, "art", since=since))
+                if name == "art" else None)
         try:
             code = leg(argv, log, cancel_file=cancel, on_poll=poll)
         except layouts.LayoutError as exc:

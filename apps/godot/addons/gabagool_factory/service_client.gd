@@ -26,6 +26,12 @@ var factory_root: String = ""
 ## beside the manifest; ordinary use leaves it empty.
 var launch_prefix: PackedStringArray = PackedStringArray()
 var run_dir: String = ""
+## When set, the operation this client starts is recorded in `user://factory_runs/current_<record_name>.json` until
+## it finishes, so a panel that restarts can `resume()` it (0.256.0). Empty records nothing.
+var record_name: String = ""
+## A resumed run was started by another instance of the panel: Godot can only ask after processes it started
+## itself, so a resumed run is followed by its result file alone.
+var _resumed: bool = false
 var _pid: int = -1
 var _timer: Timer
 var _events_offset: int = 0
@@ -86,8 +92,44 @@ func start(operation: String, arguments: Dictionary = {}) -> String:
 	_partial = ""
 	_exited_at = -1.0
 	_running = true
+	_resumed = false
+	_record({"run_dir": run_dir, "operation": operation, "started": Time.get_datetime_string_from_system()})
 	_timer.start()
 	return ""
+
+
+func _record_path() -> String:
+	return ProjectSettings.globalize_path("user://factory_runs").path_join("current_%s.json" % record_name)
+
+
+func _record(data: Dictionary) -> void:
+	if record_name == "":
+		return
+	var f := FileAccess.open(_record_path(), FileAccess.WRITE)
+	if f != null:
+		f.store_string(JSON.stringify(data))
+		f.close()
+
+
+## Re-attach to the operation an earlier instance of this panel started and did not see finish. Returns its
+## operation name ("" when there is none): `finished` then fires once, with its result -- at once when it finished
+## while nobody watched, else when it does. Stop still reaches it through its cancel file.
+func resume() -> String:
+	if _running or record_name == "" or not FileAccess.file_exists(_record_path()):
+		return ""
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(_record_path()))
+	if not (parsed is Dictionary) or not DirAccess.dir_exists_absolute(str(parsed.get("run_dir", ""))):
+		DirAccess.remove_absolute(_record_path())
+		return ""
+	run_dir = str(parsed["run_dir"])
+	_pid = -1
+	_events_offset = 0
+	_partial = ""
+	_exited_at = -1.0
+	_running = true
+	_resumed = true
+	_timer.start()
+	return str(parsed.get("operation", ""))
 
 
 ## The executable and arguments that run `service-run` through the factory's launcher.
@@ -108,7 +150,7 @@ func _poll() -> void:
 	if FileAccess.file_exists(result_path):
 		_finish(_read_result(result_path))
 		return
-	if not OS.is_process_running(_pid):
+	if not _resumed and not OS.is_process_running(_pid):
 		var now := Time.get_ticks_msec() / 1000.0
 		if _exited_at < 0.0:
 			_exited_at = now
@@ -160,4 +202,7 @@ func _finish(result: Dictionary) -> void:
 	_read_events()
 	_timer.stop()
 	_running = false
+	_resumed = false
+	if record_name != "" and FileAccess.file_exists(_record_path()):
+		DirAccess.remove_absolute(_record_path())
 	finished.emit(result)
