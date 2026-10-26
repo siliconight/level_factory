@@ -626,12 +626,22 @@ class Scheduler:
         # on every evaluation including cache hits. When a cache hit looks
         # suspicious ("but I changed the slots!"), the receipt shows exactly
         # which input hashes matched instead of leaving it to archaeology.
+        #
+        # THE WHOLE FINGERPRINT (0.254.0): ``fingerprint`` is every component the digest hashes. The receipt used to
+        # carry six of the twelve, and a job re-ran on the panel's trial level with all six identical. When the
+        # digest moves, the last receipt is kept as ``fingerprint.previous.json`` so `packages.jobs.receipts` can
+        # say which component moved.
         try:
             import datetime as _dt
             import json as _json
+            from packages.jobs import receipts as _receipts
             receipt_dir = self.jobs_dir / job.job_id
             receipt_dir.mkdir(parents=True, exist_ok=True)
-            (receipt_dir / "fingerprint.last.json").write_text(_json.dumps({
+            last = receipt_dir / _receipts.LAST
+            before = _receipts.read(last)
+            if before is not None and before.get("digest") != job.build_fingerprint:
+                last.replace(receipt_dir / _receipts.PREVIOUS)
+            last.write_text(_json.dumps({
                 "digest": job.build_fingerprint,
                 "adapter_version": adapter.adapter_version,
                 # The tool revision the artifact came from. Carries a
@@ -641,6 +651,7 @@ class Scheduler:
                 "tool_version": probe.tool_version,
                 "repository_commit": probe.repository_commit,
                 "inputs": raw_inputs,
+                "fingerprint": fp.as_dict(),
                 "evaluated_utc": _dt.datetime.now(
                     _dt.timezone.utc).isoformat(),
             }, indent=2, sort_keys=True, default=str), encoding="utf-8")

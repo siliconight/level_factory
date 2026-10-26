@@ -1,3 +1,28 @@
+## [0.254.0] - a job's receipt records everything its cache digest hashes
+
+### Fixed
+- **`fingerprint.last.json` now records the whole fingerprint.** The scheduler's receipt says it records what a cache
+  decision was based on, but it carried the adapter version, tool version, repository commit and inputs. The digest
+  also hashes the executable versions, normalised arguments, declared environment, upstream artifact hashes, seed
+  and output contract.
+  - A job could re-run with every recorded input byte-identical and nothing on disk saying why. The factory's panel
+    trial level did, three times (the factory's `docs/findings/rerun_receipts/`).
+  - The receipt now carries `fingerprint`: `BuildFingerprint.as_dict()`, every component and the digest.
+
+### Added
+- **`fingerprint.previous.json`**: when a job's digest moves, its last receipt is kept beside the new one.
+- **`packages/jobs/receipts.py`**: `differences(job_dir)` names each component that moved between the two. It returns
+  `None` when either receipt predates this release, because those cannot answer.
+
+### Tests
+- `tests/unit/test_receipt_names_every_digest_input.py`, driving the real scheduler with a fake adapter:
+  - the digest is recomputed from the receipt alone and matches;
+  - a cache hit keeps one receipt;
+  - a re-run caused only by an interpreter change keeps the previous receipt and names `executable_versions` as what
+    moved;
+  - receipts written before this release cannot answer.
+  - Fails on 0.253.0. With only the scheduler change withheld, the two tests that need it fail.
+
 ## [0.253.0] - the Level Standard's designer brief on the Level tab
 
 **The walker's designer brief (section 16 of `docs/LEVEL_STANDARD.md`'s spine) as controls**, each saying truthfully
