@@ -46,6 +46,20 @@ func is_running() -> bool:
 	return _running
 
 
+## Ask the running operation to stop: protocol v1's `cancel` file in its run directory. The operation ends its
+## processes and finishes with a `cancelled` error result; `finished` still fires once. Returns false when nothing
+## is running.
+func cancel() -> bool:
+	if not _running or run_dir == "":
+		return false
+	var f := FileAccess.open(run_dir.path_join("cancel"), FileAccess.WRITE)
+	if f == null:
+		return false
+	f.store_string("cancelled from the panel")
+	f.close()
+	return true
+
+
 ## Start `operation` with `arguments`. Returns "" when started, else why not. Emits `finished` exactly once per
 ## started operation, with the worker's result or a client-side error result of the same shape.
 func start(operation: String, arguments: Dictionary = {}) -> String:

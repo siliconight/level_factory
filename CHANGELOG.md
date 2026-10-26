@@ -1,3 +1,40 @@
+## [0.246.0] - generate a level's layouts and choose one from the panel
+
+**Increment 4 of the no-AI authoring loop** (the factory's `docs/AUTHORING_LOOP.md`; roadmap 314).
+
+### Added
+- **`generate_layouts`** (`packages/service/layouts.py`). It runs the legs `make` runs and the cold runs proved,
+  each its own process: `init` once, `batch create`, `plan`, the shell `run`.
+  - What came of them is read from structured sources, never their printed text:
+    - progress from the job index while the shell leg runs;
+    - each layout from `pick.candidates`: its majors, route completion, grade, why it is out, whether a crew body
+      walked it.
+  - Each layout gets one of the plan's states: valid, needs attention, failed, not checked. When every layout
+    failed, the recommendation says so and is not one.
+  - The legs' output goes to `legs.log` in the run directory.
+  - The request is recorded with the build:
+    - the batch and the brief derived from the design are written to the design's `request/` and imported from
+      there;
+    - `builds/revision_<n>.json` names the design revision, the brief and the layouts.
+  - Stop: protocol v1's `cancel` file ends the running leg's process tree (`packages.jobs.runner`) and refuses with
+    `cancelled`, naming what finished. Finished steps stay cached.
+- **`choose_layout`**. It records the `candidate_selected` gate, by `panel`, noted as a choice and not a review.
+- **The Level tab's layouts**: Generate layouts, a progress bar, Stop, the list with each layout's state and why,
+  the recommendation, Use this layout. The client gains `cancel()`.
+
+### Measured
+- A real Restaurant Row design generated through the worker in 1 min 40 s. All three layouts valid: seed 9003
+  PASS 90, 9104 PASS_WITH_TUNING 89, 9205 PASS 100 (recommended). 95 progress events.
+
+### Tests
+- `tests/service/test_layouts.py` (fails on 0.245.0), with a fake leg runner that leaves what a shell leg leaves:
+  - states read from the build; the request and build record written;
+  - nothing recommended when every layout failed;
+  - Stop naming what finished; a failed leg refused by name;
+  - the choice recorded and a stranger refused.
+- `apps/godot/tests/test_level_layouts.gd`: the layouts list, the honest recommendation, the selection, and Stop
+  writing the cancel file.
+
 ## [0.245.0] - a level is a saved design, and the panel's form tells the truth
 
 **Increment 3 of the no-AI authoring loop** (the factory's `docs/AUTHORING_LOOP.md`; roadmap 312 and 313).
