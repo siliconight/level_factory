@@ -9,7 +9,7 @@ description = "Production/orchestration layer over the Siliconight level-buildin
 requires-python = ">=3.11"
 authors = [{ name = "Siliconight" }]
 readme = "README.md"
-license = { text = "Proprietary" }
+license = { text = "MIT" }
 dependencies = []
 
 [project.optional-dependencies]
