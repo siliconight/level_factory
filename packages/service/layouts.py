@@ -108,6 +108,25 @@ def _write_json(path: Path, data) -> Path:
     return path
 
 
+def index_progress(ws: Path, mission: str, events, stage: str) -> None:
+    """Report how many of the mission's planned jobs have finished, read from the workspace's job index. A read
+    that races the writer is skipped; the next poll asks again."""
+    from packages.core import states
+    from packages.project_store.index import Index
+    db = ws / ".level_factory" / "index.sqlite"
+    if not db.exists():
+        return
+    try:
+        idx = Index(db)
+        jobs = idx.jobs_for_mission(mission)
+        idx.close()
+    except Exception:
+        return
+    if jobs:
+        finished = sum(1 for j in jobs if j.status in states.JOB_TERMINAL)
+        events.emit(stage, "running", "%d of %d steps done" % (finished, len(jobs)), progress=finished / len(jobs))
+
+
 def _design_folder(path: str) -> tuple[Path, dict]:
     got = design_mod.read_design(Path(path))
     if got["problems"]:
@@ -140,21 +159,7 @@ def generate(path: str, events, run_dir: Path, leg=run_leg) -> dict:
     done = []
 
     def progress():
-        from packages.core import states
-        from packages.project_store.index import Index
-        db = ws / ".level_factory" / "index.sqlite"
-        if not db.exists():
-            return
-        try:
-            idx = Index(db)
-            jobs = idx.jobs_for_mission(mission)
-            idx.close()
-        except Exception:  # a read racing the writer: the next poll asks again
-            return
-        if jobs:
-            finished = sum(1 for j in jobs if j.status in states.JOB_TERMINAL)
-            events.emit("layouts", "running", "%d of %d steps done" % (finished, len(jobs)),
-                        progress=finished / len(jobs))
+        index_progress(ws, mission, events, "layouts")
 
     for i, (name, argv) in enumerate(legs):
         events.emit(name, "running", {"init": "Making the level's workspace", "import": "Reading the level",

@@ -1,3 +1,37 @@
+## [0.247.0] - walk the chosen layout from the panel
+
+**Increment 5 of the no-AI authoring loop** (the factory's `docs/AUTHORING_LOOP.md`; roadmap 315).
+
+### Added
+- **`walk_level`** (`packages/service/walking.py`). The legs `make` runs after its pick, then `walk`, each its own
+  process:
+  - the brief and shell-lock gates, recorded by `panel` and noted as automatic steps, not reviews; the choice of
+    layout must already be the designer's;
+  - `run --art --gameplay`, with progress from the job index (`layouts.index_progress`, now shared with
+    generation);
+  - `walk` without `--play`: the export into the workspace's own `exports/`, the preview project, its import, and
+    its traversal self-check.
+
+  The worker opens no window; it returns the preview's folder and the workspace's Godot. The result names the
+  design revision and layout, and `builds/revision_<n>.walk.json` records them with the self-check's verdict. A
+  preview is never an accepted export (roadmap 317 copies a snapshot out of the workspace).
+- **Walk level** on the Level tab. It shows what the walk is of and the self-check's verdict, then opens the
+  preview with `godot --path <preview>`, or says where it is when no Godot is recorded.
+
+### Measured
+- The 0.246.0 trial design's chosen layout (seed 9205), walked through the worker in 8 min 42 s: art, lighting and
+  gameplay, an export with a light bake (141 models lightmapped, 65.5 s), the preview built and its self-check
+  passed. It is named "Panel Trial, revision 1, layout seed 9205".
+
+### Tests
+- `tests/service/test_walking.py` (fails on 0.246.0):
+  - the legs in order; the gates by `panel`, not reviews; no `--play`;
+  - the verdict, revision and layout named, and the walk recorded;
+  - a self-check with findings still hands the preview over;
+  - no layouts and no choice refused before anything runs; a failed art leg refused by name.
+- `apps/godot/tests/test_level_walk.gd`: the walk's label and verdict, and the command that opens the preview,
+  with no window opened.
+
 ## [0.246.0] - generate a level's layouts and choose one from the panel
 
 **Increment 4 of the no-AI authoring loop** (the factory's `docs/AUTHORING_LOOP.md`; roadmap 314).

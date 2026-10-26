@@ -323,6 +323,19 @@ def choose_layout(arguments: dict, events) -> dict:
         raise RequestError(getattr(exc, "code", "design_unusable"), str(exc)) from None
 
 
+def walk_level(arguments: dict, events) -> dict:
+    """Build the walk preview of the design at ``path``'s chosen layout (`packages.service.walking.walk`): the brief
+    and shell-lock gates recorded as the panel's automatic steps, the art and gameplay leg, then the preview with its
+    traversal self-check. Returns the preview's folder and the Godot to open it with, named by design revision and
+    layout. Opens no window."""
+    _no_unknown(arguments, {"path"})
+    from packages.service import layouts, walking
+    try:
+        return walking.walk(_text(arguments, "path"), events, Path(events.path).parent)
+    except (layouts.LayoutError, ValueError) as exc:
+        raise RequestError(getattr(exc, "code", "design_unusable"), str(exc)) from None
+
+
 OPERATIONS = {
     "discover_installation": discover_installation,
     "configure_installation": configure_installation,
@@ -334,4 +347,5 @@ OPERATIONS = {
     "list_designs": list_designs,
     "generate_layouts": generate_layouts,
     "choose_layout": choose_layout,
+    "walk_level": walk_level,
 }

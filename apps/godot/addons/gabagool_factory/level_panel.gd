@@ -40,6 +40,12 @@ var _build_status: Label
 var _recommendation: Label
 var _layouts: Tree
 var _use: Button
+var _walk: Button
+var _walk_status: Label
+## Open the preview's window when a walk is ready. A test turns it off.
+var launch_previews: bool = true
+## The last walk the factory built for this design ({} before one).
+var walk_result: Dictionary = {}
 
 
 func _ready() -> void:
@@ -127,6 +133,15 @@ func _build() -> void:
 	_use.pressed.connect(use_layout)
 	add_child(_use)
 
+	# WALK (increment 5, roadmap 315)
+	_walk = Button.new()
+	_walk.text = "Walk level"
+	_walk.pressed.connect(walk_level)
+	add_child(_walk)
+	_walk_status = Label.new()
+	_walk_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	add_child(_walk_status)
+
 
 ## Point the panel at a factory and load its templates and saved levels.
 func set_factory_root(root: String) -> void:
@@ -204,6 +219,47 @@ func generate_layouts() -> void:
 	_call("generate_layouts", {"path": design_path}, show_layouts)
 
 
+## Build the chosen layout's walk preview (`walk_level`) and open it.
+func walk_level() -> void:
+	if design_path == "":
+		_info.text = "Open or start a level first."
+		return
+	_walk.disabled = true
+	_generate.disabled = true
+	_stop.disabled = false
+	_progress.value = 0.0
+	_walk_status.text = "Building the walk: dressing, lighting and a self-check. This takes several minutes."
+	_call("walk_level", {"path": design_path}, show_walk)
+
+
+## Show a `walk_level` answer and, unless turned off, open the preview.
+func show_walk(data: Dictionary) -> void:
+	walk_result = data
+	var check: String = str(data.get("self_check", ""))
+	var said := "Walking %s." % str(data.get("label", "?"))
+	if check == "findings":
+		said += " Its self-check found something: walk it and see."
+	elif check == "passed":
+		said += " Its self-check passed."
+	var command := preview_command(data)
+	if command.is_empty():
+		said += " Godot is not recorded for this level's workspace; open %s in Godot." % str(data.get("preview", ""))
+	elif launch_previews:
+		var pid := OS.create_process(command[0], command[1])
+		if pid <= 0:
+			said += " Godot could not be started from %s." % command[0]
+	_walk_status.text = said
+
+
+## The executable and arguments that open a walk preview, or [] when no Godot is recorded.
+static func preview_command(data: Dictionary) -> Array:
+	var godot := str(data.get("godot", ""))
+	var preview := str(data.get("preview", ""))
+	if godot == "" or preview == "":
+		return []
+	return [godot, PackedStringArray(["--path", preview])]
+
+
 ## Ask the running build to stop.
 func stop() -> void:
 	if client.cancel():
@@ -256,11 +312,15 @@ func _on_chosen(data: Dictionary) -> void:
 
 
 func _on_event(event: Dictionary) -> void:
-	if event.get("operation", "") != "generate_layouts":
+	var operation: String = event.get("operation", "")
+	if operation != "generate_layouts" and operation != "walk_level":
 		return
 	var msg: String = event.get("message", "")
 	if msg != "":
-		_build_status.text = msg
+		if operation == "generate_layouts":
+			_build_status.text = msg
+		else:
+			_walk_status.text = msg
 	if event.has("progress"):
 		_progress.value = float(event["progress"])
 
@@ -270,6 +330,7 @@ func _on_finished(result: Dictionary) -> void:
 	_pending = Callable()
 	_generate.disabled = false
 	_stop.disabled = true
+	_walk.disabled = false
 	if result.get("status", "") != "ok":
 		var err: Dictionary = result.get("error", {}) if result.get("error") is Dictionary else {}
 		_info.text = "The factory could not do that: %s" % err.get("message", "unknown error")
