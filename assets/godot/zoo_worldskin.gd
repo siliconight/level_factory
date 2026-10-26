@@ -45,6 +45,21 @@ const KIT_PREFIXES: Array = ["wall_", "wallEnd_", "window_", "doorway_",
 ## `uv1_world_triplanar true` (`patches/lf_empties/pane_census.gd`).
 const LIT_FACE_SUFFIXES: Array = ["_Lens", "_Diffuser", "_Face"]
 
+## A DOOR'S HARDWARE KEEPS ITS OWN UVs (0.242.0). A mesh whose node name ends
+## with one of these is never world-projected by `_apply`. Zoo 1.127.0 paints
+## a door's knob and plate (`{root}_LeafHardware`, `_arch.py`) the stoop
+## railing's black iron so that on a front the two are one material -- but the
+## knob arrives inside a `doorway_` kit module and the railing in a `prop_`, so
+## this pass projected the one and left the other, and `merge_empties.gd`, whose
+## key reads `uv1_scale` and both triplanar flags, kept them apart: cold run
+## 9392's `blocker_0` carried two meshes of `M_Skin_metal_painted_delco_1997_
+## 0f0f11` on its street side, `uv1_scale (0.833, 0.833, 0.833) triplanar true`
+## and `(0.833, 0.833, 1.0) triplanar false` (the factory's
+## `docs/cold_runs/cold_9392/meshes_blocker0_9392.out.txt`). A 6 cm knob shows
+## no tile period to keep continuous. A part whose material another mesh in the
+## same module also wears follows whichever mesh `_apply` meets first.
+const AUTHORED_UV_PARTS: Array = ["_LeafHardware"]
+
 ## The greybox base the composer keeps whole (floors, collision, STAIRS).
 ## Its stairs are Deli Counter's `stair<n>_*` boxes in the flat `gb_stair`
 ## material -- "the stairs ship in the greybox's fallback yellow", walked on
@@ -1048,8 +1063,9 @@ func _post_import(scene: Node) -> Object:
 	var counts: Array = _apply(scene, seen)
 	changed = counts[0]
 	no_density = counts[1]
-	print("[worldskin] %s  %d material(s) world-projected, %d without a UV density, %d lit face(s) left on their own UVs"
-		% [base, changed, no_density, int(counts[2])])
+	print(("[worldskin] %s  %d material(s) world-projected, %d without a UV density, %d lit face(s) left on their own UVs"
+		+ ", %d hardware part(s) left on their own UVs")
+		% [base, changed, no_density, int(counts[2]), int(counts[3])])
 	return scene
 
 
@@ -1610,8 +1626,16 @@ func _apply(n: Node, seen: Dictionary) -> Array:
 	var changed: int = 0
 	var no_density: int = 0
 	var lit_faces: int = 0
+	var hardware: int = 0
 	var mi: MeshInstance3D = n as MeshInstance3D
-	if mi != null and mi.mesh != null:
+	var authored_part: bool = false
+	if mi != null:
+		for s in AUTHORED_UV_PARTS:
+			if String(mi.name).ends_with(String(s)):
+				authored_part = true
+	if authored_part and mi.mesh != null:
+		hardware += 1
+	elif mi != null and mi.mesh != null:
 		var mesh: Mesh = mi.mesh
 		for i in range(mesh.get_surface_count()):
 			var mat: Material = mesh.surface_get_material(i)
@@ -1650,7 +1674,8 @@ func _apply(n: Node, seen: Dictionary) -> Array:
 		changed += int(sub[0])
 		no_density += int(sub[1])
 		lit_faces += int(sub[2])
-	return [changed, no_density, lit_faces]
+		hardware += int(sub[3])
+	return [changed, no_density, lit_faces, hardware]
 
 
 ## Texels per metre, read off the surface's own vertices and UVs.

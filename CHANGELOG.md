@@ -1,3 +1,23 @@
+## [0.242.0] - a door's hardware keeps its own UVs, so it merges with the stoop railing
+
+**Measured, cold run 9392** (the factory's `docs/cold_runs/cold_9392/`): Zoo 1.127.0 painted a door's knob the stoop
+railing's black iron so that on a front the two would be one material and one mesh. The colour reached the package
+(`blocker_0`'s knob mesh 0.8597 -> 0.2717 albedo), the merge did not: every Empty kept the same mesh count as 9391.
+`blocker_0`'s street side carried two meshes of `M_Skin_metal_painted_delco_1997_0f0f11`, one with
+`uv1_scale (0.833, 0.833, 0.833) triplanar true`, one with `(0.833, 0.833, 1.0) triplanar false`, and
+`merge_empties.gd`'s key reads both. The knob arrives inside a `doorway_` kit module, which `zoo_worldskin.gd`'s
+`_apply` world-projects; the railing arrives in a `prop_`, which it leaves alone.
+
+### Changed
+- **`AUTHORED_UV_PARTS` (`["_LeafHardware"]`)**: a mesh whose node name ends with one is never world-projected, and
+  the import report counts it (`N hardware part(s) left on their own UVs`). A 6 cm knob shows no tile period to keep
+  continuous. On a front the knob now keys like the railing; a back door with no railing keeps its own mesh, as Zoo
+  1.127.0 said it would.
+
+### Tests
+- `tests/unit/test_worldskin_hardware.py` (fails on 0.241.0: the real import projects both materials of a doorway
+  with a knob and counts no hardware). Its third test pins the part's name against Zoo's `_arch.py`.
+
 ## [0.241.0] - one sign a building: a banded shell builds no door box
 
 **The walker, walking cold run 9386** (the factory's `docs/findings/walk_2026-10-23_9386/`, finding 1): a pharmacy's
