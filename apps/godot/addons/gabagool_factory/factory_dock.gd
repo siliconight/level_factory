@@ -1,20 +1,26 @@
 @tool
 extends VBoxContainer
-## The Gabagool Factory panel: increment 1 of the no-AI authoring loop (`docs/AUTHORING_LOOP.md` at the factory root;
-## roadmap 311). It finds the factory, checks whether Blender, Godot and the tools are ready, and records the
-## executables the user picks -- every action a service operation (`service_client.gd`), never a terminal.
+## The Gabagool Factory panel (`docs/AUTHORING_LOOP.md` at the factory root). The Setup tab finds the factory, checks
+## whether Blender, Godot and the tools are ready, and records the executables the user picks (roadmap 311); the
+## Level tab starts and opens levels (`level_panel.gd`, roadmap 312 and 313). Every action is a service operation
+## (`service_client.gd`), never a terminal.
 ##
 ## The factory folder is found by walking up from this project for `factory.manifest.json`; Browse overrides it and
 ## the choice is kept in the editor settings, which belong to this machine rather than to the project.
 
 const SETTING_ROOT := "gabagool_factory/factory_root"
 const ServiceClient := preload("res://addons/gabagool_factory/service_client.gd")
+const LevelPanel := preload("res://addons/gabagool_factory/level_panel.gd")
 ## How far above the project the factory is looked for.
 const FIND_DEPTH := 8
 const COLOURS := {"ready": Color(0.45, 0.8, 0.45), "warning": Color(0.95, 0.75, 0.3),
 	"missing": Color(0.95, 0.45, 0.35), "problem": Color(0.95, 0.35, 0.35)}
 
 var client: Node
+## The Level tab; it has its own client, so a level's work and a setup check do not queue behind each other.
+var level_panel: Control
+var _tabs: TabContainer
+var _setup: VBoxContainer
 var _root_edit: LineEdit
 var _status: Label
 var _checks: Tree
@@ -39,10 +45,19 @@ func _ready() -> void:
 
 
 func _build() -> void:
+	_tabs = TabContainer.new()
+	_tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	add_child(_tabs)
+	_setup = VBoxContainer.new()
+	_setup.name = "Setup"
+	_tabs.add_child(_setup)
+	level_panel = LevelPanel.new()
+	_tabs.add_child(level_panel)
+
 	var title := Label.new()
 	title.text = "Set up the factory"
 	title.add_theme_font_size_override("font_size", 16)
-	add_child(title)
+	_setup.add_child(title)
 
 	var row := HBoxContainer.new()
 	var lbl := Label.new()
@@ -56,7 +71,7 @@ func _build() -> void:
 	browse.text = "Browse..."
 	browse.pressed.connect(_pick.bind("factory"))
 	row.add_child(browse)
-	add_child(row)
+	_setup.add_child(row)
 
 	var actions := HBoxContainer.new()
 	_check_button = Button.new()
@@ -68,7 +83,7 @@ func _build() -> void:
 		b.text = "Find %s..." % which.capitalize()
 		b.pressed.connect(_pick.bind(which))
 		actions.add_child(b)
-	add_child(actions)
+	_setup.add_child(actions)
 
 	# shown only when the tools' Python is what blocks (increment 2): it downloads, so it is never pressed for you
 	_prepare_button = Button.new()
@@ -77,11 +92,11 @@ func _build() -> void:
 		+ "It downloads Pillow, pygltflib and jsonschema once; after that the factory works offline."
 	_prepare_button.visible = false
 	_prepare_button.pressed.connect(prepare_environment)
-	add_child(_prepare_button)
+	_setup.add_child(_prepare_button)
 
 	_status = Label.new()
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	add_child(_status)
+	_setup.add_child(_status)
 
 	_checks = Tree.new()
 	_checks.columns = 3
@@ -93,13 +108,13 @@ func _build() -> void:
 	_checks.set_column_expand(0, false)
 	_checks.set_column_custom_minimum_width(0, 70)
 	_checks.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	add_child(_checks)
+	_setup.add_child(_checks)
 
 	_dialog = FileDialog.new()
 	_dialog.access = FileDialog.ACCESS_FILESYSTEM
 	_dialog.file_selected.connect(_on_picked)
 	_dialog.dir_selected.connect(_on_picked)
-	add_child(_dialog)
+	_setup.add_child(_dialog)
 
 
 ## The nearest folder at or above `start` holding `factory.manifest.json`, or "".
@@ -117,6 +132,7 @@ static func find_factory_root(start: String) -> String:
 
 func _set_root(root: String) -> void:
 	client.factory_root = root
+	level_panel.set_factory_root(root)
 	_root_edit.text = root if root != "" else "(not found -- Browse to the factory folder)"
 	_check_button.disabled = root == ""
 	if root != "":

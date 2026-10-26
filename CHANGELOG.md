@@ -1,3 +1,40 @@
+## [0.245.0] - a level is a saved design, and the panel's form tells the truth
+
+**Increment 3 of the no-AI authoring loop** (the factory's `docs/AUTHORING_LOOP.md`; roadmap 312 and 313).
+
+### Added
+- **The design document** (`packages/service/design.py`, `gabagool.design.v1`). A level's authored source: its
+  template, its choices, its intent, a stable `design_id` and a revision number. It is saved by the factory as
+  `<factory>/levels/<slug>/design.json`, written atomically, outside the Godot project and the tool repos.
+  - A name used twice gets a numbered folder, never an overwrite.
+  - Reading one reports fields this factory does not know without dropping them, and lists what makes it
+    unusable.
+  - The brief the pipeline reads is derived from it (`brief_from_design`); the Restaurant Row template at its
+    defaults gives the first-level brief cold run 9222 built with no interventions.
+- **Templates** (`packages/service/templates/`), starting with Restaurant Row.
+- **The capability catalog** (`design.capabilities`). Each control has a type, options or range, default, consumer,
+  what it rebuilds, and a support state:
+  - supported: name, time of day, streets, beyond the edge, layouts to generate, roof clutter;
+  - conditional: weather (rain replaces the time of day with Heavy Rain);
+  - intent: the six recorded-but-unbuilt brief fields and notes.
+
+  Options are read off their owners: `road_grammar.GRAMMARS`, `site_variation.SURROUNDINGS`, the five times
+  `_preset_for` resolves. A bad value or a control the template lacks is refused.
+- **Operations**: `list_templates`, `describe_template`, `create_design`, `open_design`, `list_designs`.
+- **The Level tab** on the panel (`apps/godot/addons/gabagool_factory/level_panel.gd`). Start a level from a
+  template, open a saved one, and see every control with its value and whether it drives generation or only records
+  intent. The last level opened is opened again next time.
+  The dock's 0.244.0 controls move to a Setup tab.
+
+### Tests
+- `tests/service/test_design.py` (fails on 0.244.0):
+  - every unbuilt field labelled intent; options equal to their owners';
+  - each time of day a distinct Lux preset; rain's substitution; streets and layout count reaching the pipeline;
+  - refusals; the first-level brief reproduced;
+  - create, save and reopen keeping every choice; a reused name; unknown fields kept and reported.
+- `apps/godot/tests/test_level_panel.gd`: the Level tab against a real factory (create, show, reopen, then its own
+  level removed).
+
 ## [0.244.0] - the panel prepares the tools' Python itself
 
 **Found by 0.243.0's panel on the walker's machine** (the factory's `docs/AUTHORING_LOOP.md`, increment 2;

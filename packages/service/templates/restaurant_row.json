@@ -1,0 +1,34 @@
+{
+  "schema": "gabagool.template.v1",
+  "template_id": "restaurant_row",
+  "label": "Restaurant Row",
+  "description": "A strip of three buildings on a street, anchored on a corner deli: a heist through the kitchen to the office safe, out by the alley. The factory's first level, built cold with nobody touching anything (cold runs 9222, 9391-9393).",
+  "batch": {
+    "seed_base": 9003,
+    "theme_family": "delco"
+  },
+  "brief": {
+    "schema": "level_factory.mission_brief.v0.1",
+    "archetype": "corner_deli",
+    "building_count": 3,
+    "site_shape": "strip",
+    "route_shape": "linear_push",
+    "objective_hypotheses": [
+      "enter_kitchen",
+      "reach_office",
+      "crack_safe",
+      "extract"
+    ],
+    "extraction_relationship": "alley_backtrack",
+    "verticality": "low",
+    "landmark": "neon_sign",
+    "time_of_day": "evening",
+    "weather": "clear",
+    "theme": "delco_1997",
+    "candidate_count": 3,
+    "target_minutes": [
+      25,
+      35
+    ]
+  }
+}
