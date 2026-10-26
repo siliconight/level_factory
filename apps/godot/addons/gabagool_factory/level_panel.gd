@@ -41,6 +41,8 @@ var _progress: ProgressBar
 var _build_status: Label
 var _recommendation: Label
 var _layouts: Tree
+var _plan: TextureRect
+var _plan_note: Label
 var _use: Button
 var _walk: Button
 var _walk_status: Label
@@ -153,7 +155,17 @@ func _build() -> void:
 	_layouts.set_column_title(1, "State")
 	_layouts.set_column_title(2, "Why")
 	_layouts.custom_minimum_size = Vector2(0, 110)
+	_layouts.item_selected.connect(_show_plan)
 	add_child(_layouts)
+	# each layout's top-down plan, drawn from its own build (0.250.0, roadmap 314)
+	_plan = TextureRect.new()
+	_plan.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_plan.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_plan.custom_minimum_size = Vector2(0, 200)
+	add_child(_plan)
+	_plan_note = Label.new()
+	_plan_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	add_child(_plan_note)
 	_use = Button.new()
 	_use.text = "Use this layout"
 	_use.disabled = true
@@ -370,6 +382,7 @@ func show_layouts(data: Dictionary) -> void:
 		var item := _layouts.create_item(root)
 		item.set_text(0, "Seed %s" % str(row.get("seed", "?")))
 		item.set_metadata(0, row.get("candidate_id", ""))
+		item.set_metadata(1, row)
 		var state: String = row.get("state", "?")
 		item.set_text(1, state)
 		item.set_custom_color(1, LAYOUT_COLOURS.get(state, Color.WHITE))
@@ -387,6 +400,28 @@ func show_layouts(data: Dictionary) -> void:
 	_recommendation.text = str(data.get("recommendation", ""))
 	_use.disabled = data.get("candidates", []).is_empty()
 	_build_status.text = "%d layouts." % data.get("candidates", []).size()
+	_show_plan()
+
+
+## Show the selected layout's plan: the SVG `generate_layouts` drew from that layout's own build, or why there is none.
+func _show_plan() -> void:
+	_plan.texture = null
+	var item := _layouts.get_selected()
+	if item == null:
+		_plan_note.text = "Select a layout to see its plan."
+		return
+	var row: Dictionary = item.get_metadata(1)
+	var path: String = str(row.get("plan", "")) if row.get("plan") != null else ""
+	if path == "":
+		_plan_note.text = "No plan for this layout: %s" % str(row.get("plan_problem", "none was drawn"))
+		return
+	var image := Image.new()
+	var err := image.load_svg_from_string(FileAccess.get_file_as_string(path), 1.0)
+	if err != OK:
+		_plan_note.text = "The plan at %s cannot be shown (error %d)." % [path, err]
+		return
+	_plan.texture = ImageTexture.create_from_image(image)
+	_plan_note.text = "Seed %s. %s" % [str(row.get("seed", "?")), str(layouts.get("plan_key", ""))]
 
 
 func _on_chosen(data: Dictionary) -> void:

@@ -196,6 +196,11 @@ def generate(path: str, events, run_dir: Path, leg=run_leg) -> dict:
         result = candidate_rows(ws / ".level_factory", mission)
     except ValueError as exc:
         raise LayoutError("no_layouts", "no layouts came out of the build: %s (output in %s)" % (exc, log)) from None
+    # each layout's plan, from its own build, kept with this revision's record (0.250.0, roadmap 314)
+    from packages.service import plan_image
+    plan_image.write_plans(ws / ".level_factory", mission, result["candidates"],
+                           folder / "builds" / "plans" / ("revision_%d" % doc["revision"]))
+    result["plan_key"] = plan_image.KEY
     record = _write_json(folder / "builds" / ("revision_%d.json" % doc["revision"]),
                          {"schema": "gabagool.build_record.v1", "design_id": doc["design_id"],
                           "design_revision": doc["revision"], "mission_id": mission, "brief": brief,

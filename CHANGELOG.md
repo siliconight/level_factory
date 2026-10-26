@@ -1,3 +1,37 @@
+## [0.250.0] - each layout's top-down plan on the Level tab
+
+**Roadmap 314's plan images** (the factory's `docs/AUTHORING_LOOP.md`, increment 4's remainder).
+
+### Added
+- **`packages/service/plan_image.py`**: a top-down plan of each layout, drawn from the build that made it.
+  - The source is the candidate's own `site.site.drawn.json`, from the newest attempt of its `lot_assemble` job (the
+    attempt `pick` numbers the same way). The SVG names that file and its SHA-256.
+  - A layout whose build left no drawn site, or one that cannot be read, gets no plan and a `plan_problem` saying
+    why; another build's picture is never shown in its place.
+  - Drawn in site metres, north up: ground, roads with sidewalks, driveways, parking fields, empty buildings, the
+    level's buildings with the objective outlined, cover as dots (its yaw convention is not read, so no rectangle is
+    claimed), crew spawn, extraction, responders, and a 10 m bar. A building's rectangle is
+    `site_extent.rotated_footprint`'s.
+  - No text in the SVG: Godot's loader draws no `<text>` (the first render's labels came out blank). The key is
+    `plan_image.KEY`, which the panel shows beside the picture.
+- **`generate_layouts`** draws every layout's plan into `builds/plans/revision_<n>/seed_<s>.svg` beside the design;
+  each row and the build record carry its `plan`, and the answer carries `plan_key`.
+- **The Level tab** shows the selected layout's plan under the list, with the key, or says why there is none.
+
+### Measured
+- The three layouts of a real Restaurant Row design generated through `factory.cmd` (`levels/launcher_trial`), drawn
+  and rendered through Godot 4.7's SVG loader: 804 x 488, 756 x 444 and 780 x 460 px, each different. The objective
+  deli's rectangle on seed 9205 lands at the pixel its footprint predicts (x 66, y 178).
+
+### Tests
+- `tests/service/test_plan_image.py` (fails on 0.249.0):
+  - the newest attempt's site drawn and named by its hash, with no text;
+  - building rectangles at the expected pixels, a 90-degree building with its axes swapped, the objective outlined;
+  - no drawn site, or an unreadable one, means no plan and says why;
+  - `generate` keeps each plan with the revision's record and returns the key.
+- `apps/godot/tests/test_level_plan.gd`: the selected layout's plan shown at its size with the key; a layout without
+  one says why; nothing selected asks for a selection.
+
 ## [0.249.0] - export a level as a snapshot from the panel
 
 **Increment 7 of the no-AI authoring loop** (the factory's `docs/AUTHORING_LOOP.md`; roadmap 317).
