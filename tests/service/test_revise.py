@@ -88,7 +88,9 @@ def test_the_walk_builds_the_current_revision(level):
     _save(got, revision=1, choices={"time_of_day": "midnight"})
     calls = []
     out = walking.walk(got["path"], EventSink(run_dir, "r", "w"), run_dir, leg=_fake(calls))
-    assert calls[0][2:4] == ["batch", "create"] and [a[2] for a in calls[1:]] == ["approve", "approve", "run", "walk"]
+    # 0.259.0: the shell is built before it is locked
+    assert calls[0][2:4] == ["batch", "create"] and [a[2] for a in calls[1:]] == ["approve", "run", "approve", "run",
+                                                                                 "walk"]
     imported = json.loads((Path(calls[0][4]).parent / "briefs" / "late_shift_001.json").read_text(encoding="utf-8"))
     assert imported["time_of_day"] == "midnight"
     assert out["design_revision"] == 2 and "revision 2" in out["label"]

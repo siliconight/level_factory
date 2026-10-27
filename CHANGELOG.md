@@ -1,3 +1,28 @@
+## [0.259.0] - the panel's walk builds the chosen layout's shell before it locks it
+
+On 2026-10-27, rebuilding the walker's seed 9205 after Deli Counter 0.275.0-0.277.0 had furnished its supermarket
+anew, the panel's walk legs (import, brief, lock, art, walk) failed at export: "export blocked by functional
+regression: collision_fingerprint changed after art pass".
+
+The functional lock records the chosen layout's shell AS IT STANDS: its collision, anchors and interactives. The art
+leg rebuilds that shell first wherever a tool changed it. So a lock taken before the rebuild held yesterday's shell,
+and the regression gate refused today's, correctly, on every walk after a tool update until somebody re-locked by
+hand. That is an intervention a level pays for every tool release that touches a shell. `make` already builds the
+shell before it locks.
+
+### Changed
+- **`packages/service/walking.py`**: the walk's legs are import, brief, **shell** (`run <mission>`, "Building the
+  chosen layout's shell"), lock, art, walk.
+  - A shell that fails stops the walk before anything is locked.
+  - An unchanged shell is all cache hits, so the leg costs a walk with no tool change nothing.
+
+### Tests
+- `tests/service/test_walking.py`:
+  - the legs in their new order;
+  - a failing shell stops the walk with nothing locked (fails on 0.258.0);
+  - a failed art leg is still named.
+- `tests/service/test_revise.py`: the walk of the current revision runs the shell leg.
+
 ## [0.258.0] - an opening's surround merges with its wall; its glass keeps its own
 
 The walker, walking seed 9205 on 2026-10-26 (the factory's docs/findings/walk_2026-10-26_panel/, L7), on a window:

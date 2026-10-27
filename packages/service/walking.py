@@ -61,13 +61,21 @@ def walk(path: str, events, run_dir: Path, leg=layouts.run_leg) -> dict:
     batch_path, _brief = layouts.write_request(folder, doc)
     log = run_dir / "legs.log"
     cancel = run_dir / "cancel"
+    # THE SHELL BEFORE THE LOCK (0.259.0). The lock records the chosen layout's shell AS IT STANDS -- its collision,
+    # anchors and interactives -- and the art leg rebuilds that shell first wherever a tool changed it. Locked
+    # before the rebuild, the lock held yesterday's shell and the export refused today's: walking seed 9205 after
+    # Deli Counter 0.275.0-0.277.0 furnished its supermarket anew, "export blocked by functional regression:
+    # collision_fingerprint changed after art pass", every time, until somebody re-locked by hand. `make` already
+    # builds the shell before it locks; the panel's walk now does too.
     legs = [("import", ["-C", str(ws), "batch", "create", str(batch_path)]),
             ("brief", ["-C", str(ws), "approve", mission, "brief_approved", "--by", "panel", "--note", AUTOMATIC]),
+            ("shell", ["-C", str(ws), "run", mission]),
             ("lock", ["-C", str(ws), "approve", mission, "functional_shell_locked", "--by", "panel",
                       "--note", AUTOMATIC]),
             ("art", ["-C", str(ws), "run", mission, "--art", "--gameplay"]),
             ("preview", ["-C", str(ws), "walk", mission])]
     said = {"import": "Reading revision %d of the level" % doc["revision"], "brief": "Recording the brief",
+            "shell": "Building the chosen layout's shell",
             "lock": "Locking the chosen layout",
             "art": "Dressing and lighting the level. This takes several minutes.",
             "preview": "Building the walk preview and checking it"}
