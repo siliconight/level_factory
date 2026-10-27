@@ -69,8 +69,8 @@ def _pkg(tmp_path, site=SITE, lot=LOT):
 
 def _row(scene, **kw):
     r = {"scene": scene, "slots_merged": 519, "meshes_in": 838, "surfaces_in": 1047, "merged": 470,
-         "unwrapped": 560, "colliders": 485, "units": {"ext": 24, "int": 7, "roof": 5, "room": 434},
-         "lit_surfaces": 132, "lit_meshes": 90,
+         "unwrapped": 590, "colliders": 485, "units": {"ext": 24, "int": 7, "roof": 5, "room": 434},
+         "lit_surfaces": 132, "lit_meshes": 90, "glass_surfaces": 41, "glass_meshes": 30,
          "kept_carrying": ["Ladders: Ladder_ladder_0 (Area3D)", "Markers: LADDER_0 (group dc_marker)"], "error": None}
     r.update(kw)
     return r
@@ -181,6 +181,10 @@ def test_a_finished_merge_is_believed_and_leaves_no_rooms_behind(tmp_path):
     _report([_row(s) for s in ASKED], ok=False, error="boom"),   # said it failed
     _report([_row(ASKED[0]), _row(ASKED[1], unwrapped=12)]),     # a mesh with no lightmap UV
     _report([_row(ASKED[0]), _row(ASKED[1], unwrapped=470)]),    # the lit meshes not unwrapped
+    _report([_row(ASKED[0]), _row(ASKED[1], unwrapped=560)]),    # the glass meshes not unwrapped (0.258.0)
+    _report([_row(ASKED[0]), _row(ASKED[1], glass_meshes=0)]),   # glass surfaces in no mesh
+    # a merge before 0.258.0, which kept every opening whole and counted no glass
+    _report([_row(ASKED[0]), {k: v for k, v in _row(ASKED[1]).items() if k != "glass_surfaces"}]),
     _report([_row(ASKED[0]), _row(ASKED[1], lit_meshes=0)]),     # lit surfaces in no mesh
     _report([_row(ASKED[0]), {k: v for k, v in _row(ASKED[1]).items() if k != "lit_surfaces"}]),
     _report([_row(ASKED[0]), _row(ASKED[1], merged=0)]),         # merged nothing
@@ -226,13 +230,14 @@ def _func(text, name):
 
 
 def test_what_a_merge_leaves_alone():
-    """Held to the Godot half's source: an interactive slot, an opening, anything animated, scripted or
-    shader-driven, the collision base and the covers are never taken apart."""
+    """Held to the Godot half's source: an interactive slot, anything animated, scripted or shader-driven, the
+    collision base and the covers are never taken apart. An OPENING is, since 0.258.0 (`test_an_openings_glass_...`)."""
     text = M.MERGE_SCRIPT.read_text(encoding="utf-8")
     keep = _func(text, "_mergeable")
-    for needle in ('"GreyboxBase"', '"Dressing"', 'has_meta("interactive_id")', 'name.find("_open") >= 0',
+    for needle in ('"GreyboxBase"', '"Dressing"', 'has_meta("interactive_id")',
                    "AnimationPlayer", "get_script() != null", "is ShaderMaterial", "_fixture(m)"):
         assert needle in keep, needle
+    assert "_open" not in keep
     # a lit face that is not a fixture's no longer keeps its whole module out (0.224.0); a fixture's still does
     assert "_lit(" not in keep
     assert re.search(r'^const FIXTURE_SUFFIXES: Array\[String\] = \["_Lens", "_Diffuser"\]$', text, re.M)
@@ -267,6 +272,19 @@ def test_a_lit_face_stays_its_own_instances_mesh():
     assert 'lout.name = "LitR_%d" % li' in merge
     assert "LuxFailing.find_lens" in text
     assert re.search(r'^const LIT_SUFFIXES: Array\[String\] = \["_Lens", "_Diffuser", "_Face"\]$', text, re.M)
+
+
+def test_an_openings_glass_stays_its_own_instances_mesh():
+    """0.258.0: an opening's surround merges with its wall -- the walker's seams round doors, breach panels and
+    windows (the factory's docs/findings/walk_2026-10-26_panel/, L5-L7) -- and a transparent surface goes into one
+    mesh of its own where its instance stood (`GlassR_<n>`), sorted as it always was."""
+    text = M.MERGE_SCRIPT.read_text(encoding="utf-8")
+    glass = _func(text, "_glass")
+    assert "transparency != BaseMaterial3D.TRANSPARENCY_DISABLED" in glass
+    merge = _func(text, "_merge_scene")
+    pane_at = merge.index("if _glass(mat):")
+    assert merge.index("continue", pane_at) < merge.index("var key: String = _key(unit, mat, fmt)")
+    assert 'gout.name = "GlassR_%d" % gi' in merge
 
 
 def test_a_room_unit_is_cut_into_cells():

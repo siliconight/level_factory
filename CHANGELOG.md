@@ -1,3 +1,38 @@
+## [0.258.0] - an opening's surround merges with its wall; its glass keeps its own
+
+The walker, walking seed 9205 on 2026-10-26 (the factory's docs/findings/walk_2026-10-26_panel/, L7), on a window:
+"not consistent: textures". Its wall panel read as a lighter rectangle on the wall. The buildings' merge left every
+`*_open<n>` slot whole, because "a window's pane may be glass, which Godot sorts per mesh". So each window kept its
+own mesh and its own shade beside a merged wall.
+
+### Changed
+- **`assets/godot/merge_buildings.gd`**:
+  - an opening merges with its unit like any static module;
+  - a TRANSPARENT surface (`_glass`: a BaseMaterial3D whose transparency is not disabled) goes into one mesh of its
+    own where its instance stood, `GlassR_<n>`, sorted as it always was;
+  - a slot carrying `interactive_id` (a door that opens, a breachable panel, a window that breaks) still stays whole.
+- The report counts `glass_surfaces` and `glass_meshes`. `merge_buildings.check` requires both, refuses glass
+  surfaces in no mesh, and counts the glass meshes among those that must be unwrapped.
+
+### Measured on the walker's level (the factory's docs/findings/opening_merge/)
+- 18 window surrounds merged: deli_a01 8, parking_garage 8, supermarket_a01 2. Their 23 glass surfaces sit in 23
+  meshes of their own.
+- The walker's window (L7) now reads as the wall's shade.
+- Priced with the control run twice: draws median -1 and at most -23 a heading, frame time within the controls'
+  spread, worst heading 2,209 -> 2,186.
+- NOT fixed by this: the walker's door and breach seams (L5, L6), which are interactive slots.
+  - Refuted there: lightmap density (a re-bake at the wall's density changed no frame), and the texture restarting
+    (all world-triplanar).
+  - What is left is Zoo 1.126.0's casing strips over a -12 % / +13 % bake step: a choice for the walker.
+
+### Tests
+- `tests/unit/test_merge_buildings.py`:
+  - an opening is no longer kept whole;
+  - its glass goes to its own mesh;
+  - three refusals for a report without its glass counts.
+- `tests/unit/test_merge_buildings_godot.py`: a window slot with a pane merges in Godot, `GlassR_0` stands, and the
+  report counts it. 5 of the file's tests fail on 0.257.0.
+
 ## [0.257.0] - a walk whose preview did not finish importing fails, and says why
 
 ### Fixed

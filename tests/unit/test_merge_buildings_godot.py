@@ -43,6 +43,10 @@ resource_name = "M_wall"
 
 [sub_resource type="BoxShape3D" id="Shape_box"]
 
+[sub_resource type="StandardMaterial3D" id="Mat_glass"]
+resource_name = "M_glass"
+transparency = 1
+
 [node name="Building" type="Node3D"]
 
 [node name="ext_0_N_0" type="Node3D" parent="."]
@@ -65,6 +69,17 @@ surface_material_override/0 = SubResource("Mat_wall")
 
 [node name="ATT_top" type="Node3D" parent="ext_0_N_1"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
+
+[node name="ext_0_N_open1" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0, 0)
+
+[node name="Mesh" type="MeshInstance3D" parent="ext_0_N_open1"]
+mesh = SubResource("BoxMesh_box")
+surface_material_override/0 = SubResource("Mat_wall")
+
+[node name="Pane" type="MeshInstance3D" parent="ext_0_N_open1"]
+mesh = SubResource("BoxMesh_box")
+surface_material_override/0 = SubResource("Mat_glass")
 
 [node name="lamp_r1_0" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 3)
@@ -152,8 +167,10 @@ def test_the_merge_ran_and_its_report_is_believed(merged):
     assert rep["ok"], log
     row = rep["scenes"][0]
     assert row["error"] is None, log
-    # the two wall modules, one storey's side, into one mesh; the lamp's prop, the ladders and the markers left whole
-    assert (row["slots_merged"], row["surfaces_in"], row["merged"], row["colliders"]) == (2, 2, 1, 1), row
+    # the two wall modules and the window's surround, one storey's side, into one mesh; the pane its own (0.258.0);
+    # the lamp's prop, the ladders and the markers left whole
+    assert (row["slots_merged"], row["surfaces_in"], row["merged"], row["colliders"]) == (3, 3, 1, 1), row
+    assert (row["glass_surfaces"], row["glass_meshes"]) == (1, 1), row
     M.check(rep, [SCENE])
 
 
@@ -184,6 +201,15 @@ def test_a_module_holding_a_lamp_stays_whole_and_keeps_its_own_collider(merged):
 
 
 @godot_required
+def test_an_openings_surround_merges_and_its_pane_stands_alone(merged):
+    """0.258.0: the window slot is gone, its wall surface in `MergedR_0`, its glass in `GlassR_0`. FAILS ON 0.257.0,
+    which kept `ext_0_N_open1` whole."""
+    _rep, scene, _log = merged
+    nodes = _nodes(scene)
+    assert not [k for k in nodes if "ext_0_N_open1" in k], sorted(nodes)
+    assert nodes.get((".", "GlassR_0"), (None,))[0] == "MeshInstance3D"
+
+
 def test_a_bare_socket_does_not_keep_its_module_whole(merged):
     """Zoo's `ATT_*` sockets are bare Node3Ds -- a transform, which the merged mesh already holds."""
     _rep, scene, _log = merged

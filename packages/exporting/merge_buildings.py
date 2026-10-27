@@ -173,7 +173,7 @@ def check(report, asked) -> dict:
         if r.get("error") is not None:
             raise MergeError(f"{scene}: {r['error']}")
         for k in ("slots_merged", "meshes_in", "surfaces_in", "merged", "unwrapped", "colliders",
-                  "lit_surfaces", "lit_meshes"):
+                  "lit_surfaces", "lit_meshes", "glass_surfaces", "glass_meshes"):
             if not isinstance(r.get(k), int):
                 raise MergeError(f"{scene}: row has no integer {k!r}")
         # what the merge cannot carry keeps its slot whole and is named (0.227.0); an older merge removed it
@@ -181,12 +181,15 @@ def check(report, asked) -> dict:
             raise MergeError(f"{scene}: row names no `kept_carrying` list")
         if not 0 < r["merged"] < r["surfaces_in"]:
             raise MergeError(f"{scene}: {r['surfaces_in']} surfaces became {r['merged']} meshes")
-        # every mesh it made is unwrapped: the merged groups and the lit instances both (0.224.0)
-        if r["unwrapped"] != r["merged"] + r["lit_meshes"]:
-            raise MergeError(f"{scene}: {r['unwrapped']} of {r['merged'] + r['lit_meshes']} meshes unwrapped "
+        # every mesh it made is unwrapped: the merged groups, the lit instances and the glazed ones (0.224.0, 0.258.0)
+        made = r["merged"] + r["lit_meshes"] + r["glass_meshes"]
+        if r["unwrapped"] != made:
+            raise MergeError(f"{scene}: {r['unwrapped']} of {made} meshes unwrapped "
                              "for the lightmap")
         if (r["lit_meshes"] > 0) != (r["lit_surfaces"] > 0) or r["lit_meshes"] > r["lit_surfaces"]:
             raise MergeError(f"{scene}: {r['lit_surfaces']} lit surfaces in {r['lit_meshes']} meshes")
+        if (r["glass_meshes"] > 0) != (r["glass_surfaces"] > 0) or r["glass_meshes"] > r["glass_surfaces"]:
+            raise MergeError(f"{scene}: {r['glass_surfaces']} glass surfaces in {r['glass_meshes']} meshes")
         if r["colliders"] < 1:
             raise MergeError(f"{scene}: no collider kept")
         if not isinstance(r.get("units"), dict) or not r["units"]:

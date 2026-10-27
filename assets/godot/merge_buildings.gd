@@ -11,7 +11,6 @@ extends SceneTree
 ## A building's scene (Deli Counter's composer, `themed_tscn`): a root, its `GreyboxBase`, one child per slot
 ## instancing a kit module GLB, `Dressing` (the covers). Each slot child is either LEFT AS IT IS --
 ##   * `interactive`: it carries `interactive_id` meta -- a door, a breachable wall, a hatch: its states swap;
-##   * an opening, `*_open<n>`: a window's pane may be glass, which Godot sorts per mesh;
 ##   * moving: a subtree holding an AnimationPlayer or any node with a script;
 ##   * a light fixture: a module wearing a lens or a diffuser (`FIXTURE_SUFFIXES`) -- its housing hangs at its lamp;
 ##   * shader-driven: a module with any ShaderMaterial surface -- a screen that runs reads its schedule from UV2
@@ -37,6 +36,14 @@ extends SceneTree
 ## of its module merges. Lux finds lit faces by material and by place -- its binder for the power cut, its failing
 ## fixture the lit face NEAREST ITS LAMP (`LuxFailing.find_lens`, by AABB) -- so each stays a mesh where it was.
 ## 0.223.0 left every module with a lit face whole; a fixture still is.
+## AN OPENING'S SURROUND MERGES WITH ITS WALL, AND ITS GLASS STAYS ITS OWN INSTANCE'S (0.258.0). Until 0.258.0 every
+## `*_open<n>` slot was left whole because "a window's pane may be glass, which Godot sorts per mesh" -- so every
+## doorway, window and breach panel kept its own mesh and its own lightmap chart beside a merged wall, and the walker,
+## on seed 9205's first windowed walk, saw it as seams: "lot of seams visible on these doors", "highly visible seams
+## and pieces here", "not consistent: textures" (the factory's `docs/findings/walk_2026-10-26_panel/`, L5-L7). The
+## reason was a pane's, not a surround's: now a TRANSPARENT surface (`_glass`) goes into one mesh of its own,
+## `GlassR_<n>`, where its instance stood -- sorted as it always was -- and the rest of the slot merges with its unit.
+## A slot carrying `interactive_id` -- a door that opens, a breachable panel, a window that breaks -- still stays whole.
 ## Each group becomes one ArrayMesh wearing a duplicate of its first material, unwrapped for its lightmap at
 ## `TEXEL_M`, saved as `res://lot/<id>/merged/r<n>.res` under one MeshInstance3D `MergedR_<n>`; the slot children go
 ## and the scene is saved back over itself.
@@ -106,6 +113,12 @@ func _lit(mat: Material) -> bool:
 	return false
 
 
+## A surface Godot draws transparent: sorted per mesh, so it keeps its own (0.258.0).
+func _glass(mat: Material) -> bool:
+	var bm: BaseMaterial3D = mat as BaseMaterial3D
+	return bm != null and bm.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED
+
+
 func _cell(px: float, py: float) -> String:
 	return "%d %d" % [int(floor(px / CELL_M)), int(floor(py / CELL_M))]
 
@@ -169,7 +182,7 @@ func _mergeable(child: Node, nodes: Array) -> bool:
 	var name := String(child.name)
 	if name == "GreyboxBase" or name == "Dressing" or name == "KitCollision" or name.begins_with("Merged"):
 		return false
-	if child.has_meta("interactive_id") or name.find("_open") >= 0:
+	if child.has_meta("interactive_id"):
 		return false
 	for n in nodes:
 		if n is AnimationPlayer or (n as Node).get_script() != null:
@@ -242,8 +255,8 @@ func _fixture(mat: Material) -> bool:
 
 func _merge_scene(path: String) -> Dictionary:
 	var row: Dictionary = {"scene": path, "slots_merged": 0, "meshes_in": 0, "surfaces_in": 0, "merged": 0,
-		"unwrapped": 0, "colliders": 0, "units": {}, "lit_surfaces": 0, "lit_meshes": 0, "kept_carrying": [],
-		"error": null}
+		"unwrapped": 0, "colliders": 0, "units": {}, "lit_surfaces": 0, "lit_meshes": 0, "glass_surfaces": 0,
+		"glass_meshes": 0, "kept_carrying": [], "error": null}
 	var rooms_path: String = path.get_base_dir() + "/rooms.json"
 	if not FileAccess.file_exists(rooms_path):
 		row["error"] = "no rooms.json beside the scene"
@@ -270,6 +283,8 @@ func _merge_scene(path: String) -> Dictionary:
 	var mats: Dictionary = {}
 	# one entry a lit instance: its lit surfaces, each [SurfaceTool, material], in its own mesh (0.224.0)
 	var lit: Array = []
+	# ...and a glazed one: its transparent surfaces, the same way (0.258.0)
+	var glazed: Array = []
 	var collision := Node3D.new()
 	collision.name = "KitCollision"
 	scene.add_child(collision)
@@ -317,6 +332,7 @@ func _merge_scene(path: String) -> Dictionary:
 			row["meshes_in"] = int(row["meshes_in"]) + 1
 			var xf: Transform3D = inv * mi.global_transform
 			var mine: Dictionary = {}
+			var panes: Dictionary = {}
 			for s in range(mi.mesh.get_surface_count()):
 				var mat: Material = mi.get_active_material(s)
 				if _lit(mat):
@@ -325,6 +341,13 @@ func _merge_scene(path: String) -> Dictionary:
 						mine[lk] = [SurfaceTool.new(), mat]
 					((mine[lk] as Array)[0] as SurfaceTool).append_from(mi.mesh, s, xf)
 					row["lit_surfaces"] = int(row["lit_surfaces"]) + 1
+					continue
+				if _glass(mat):
+					var gk: String = mat.resource_name if mat.resource_name != "" else "<glass %d>" % s
+					if not panes.has(gk):
+						panes[gk] = [SurfaceTool.new(), mat]
+					((panes[gk] as Array)[0] as SurfaceTool).append_from(mi.mesh, s, xf)
+					row["glass_surfaces"] = int(row["glass_surfaces"]) + 1
 					continue
 				var fmt: int = (mi.mesh as ArrayMesh).surface_get_format(s) if mi.mesh is ArrayMesh else 0
 				var key: String = _key(unit, mat, fmt)
@@ -335,6 +358,8 @@ func _merge_scene(path: String) -> Dictionary:
 				row["surfaces_in"] = int(row["surfaces_in"]) + 1
 			if not mine.is_empty():
 				lit.append(mine)
+			if not panes.is_empty():
+				glazed.append(panes)
 		gone.append(child)
 		row["slots_merged"] = int(row["slots_merged"]) + 1
 	if tools.is_empty():
@@ -401,6 +426,32 @@ func _merge_scene(path: String) -> Dictionary:
 		lout.owner = scene
 		li += 1
 	row["lit_meshes"] = li
+	# THE PANES, one mesh an instance where it stood (0.258.0), the lit faces' way
+	var gi: int = 0
+	for panes in glazed:
+		var gam := ArrayMesh.new()
+		var gnames: Array = (panes as Dictionary).keys()
+		gnames.sort()
+		for gk in gnames:
+			var gpair: Array = (panes as Dictionary)[gk]
+			(gpair[0] as SurfaceTool).commit(gam)
+			gam.surface_set_material(gam.get_surface_count() - 1, (gpair[1] as Material).duplicate(true) as Material)
+		if gam.lightmap_unwrap(Transform3D.IDENTITY, TEXEL_M) == OK:
+			row["unwrapped"] = int(row["unwrapped"]) + 1
+		var gpath: String = "%s/g%d.res" % [dir, gi]
+		var gerr: int = ResourceSaver.save(gam, gpath)
+		if gerr != OK:
+			scene.queue_free()
+			row["error"] = "cannot save %s (%d)" % [gpath, gerr]
+			return row
+		var gout := MeshInstance3D.new()
+		gout.name = "GlassR_%d" % gi
+		gout.mesh = load(gpath) as ArrayMesh
+		gout.gi_mode = GeometryInstance3D.GI_MODE_STATIC
+		scene.add_child(gout)
+		gout.owner = scene
+		gi += 1
+	row["glass_meshes"] = gi
 	# the root was instantiated FROM this path; packed with it set, the saved scene would inherit from itself
 	scene.scene_file_path = ""
 	var repacked := PackedScene.new()
@@ -435,10 +486,11 @@ func _run() -> void:
 		else:
 			# joined BEFORE the format: `%` binds tighter than `+`
 			var fmt: String = ("%d slots, %d meshes, %d surfaces -> %d merged, %d lit surfaces in %d meshes of "
-				+ "their own (%d unwrapped), %d colliders kept; %d slots kept whole, holding what it cannot carry")
+				+ "their own, %d glass surfaces in %d (%d unwrapped), %d colliders kept; %d slots kept whole, "
+				+ "holding what it cannot carry")
 			said = fmt % [row["slots_merged"], row["meshes_in"], row["surfaces_in"], row["merged"],
-				row["lit_surfaces"], row["lit_meshes"], row["unwrapped"], row["colliders"],
-				(row["kept_carrying"] as Array).size()]
+				row["lit_surfaces"], row["lit_meshes"], row["glass_surfaces"], row["glass_meshes"],
+				row["unwrapped"], row["colliders"], (row["kept_carrying"] as Array).size()]
 		print("[merge_buildings] %s: %s" % [args[i], said])
 	var bad: Array = (_report["scenes"] as Array).filter(func(r): return r["error"] != null)
 	_report["ok"] = bad.is_empty()
