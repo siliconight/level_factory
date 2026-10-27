@@ -1,3 +1,28 @@
+## [0.260.0] - two rules that asked for a name the files do not carry
+
+**The factory's roadmap 297.**
+
+### Fixed
+- **`building_library.validation_manifest(build_dir, id)`**, which `source_exclusion` now asks.
+  - It reads a shell's validation manifest as `<id>.validation.json`, else as the one named after its spec's
+    `level` (`<id>.gameplay.json`), which is the name Deli Counter writes it under.
+  - The docstring said exactly one complete shell had no manifest, `cbp_town_finale_midbalanced_schemafixed`. It
+    has one, `cbp_town_finale_midbalanced.validation.json`. So do `fuel_stop_heist3` and `fuel_stop_heist4`, whose
+    manifest is `fuel_stop_heist.validation.json`.
+  - All three read facade false and demo false today, so no lot changes. A flag written there is now read.
+  - Absence still fails open.
+- **`export.base_skips(profile)`**: the functional base's copy leaves `validation/` out as a DIRECTORY when
+  `ExportProfile.include_validation` is off.
+  - The old rule added `"validation"` to `_copy_tree`'s `skip`, which matches file names, so it could not match the
+    handoff's `validation/` (`report.*`, `overlays/`), and the knob had no effect.
+  - The default ships it, as it always has.
+
+### Tests
+- `tests/unit/test_validation_names.py` (all 3 fail on 0.259.0):
+  - a shell is judged by its level's manifest;
+  - its own manifest wins, and absence fails open;
+  - the validation rule leaves a nested `validation/` directory out of a copy.
+
 ## [0.259.0] - the panel's walk builds the chosen layout's shell before it locks it
 
 On 2026-10-27, rebuilding the walker's seed 9205 after Deli Counter 0.275.0-0.277.0 had furnished its supermarket

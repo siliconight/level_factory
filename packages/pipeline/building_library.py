@@ -127,11 +127,18 @@ def source_exclusion(build_dir, archetype_id) -> str:
     with nothing but the name to say otherwise -- and a name is not read here.
 
     AN ABSENT VALIDATION MANIFEST IS NOT A FACADE. Deli Counter not having said
-    is not Deli Counter saying yes, and this fails open deliberately: exactly
-    one complete shell in the library has no validation manifest
-    (`cbp_town_finale_midbalanced_schemafixed`) and it is a building. A rule
-    that read absence as exclusion would drop it for never having been judged,
-    which is the mistake `themed_fitness` refuses to make one direction over.
+    is not Deli Counter saying yes, and this fails open deliberately: a rule
+    that read absence as exclusion would drop a building for never having been
+    judged, which is the mistake `themed_fitness` refuses to make one direction
+    over.
+
+    THE MANIFEST IS FOUND BY THE NAME DELI COUNTER WRITES IT UNDER (0.260.0,
+    the factory's roadmap 297; `validation_manifest`). This said exactly one
+    complete shell had none -- `cbp_town_finale_midbalanced_schemafixed` -- and
+    it has one: Deli Counter names a shell's validation manifest after its
+    spec's `level`, and three shells' file stems are not their level's name
+    (that one, `fuel_stop_heist3` and `fuel_stop_heist4`), so a facade or demo
+    flag in theirs was never read.
 
     Takes the build dir rather than a row so it can be asked about a bare id —
     `library_census.py` and `marker_scope_census.py` walk the directory
@@ -142,7 +149,7 @@ def source_exclusion(build_dir, archetype_id) -> str:
         return (f"Level Factory's own composed output: ids beginning "
                 f"{_COMPOSED_PREFIX!r} are written by this pipeline into its "
                 f"own source library, not authored as archetypes")
-    data = _manifest(Path(str(build_dir)) / (aid + ".validation.json"))
+    data = validation_manifest(build_dir, aid)
     if (data or {}).get("facade") is True:
         return ("Deli Counter reports facade=true in its validation manifest: "
                 "a street wall with no interior, not a building a mission can "
@@ -152,6 +159,24 @@ def source_exclusion(build_dir, archetype_id) -> str:
                 "spec that demonstrates or tests a capability, not a building "
                 "a level stands")
     return ""
+
+
+def validation_manifest(build_dir, archetype_id):
+    """A shell's validation manifest, or ``None`` (0.260.0, the factory's
+    roadmap 297): `<id>.validation.json`, else the one named after the shell's
+    spec -- Deli Counter writes it under the `level` its
+    `<id>.gameplay.json` carries, and three library shells' file stems are not
+    their level's name (`cbp_town_finale_midbalanced_schemafixed` writes
+    `cbp_town_finale_midbalanced.validation.json`)."""
+    root = Path(str(build_dir))
+    aid = str(archetype_id)
+    data = _manifest(root / (aid + ".validation.json"))
+    if data is not None:
+        return data
+    level = (_manifest(root / (aid + ".gameplay.json")) or {}).get("level")
+    if level and str(level) != aid:
+        return _manifest(root / (str(level) + ".validation.json"))
+    return None
 
 
 def index(build_dir) -> tuple[list[dict], list[dict], list[dict]]:

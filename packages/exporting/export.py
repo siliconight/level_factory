@@ -430,6 +430,25 @@ def _copy_tree(src: Path, dst: Path, *, skip: set[str] = frozenset(),
         shutil.copy2(item, target)
 
 
+def base_skips(profile) -> tuple[set, set]:
+    """``(names, directories)`` the functional base's copy leaves out (0.260.0,
+    the factory's roadmap 297).
+
+    A NAME rule cannot leave a directory out: `_copy_tree` walks files and
+    matches `skip` against each file's NAME, so the `"validation"` this added
+    to `skip` matched nothing -- the handoff's `validation/` directory holds
+    `report.*` and `overlays/` -- and `include_validation` was a knob with no
+    effect. It is a directory rule now, and the knob leaves `validation/` out
+    when a profile turns it off. The default ships it, as it always has."""
+    skip: set[str] = set()
+    skip_dirs: set[str] = set()
+    if not ships_lux(profile.mode):
+        skip |= _PRESENTATION_FILES
+    if not profile.include_validation:
+        skip_dirs |= {"validation"}
+    return skip, skip_dirs
+
+
 #: `res://site.tscn`, as an ext_resource line would carry it.
 _ROOT_SITE_REF = re.compile(r'^\[ext_resource[^\]]*path="res://site\.tscn"',
                             re.M)
@@ -1964,11 +1983,7 @@ def export_mission(
     # 1. Copy the functional base. With the Gameplay layer this is the Dispatch
     # handoff (functional + shell contract + advisory objective layer); without
     # it, the graybox Lot site IS the deliverable base.
-    skip: set[str] = set()
-    if not ships_lux(profile.mode):
-        skip |= _PRESENTATION_FILES
-    if not profile.include_validation:
-        skip |= {"validation"}
+    skip, skip_dirs = base_skips(profile)
     # DISPATCH'S MANIFEST IS NOT THIS PACKAGE'S MANIFEST. Roadmap 50.
     #
     # `resource_manifest.json` is `dispatch.resource_manifest.v0.2`, written
@@ -2019,9 +2034,9 @@ def export_mission(
     # same reasoning that keeps art-unlit out of the composed-root branch.
     if (profile.mode == MODE_PURE_SHELL and graybox_dir
             and graybox_dir.exists() and base_dir is not graybox_dir):
-        _copy_tree(graybox_dir, export_dir, skip=skip)
+        _copy_tree(graybox_dir, export_dir, skip=skip, skip_dirs=skip_dirs)
     if base_dir and base_dir.exists():
-        _copy_tree(base_dir, export_dir, skip=skip)
+        _copy_tree(base_dir, export_dir, skip=skip, skip_dirs=skip_dirs)
 
     # 2. Localize presentation (unless the mode ships no Lux).
     if ships_lux(profile.mode) and presentation_dir and presentation_dir.exists():
