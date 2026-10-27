@@ -1716,6 +1716,26 @@ def sign_pack_dir(pixelcoat_out, slug: str) -> str:
     return str(Path(pixelcoat_out) / "signs" / f"sign_{slug}")
 
 
+#: A BANK'S NAME IS ZOO'S (0.262.0). Zoo 1.138.0 names a bank on four more
+#: faces than its band -- the teller line's nameboard, the time-and-temperature
+#: sign, the drive-up canopy's fascia, the door -- every one by
+#: `storefront_names`' rule: these four names, the crc32 of the business, which
+#: for a library shell is its archetype (Deli Counter's `bank_teller_variant`,
+#: Lot's `bank_sign_variant`, Zoo's `teller_line_forms.variant_for`). The deal
+#: keyed its own hash, so on the bank level (bank_block_001, seed 9082) the band
+#: said MATTRESS MONEY TRUST over a line, a sign and a canopy saying YOUSE
+#: CREDIT CO-OP. A bank's deal now starts at Zoo's name; the street's one-name
+#: rule still moves a second bank on to the next. Pixelcoat's delco profile
+#: lists the same four. `tests/unit/test_bank_deal.py` holds the list to Zoo.
+ZOO_BANK_NAMES = ("FIRST DELCO SAVINGS", "PIKE SAVINGS & LOAN", "MATTRESS MONEY TRUST", "YOUSE CREDIT CO-OP")
+
+
+def zoo_bank_name(key: str) -> str:
+    """The name Zoo's `storefront_names.sign_for` gives a bank whose business is ``key``."""
+    import zlib
+    return ZOO_BANK_NAMES[(zlib.crc32(str(key or "").encode("utf-8")) & 0xFFFFFFFF) % len(ZOO_BANK_NAMES)]
+
+
 def deal_signs(ws, buildings, theme: str) -> dict[str, str]:
     """Which business each SHELL is: `{shell: sign slug}` (0.148.0).
 
@@ -1756,6 +1776,10 @@ def deal_signs(ws, buildings, theme: str) -> dict[str, str]:
         for ch in key:
             h = ((h ^ ord(ch)) * 16777619) & 0xFFFFFFFF
         start = h % len(pool)
+        # a bank starts at the name Zoo's other faces give it
+        if family == "bank":
+            want = zoo_bank_name(key)
+            start = next((i for i, s in enumerate(pool) if s.get("text") == want), start)
         pick = None
         for step in range(len(pool)):
             cand = pool[(start + step) % len(pool)]

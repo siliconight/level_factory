@@ -1,3 +1,33 @@
+## [0.262.0] - a bank's band is dealt the name its other faces already give it
+
+Found by the first frames of the bank's outside (the factory's `docs/findings/bank_interior/`, frame 12, the bank level
+on Zoo 1.138.0 and Lot 0.132.0). The storefront band said MATTRESS MONEY TRUST over a teller line, a time-and-temperature
+sign and a drive-up canopy that said YOUSE CREDIT CO-OP.
+
+### Changed
+- **A bank's deal starts at Zoo's name** (`deal_signs`, `zoo_bank_name`, `ZOO_BANK_NAMES`).
+  - Zoo 1.138.0 names a bank on four faces besides its band -- the teller line's nameboard, the time-and-temperature
+    sign, the canopy's fascia, the door -- every one by `storefront_names`' rule: its four bank names, by the crc32 of
+    the business, which for a library shell is its archetype. Deli Counter (`bank_teller_variant`) and Lot
+    (`bank_sign_variant`) mirror that rule; the deal keyed its own hash and disagreed.
+  - The deal is still the walker's option A (one business a shell, the band and the door one deal). The street's
+    one-name rule still moves a second bank sharing that name on to the next.
+  - Pixelcoat's `delco_1997` profile lists the same four bank names, so the name is always in the pool.
+  - Every other family is dealt as before.
+  - Not covered: a brief's own generated bank, whose deal reads its preset where Deli Counter keys its generated name;
+    it can still disagree.
+
+### Measured
+- The bank level's bank (`bank_branch_a02`) is dealt YOUSE CREDIT CO-OP, its line's, its sign's and its canopy's name.
+  It was dealt MATTRESS MONEY TRUST.
+
+### Tests
+- `tests/unit/test_bank_deal.py` (new; fails on 0.261.0, which has no `zoo_bank_name`):
+  - every library bank is dealt Zoo's name;
+  - two banks Zoo names alike on one street still get two;
+  - the mirror is Zoo's list and the profile's, and names each shell as Zoo's `sign_for` does, when Zoo is beside the
+    repo.
+
 ## [0.261.0] - the light bake lends the rows their bake range
 
 The walker, 2026-10-26: "far too dark in teh super market". The factory's docs/findings/black_gondola_ends/ measured
