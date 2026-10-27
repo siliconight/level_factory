@@ -236,10 +236,13 @@ def test_the_bake_lays_the_rooms_floor_and_frees_it_before_it_saves():
     src = LB.PLUGIN_SCRIPT.read_text(encoding="utf-8")
     lay = src.find("_fill = _lay_room_fill(")
     press = src.find("b.pressed.emit()")
-    free = src.find("_free_room_fill()\n\t\t\t_busy = true\n\t\t\tEditorInterface.save_scene()")
+    # by ORDER, not adjacency (0.261.0 gives the rows' range back between the
+    # two): freed after Bake is pressed and before the scene is saved
+    free = src.find("\t\t\t_free_room_fill()\n")
+    save = src.find("EditorInterface.save_scene()")
     assert '"add_bake_fills"' in src, "the plugin never asks Lux for the rooms' floor"
     assert 0 <= lay < press, "the floor must be laid before Bake is pressed"
-    assert free > press, "the floor must be freed after the bake and before the save"
+    assert press < free < save, "the floor must be freed after the bake and before the save"
     assert '"room_fills": _fill_count' in src, "the result must say how many fills the bake held"
 
 
@@ -262,6 +265,48 @@ def test_a_bake_reports_its_room_fills(tmp_path, monkeypatch):
     assert r["room_fills"] == 30
     assert json.loads((pkg / LB.REPORT).read_text(encoding="utf-8"))["room_fills"] == 30
     assert any("30 room fill(s)" in s for s in said), said
+
+
+def test_the_bake_lends_the_rows_their_bake_range_and_gives_it_back_before_it_saves():
+    """THE ROWS' BAKE RANGE (0.261.0). Lux >= 0.80.0 lets a static lamp bake
+    further than it claims live (`stretch_bake_ranges`, `restore_bake_ranges`):
+    lent before Bake is pressed, given back before the save, counted in the
+    result. Read off the plugin's source, as the floor is."""
+    src = LB.PLUGIN_SCRIPT.read_text(encoding="utf-8")
+    lend = src.find("_lend_bake_ranges(EditorInterface.get_edited_scene_root())")
+    press = src.find("b.pressed.emit()")
+    back = src.find("\t\t\t_give_back_bake_ranges()\n")
+    save = src.find("EditorInterface.save_scene()")
+    assert '"stretch_bake_ranges"' in src and '"restore_bake_ranges"' in src
+    assert 0 <= lend < press, "the range must be lent before Bake is pressed"
+    assert press < back < save, "the range must be given back after the bake and before the save"
+    assert '"bake_ranges_lent": _lent_count' in src, "the result must say how many lamps were lent one"
+
+
+def test_a_bake_reports_the_lamps_lent_a_range(tmp_path, monkeypatch):
+    """What the plugin counted reaches `light_bake.json` and the export log; a
+    Lux with no such call (-1) says nothing about it."""
+    for lent, line in ((50, "50 lamp(s) lent a bake range"), (-1, None)):
+        pkg = _package(tmp_path / str(lent))
+        monkeypatch.setattr(LB, "_import", lambda d, g: True)
+
+        def fake_editor(cmd, timeout, log_path=None, lent=lent):
+            work = Path(cmd[cmd.index("--path") + 1])
+            (work / LB.RESULT).write_text(json.dumps({"ok": True, "users": 12, "room_fills": 30,
+                                                      "bake_ranges_lent": lent}), encoding="utf-8")
+            (work / "bake.tscn").write_text("[gd_scene format=3]\n", encoding="utf-8")
+            for f in ("bake.lmbake", "bake.exr", "bake.exr.import"):
+                (work / f).write_text("x", encoding="utf-8")
+            return 0, 3.0
+        monkeypatch.setattr(LB, "_run", fake_editor)
+        said = []
+        r = LB.bake(pkg, "godot.exe", log=said.append)
+        assert r["ok"] is True and r["bake_ranges_lent"] == lent, r
+        assert json.loads((pkg / LB.REPORT).read_text(encoding="utf-8"))["bake_ranges_lent"] == lent
+        if line:
+            assert any(line in s for s in said), said
+        else:
+            assert not any("lent a bake range" in s for s in said), said
 
 
 

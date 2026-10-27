@@ -1,3 +1,37 @@
+## [0.261.0] - the light bake lends the rows their bake range
+
+The walker, 2026-10-26: "far too dark in teh super market". The factory's docs/findings/black_gondola_ends/ measured
+the supermarket's baked lamps at a range written for the realtime per-mesh claim. Re-baked with it x 1.6, the store's
+frame rose 38.5 -> 61.5 mean.
+
+Lux 0.80.0 lets a static fluorescent lamp bake further than it claims live (`stretch_bake_ranges`,
+`restore_bake_ranges`). Deli Counter 0.279.0 asks for that on a supermarket's rows (`bake_reach`), and Zoo 1.134.0
+carries it to the lamps' markers.
+
+### Added
+- **The bake lends the rows their range** (`assets/godot/light_bake_plugin.gd`, `_lend_bake_ranges`,
+  `_give_back_bake_ranges`):
+  - lent after the scene opens and before Bake is pressed;
+  - given back after the bake and before the save, beside the rooms' fill.
+
+  So the lightmap holds the longer reach while the package's lamps keep their live one. A lamp's live range is the
+  realtime claim it makes on every dynamic object, every player included.
+- **`bake_ranges_lent`** in the result and in `light_bake.json`: how many lamps were lent one, or -1 when the
+  level's Lux has no such call. The export log says it beside the room fills.
+- `_lux_loader(root)`: the level's Lux loader, found once for the fill and the range alike.
+
+### Changed
+- `test_the_bake_lays_the_rooms_floor_and_frees_it_before_it_saves` checks ORDER, not adjacency: the fill is freed
+  after Bake is pressed and before the save, now with the range given back between the two.
+
+### Tests
+- `tests/unit/test_light_bake.py`:
+  - the range is lent before Bake is pressed and given back before the save, counted in the result;
+  - what the plugin counted reaches `light_bake.json` and the export log, and a Lux without the call (-1) says
+    nothing.
+
+  Both fail on 0.260.0.
+
 ## [0.260.0] - two rules that asked for a name the files do not carry
 
 **The factory's roadmap 297.**

@@ -619,6 +619,8 @@ def bake(export_dir, godot_executable, *, log=print, spawned=()) -> dict:
         report["editor_log"] = attempts[-1]["editor_log"]
         report["result"] = result
         report["room_fills"] = (result or {}).get("room_fills")
+        # 0.261.0: the static lamps Lux lent a bake range, -1 when its Lux has none
+        report["bake_ranges_lent"] = (result or {}).get("bake_ranges_lent")
         if code is None:
             raise RuntimeError(f"the editor did not finish in {EDITOR_TIMEOUT_S} s")
         if not result or not result.get("ok"):
@@ -643,8 +645,10 @@ def bake(export_dir, godot_executable, *, log=print, spawned=()) -> dict:
                len(report["imports"]["dynamic"]), len(report["imports"]["spawned"]),
                report["rigs"]["static"], report["rigs"]["live"],
                report["rigs"]["cycling"],
-               "no room floor (the level's Lux lays none)" if fills in (None, -1)
-               else "%d room fill(s)" % fills,
+               ("no room floor (the level's Lux lays none)" if fills in (None, -1)
+                else "%d room fill(s)" % fills)
+               + ("" if report["bake_ranges_lent"] in (None, -1)
+                  else ", %d lamp(s) lent a bake range" % report["bake_ranges_lent"]),
                result.get("users"), report["editor_s"]))
         if len(attempts) > 1:
             log("[export] light bake: baked on attempt %d of %d; the first failed: %s"

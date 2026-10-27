@@ -75,6 +75,14 @@ var _busy: bool = false
 ## `_fill_count` is -1 when the level's Lux has no such call.
 var _fill: Node = null
 var _fill_count: int = -1
+## THE ROWS' BAKE RANGE (0.261.0). Lux >= 0.80.0 lets a static fluorescent
+## lamp bake further than it claims live (`LuxLightLoader.stretch_bake_ranges`):
+## a lamp's live range is the realtime claim it makes on every dynamic object,
+## every player included, and its lightmap makes none. Lent after the scene
+## opens and before Bake is pressed, given back before the save, beside the
+## fill. `_lent_count` is -1 when the level's Lux has no such call.
+var _lent: Array = []
+var _lent_count: int = -1
 
 
 func _enter_tree() -> void:
@@ -148,9 +156,9 @@ func _find_button(n: Node) -> Button:
 
 
 ## The level's Lux loader sits beside its LuxRoot's script, in a package
-## (`res://runtime/lux/runtime/`) and in Lux's own repo alike. Its
-## `add_bake_fills` lays the fill under `root` and returns the container.
-func _lay_room_fill(root: Node) -> Node:
+## (`res://runtime/lux/runtime/`) and in Lux's own repo alike; null when the
+## scene has no LuxRoot under `root`.
+func _lux_loader(root: Node) -> Script:
 	if root == null:
 		return null
 	for n in root.get_tree().get_nodes_in_group(&"lux_root"):
@@ -162,14 +170,37 @@ func _lay_room_fill(root: Node) -> Node:
 		var path := s.resource_path.get_base_dir().path_join("lux_light_loader.gd")
 		if not ResourceLoader.exists(path):
 			continue
-		var loader: Script = load(path)
-		if loader == null or not loader.has_method("add_bake_fills"):
-			return null
-		var fill: Node = loader.call("add_bake_fills", root)
-		_fill_count = fill.get_child_count() if fill != null else 0
-		print("BAKE room fills: ", _fill_count)
-		return fill
+		return load(path)
 	return null
+
+
+## Its `add_bake_fills` lays the fill under `root` and returns the container.
+func _lay_room_fill(root: Node) -> Node:
+	var loader: Script = _lux_loader(root)
+	if loader == null or not loader.has_method("add_bake_fills"):
+		return null
+	var fill: Node = loader.call("add_bake_fills", root)
+	_fill_count = fill.get_child_count() if fill != null else 0
+	print("BAKE room fills: ", _fill_count)
+	return fill
+
+
+## Its `stretch_bake_ranges` lends the static lamps their bake range and
+## returns what to give back (0.261.0).
+func _lend_bake_ranges(root: Node) -> void:
+	var loader: Script = _lux_loader(root)
+	if loader == null or not loader.has_method("stretch_bake_ranges"):
+		return
+	_lent = loader.call("stretch_bake_ranges", root)
+	_lent_count = _lent.size()
+	print("BAKE ranges lent: ", _lent_count)
+
+
+func _give_back_bake_ranges() -> void:
+	var loader: Script = _lux_loader(EditorInterface.get_edited_scene_root())
+	if loader != null and loader.has_method("restore_bake_ranges"):
+		loader.call("restore_bake_ranges", _lent)
+	_lent = []
 
 
 func _free_room_fill() -> void:
@@ -225,6 +256,7 @@ func _process(_delta: float) -> void:
 				_done({"ok": false, "error": "no Bake Lightmaps button"})
 				return
 			_fill = _lay_room_fill(EditorInterface.get_edited_scene_root())
+			_lend_bake_ranges(EditorInterface.get_edited_scene_root())
 			_t0 = Time.get_ticks_msec()
 			_busy = true
 			_stop_drawing()
@@ -250,6 +282,7 @@ func _process(_delta: float) -> void:
 			if _frames < 30:
 				return
 			_free_room_fill()
+			_give_back_bake_ranges()
 			_busy = true
 			EditorInterface.save_scene()
 			_busy = false
@@ -260,5 +293,6 @@ func _process(_delta: float) -> void:
 					tex.append({"path": t.resource_path, "w": t.get_width(), "h": t.get_height()})
 			_done({"ok": true, "bake_ms": took, "users": d.get_user_count(),
 				"room_fills": _fill_count,
+				"bake_ranges_lent": _lent_count,
 				"data_path": d.resource_path, "textures": tex,
 				"quality": _lm.quality, "bounces": _lm.bounces})
