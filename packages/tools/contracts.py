@@ -61,6 +61,11 @@ LOCK_SCHEMA = "level_factory.tools_lock.v0.1"
 # comes from, and a `contract` string is recorded where the tool publishes a
 # machine-readable one.
 #
+# RE-GROUNDED 2026-10-28 (0.262.2), ONE ROW, for factory 1.42.1: deli_counter
+# 0.286.1 -> 0.286.2 (the migrations index line committed after 0.286.1 was
+# tagged, which verify-manifest --strict read STALE). Licensed by the
+# real-tool smoke, which read exactly this row DRIFT before and all green after.
+#
 # RE-GROUNDED 2026-10-28 (0.262.1), EIGHT ROWS, for factory 1.42.1: deli_counter
 # 0.241.0 -> 0.286.1, dispatch 0.5.3 -> 0.5.4, laser_tag 0.32.0 -> 0.32.1, lot
 # 0.126.0 -> 0.135.0, lux 0.79.0 -> 0.80.0, patina 0.32.0 -> 0.32.1, pixelcoat
@@ -204,7 +209,7 @@ LOCK_SCHEMA = "level_factory.tools_lock.v0.1"
 # tools the smoke just ran, so the next tool bump cannot leave it behind in
 # silence.
 GROUNDED: dict[str, dict] = {
-    "deli_counter": {"version": "0.286.1", "source": "VERSION"},
+    "deli_counter": {"version": "0.286.2", "source": "VERSION"},
     "lot":          {"version": "0.135.0", "source": "VERSION"},
     "laser_tag":    {"version": "0.32.1", "source": "VERSION",
                      "note": "was unpinned until 0.8.0 -- the addon declared a "

@@ -24,7 +24,7 @@ def _stub_glb(tag="stub"):
     return _struct.pack("<III", 0x46546C67, 2, 12 + len(chunk)) + chunk
 
 def cmd_contract():
-    print(json.dumps({"tool_version": "0.286.1", "gameplay_schema": "1.21.0",
+    print(json.dumps({"tool_version": "0.286.2", "gameplay_schema": "1.21.0",
                       "capabilities": ["generate_building", "validate_building",
                                        "combat_audit", "floorplan_preview",
                                        "slot_contract", "deterministic_build"]}))
