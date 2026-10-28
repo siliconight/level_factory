@@ -61,6 +61,15 @@ LOCK_SCHEMA = "level_factory.tools_lock.v0.1"
 # comes from, and a `contract` string is recorded where the tool publishes a
 # machine-readable one.
 #
+# RE-GROUNDED 2026-10-28 (0.262.1), EIGHT ROWS, for factory 1.42.1: deli_counter
+# 0.241.0 -> 0.286.1, dispatch 0.5.3 -> 0.5.4, laser_tag 0.32.0 -> 0.32.1, lot
+# 0.126.0 -> 0.135.0, lux 0.79.0 -> 0.80.0, patina 0.32.0 -> 0.32.1, pixelcoat
+# 0.62.0 -> 0.63.0 and zoo 1.117.0 -> 1.142.0 -- every release since factory
+# 1.41.0. Factory 1.42.0 was certified WITHOUT this, and its install test's
+# setup read five of these rows as drift: the manifest's promotion does not
+# move this table. Licensed by the real-tool smoke, which read exactly these
+# eight rows DRIFT before and all green after.
+#
 # RE-GROUNDED 2026-10-20 (0.226.2), ONE ROW, for factory 1.41.0: deli_counter
 # 0.240.0 -> 0.241.0 (a ramp's slab cut stops at its head, railed), which
 # install test 10 found the set needed after 0.226.1 was grounded to it.
@@ -195,9 +204,9 @@ LOCK_SCHEMA = "level_factory.tools_lock.v0.1"
 # tools the smoke just ran, so the next tool bump cannot leave it behind in
 # silence.
 GROUNDED: dict[str, dict] = {
-    "deli_counter": {"version": "0.241.0", "source": "VERSION"},
-    "lot":          {"version": "0.126.0", "source": "VERSION"},
-    "laser_tag":    {"version": "0.32.0", "source": "VERSION",
+    "deli_counter": {"version": "0.286.1", "source": "VERSION"},
+    "lot":          {"version": "0.135.0", "source": "VERSION"},
+    "laser_tag":    {"version": "0.32.1", "source": "VERSION",
                      "note": "was unpinned until 0.8.0 -- the addon declared a "
                              "version in addons/laser_tag_tool/plugin.cfg but "
                              "the repo had no root VERSION file, which is the "
@@ -209,7 +218,7 @@ GROUNDED: dict[str, dict] = {
                              "addon Godot loads declares the other number. "
                              "Still so 2026-10-10: plugin.cfg 0.19.0, "
                              "VERSION 0.25.0"},
-    "pixelcoat":    {"version": "0.62.0", "source": "VERSION",
+    "pixelcoat":    {"version": "0.63.0", "source": "VERSION",
                      "note": "the probe reads VERSION first, so this is no "
                              "longer version.py -- and the two disagree: "
                              "pixelcoat/version.py says 0.16.0, which is what "
@@ -220,18 +229,18 @@ GROUNDED: dict[str, dict] = {
                              "HISTORY by 2026-10-10: version.py now derives "
                              "__version__ from VERSION, its _FALLBACK pinned "
                              "to the file by a test, so the two agree"},
-    "zoo":          {"version": "1.117.0", "source": "VERSION",
+    "zoo":          {"version": "1.142.0", "source": "VERSION",
                      "note": "0.30.2 -> 1.1.1 crosses a major, which is why "
                              "this row was the one that finally shouted. The "
                              "0.94 fixtures-index change the adapter was "
                              "refusing packages over is handled in "
                              "adapters/zoo"},
-    "lux":          {"version": "0.79.0", "source": "VERSION"},
-    "patina":       {"version": "0.32.0", "source": "VERSION",
+    "lux":          {"version": "0.80.0", "source": "VERSION"},
+    "patina":       {"version": "0.32.1", "source": "VERSION",
                      "note": "pyproject still reports 0.1.1; the VERSION file "
                              "the probe reads is authoritative. Still so "
                              "2026-10-10: pyproject 0.1.1, VERSION 0.30.0"},
-    "dispatch":     {"version": "0.5.3",  "source": "contract probe",
+    "dispatch":     {"version": "0.5.4",  "source": "contract probe",
                      "contract": "dispatch.mission.v0.2",
                      "note": "THE ONLY ROW THAT WAS ALREADY RIGHT, and it "
                              "looks stale from the outside: dispatch/VERSION "
