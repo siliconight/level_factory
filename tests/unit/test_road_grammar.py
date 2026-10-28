@@ -349,3 +349,18 @@ def test_lot_reads_the_lane_as_two_stems_that_stop_at_the_streets():
     legs = [a for a in site_streets.approaches(resolved) if a.road == 3]
     assert legs and all(a.control == "stop" and a.minor for a in legs), legs
     assert not any(a.control == "signal" for a in site_streets.approaches(resolved) if 3 in (a.road, a.crosser))
+
+
+def test_an_avenue_is_the_front_road_alone():
+    """0.263.0: the T's front road and its doors' spurs, no cross street, the plate not widened for one."""
+    b, fp = _buildings(n=4)
+    t_roads, t_doors, t_x, t_y = rg.roads_for("T", b, fp, 200, 120)
+    a_roads, a_doors, a_x, a_y = rg.roads_for("avenue", b, fp, 200, 120)
+    assert len(a_roads) == 1 and len(t_roads) >= 2
+    assert a_roads[0]["a"][1] == t_roads[0]["a"][1] and a_roads[0]["width"] == rg.ROAD_WIDTH
+    assert a_y == t_y and a_x <= t_x
+    assert a_doors and all(d in t_doors for d in a_doors)
+    for spelling in ("avenue", "ave", "one_road", "single_road"):
+        assert rg.grammar_of(spelling) == "avenue"
+    for spelling in ("main_street", "strip", "street"):        # what briefs on disk wrote stays a T
+        assert rg.grammar_of(spelling) == "T"

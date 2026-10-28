@@ -150,5 +150,16 @@ def test_operations_refuse_with_reasons(factory):
     with pytest.raises(RequestError) as e:
         operations.open_design({"path": str(factory / "nowhere")}, _NOOP)
     assert e.value.code == "no_design"
-    assert [t["template_id"] for t in operations.list_templates({}, _NOOP)["templates"]] == [T]
+    # Delco Ave (0.263.0): one street, the avenue grammar's template
+    assert [t["template_id"] for t in operations.list_templates({}, _NOOP)["templates"]] == ["delco_ave", T]
     assert operations.describe_template({"template": T}, _NOOP)["controls"]
+
+
+def test_delco_ave_is_one_street():
+    """0.263.0, the walker: "Try Delco Ave (for a simple 1 lane road level template)". Its Streets control defaults
+    to the avenue grammar, which lays the front road alone; the T it was nearest to keeps its cross street."""
+    c = design._controls("delco_ave")
+    assert c["road_grammar"]["default"] == "avenue"
+    assert design.template("delco_ave")["label"] == "Delco Ave"
+    labels = {o["value"]: o["label"] for o in c["road_grammar"]["options"]}
+    assert labels["avenue"].startswith("One street") and not labels["T"].startswith("One street")

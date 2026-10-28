@@ -1,0 +1,35 @@
+{
+  "schema": "gabagool.template.v1",
+  "template_id": "delco_ave",
+  "label": "Delco Ave",
+  "description": "One street and nothing else: four buildings along a Delco avenue, one lane each way and no junction, anchored on a corner convenience store. In the front, through the back room to the safe, and out to the curb.",
+  "batch": {
+    "seed_base": 9003,
+    "theme_family": "delco"
+  },
+  "brief": {
+    "schema": "level_factory.mission_brief.v0.1",
+    "archetype": "convenience_store",
+    "building_count": 4,
+    "site_shape": "strip",
+    "road_grammar": "avenue",
+    "route_shape": "linear_push",
+    "objective_hypotheses": [
+      "enter_store",
+      "reach_back_room",
+      "crack_safe",
+      "extract"
+    ],
+    "extraction_relationship": "street_getaway",
+    "verticality": "low",
+    "landmark": "neon_sign",
+    "time_of_day": "evening",
+    "weather": "clear",
+    "theme": "delco_1997",
+    "candidate_count": 3,
+    "target_minutes": [
+      20,
+      30
+    ]
+  }
+}

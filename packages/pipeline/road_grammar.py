@@ -79,7 +79,11 @@ LANE_SETBACK = REAR_YARD + ROAD_MARGIN
 #: The road graphs a site can be laid out on. `T` is the historical street and
 #: stays the default for an unset or unrecognised grammar, so a brief that says
 #: nothing gets the streets it has always had.
-GRAMMARS = ("T", "cross", "block")
+#: `avenue` (0.263.0, the walker: "Try Delco Ave (for a simple 1 lane road level template)"): ONE road, the T's
+#: front road with its doors' spurs and no cross street -- the main street this module's docstring names as a shape
+#: it could not build. `main_street`, `strip` and `street` still mean T: briefs and levels on disk wrote them, and
+#: re-pointing a spelling would move every one of them.
+GRAMMARS = ("T", "cross", "block", "avenue")
 
 #: What a brief may write for each. Case-insensitive; anything else is a `T`,
 #: for the reason `site_variation`'s table gives -- refusing a spelling would
@@ -92,6 +96,7 @@ _GRAMMAR_ALIASES = {
     "x": "cross", "intersection": "cross", "four_corners": "cross",
     "block": "block", "loop": "block", "service_lane": "block",
     "rear_lane": "block", "alley": "block", "back_lane": "block",
+    "avenue": "avenue", "ave": "avenue", "one_road": "avenue", "single_road": "avenue",
 }
 
 
@@ -364,6 +369,10 @@ def roads_for(grammar, buildings, footprints, span_x, span_y):
     shape = grammar_of(grammar)
     south, faces, edges, spans = _south_face(buildings, footprints)
     road, y_road, span_y = _through_road(south, span_x, span_y)
+    if shape == "avenue":
+        # ONE ROAD (0.263.0): the front road across the plate as it stands, every front door's spur to it, and no
+        # cross line -- `_cross_line` would widen the plate for a street that is not there
+        return [road], _spurs(faces, y_road), span_x, span_y
     x_cross, span_x, flank = _cross_line(edges, span_x)
     # the through road spans the plate, which `_cross_line` may have widened
     road["a"][0], road["b"][0] = -span_x / 2.0, span_x / 2.0

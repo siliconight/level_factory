@@ -1,3 +1,34 @@
+## [0.263.0] - the Delco Ave template, and a road grammar of one street
+
+The walker, of the authoring panel's one template: "restaurant block doesnt feel right ... Try Delco Ave (for a simple
+1 lane road level template)", then "my goal is to have like 8 of those templates with great diversity/dynamics".
+
+### Added
+- **The `avenue` road grammar** (`road_grammar.GRAMMARS`; spellings `avenue`, `ave`, `one_road`, `single_road`): ONE
+  road, the T's front road across the plate with every front door's spur to it, and no cross street -- the main
+  street this module's docstring named as a shape a person asks for and it could not build. The plate is not
+  widened for a cross line that is not there. `main_street`, `strip` and `street` still mean T: briefs and levels
+  on disk wrote them, and re-pointing a spelling would move every one.
+- **The Delco Ave template** (`packages/service/templates/delco_ave.json`): four buildings along one avenue, one lane
+  each way and no junction, anchored on a corner convenience store, evening; its Streets control defaults to the
+  avenue.
+- The panel's Streets labels say what each is: "A T junction" (it read "One street"), "One street, no junction (an
+  avenue)".
+
+### Measured
+- Delco Ave made and walked from the panel's own brief (`design.brief_from_design`), with nobody touching anything:
+  make 7.8 min, seed 9003 shipped at PASS 90 (9104 PASS_WITH_TUNING 84, 9205 PASS_WITH_TUNING 88); the site's one
+  road 219 m by 10 m; walk exit 0, both ladders climbed, five stations passed; the closure ok over 86 resources.
+- Its first make refused every candidate: Deli Counter's IP-name guard read 'delco' in the level's own name
+  (`lf_delco_ave_001_9003`). Deli Counter 0.287.1 holds a designer's level name to it no longer; this release needs
+  it.
+
+### Tests
+- `tests/unit/test_road_grammar.py`: an avenue is the front road alone, its doors the T's; the old spellings stay T
+  (fails on 0.262.2).
+- `tests/service/test_design.py`: Delco Ave is listed, its Streets default the avenue, and only the avenue's label
+  says one street.
+
 ## [0.262.2] - `contracts.GROUNDED`'s deli_counter row re-grounded for factory 1.42.1
 
 Deli Counter 0.286.2 releases the migrations index line committed after 0.286.1 was tagged, which the factory's
