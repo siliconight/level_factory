@@ -129,6 +129,12 @@ def capabilities(template_id: str) -> list[dict]:
          "consumer": "the planner's candidate seeds (packages.pipeline.planner)", "rebuilds": "layout"},
         {"key": "roof_props", "label": "Roof clutter", "type": "boolean", "default": bool(brief.get("roof_props", True)),
          "support": "supported", "consumer": "Zoo's rooftop scatter", "rebuilds": "art"},
+        # the walker: "flip the switch, turn gameplay events on" (0.265.0): data for a gameplay layer, off by default
+        {"key": "gameplay_events", "label": "Gameplay events", "type": "boolean",
+         "default": bool(brief.get("gameplay_events", False)), "support": "supported",
+         "note": "The score's alarm and score events -- a teller's panic button, a vault door, a deposit box drilled -- "
+                 "sent to Dispatch for a gameplay layer to use or ignore. Off, the level is exactly as before.",
+         "consumer": "Dispatch's trigger anchors (packages.staging.dispatch_inputs)", "rebuilds": "export"},
         # the standard's PLAYERS (0.253.0): one spawn per crew member, and the crew Laser Tag plays
         {"key": "crew_size", "label": "Players", "type": "integer", "min": 1, "max": 4,
          "default": int(brief.get("crew_size", MissionBrief.__dataclass_fields__["crew_size"].default)),

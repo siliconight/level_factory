@@ -1,3 +1,23 @@
+## [0.265.0] - the gameplay-events switch
+
+The walker: "so we can flip the switch, turn gameplay events on, and then the gameplay layer could ingest if
+warranted" (the factory's roadmap 323).
+
+### Added
+- **`MissionBrief.gameplay_events`** (default `false`) and the authoring panel's **Gameplay events** control on every
+  template. On, a score's alarm hooks -- Deli Counter 0.289.0's `alarm` markers at its teller lines, vault doors,
+  deposit units, drop safes, ATMs and cash carts -- reach Dispatch as `trigger` anchors carrying their event (the
+  marker's `meta` and its room, read by Dispatch 0.6.0's `anchors.event_block`). Off, they are left out of
+  Dispatch's inputs and every package is what it was. Outside the functional signature: an event is data a game may
+  ignore, and changes nothing a lock protects.
+- `packages/staging/dispatch_inputs.py`: `alarm` maps to `trigger`; `EVENT_MARKERS`; `stage_dispatch_inputs(...,
+  events=)`, passed the brief's field by the CLI.
+
+### Tests
+- `tests/unit/test_gameplay_events.py` (new; fails on 0.264.0): off, no event reaches the anchors; on, an alarm is a
+  trigger carrying its event and every other anchor is unchanged; the switch is off by default and outside the lock;
+  the panel offers it on every template.
+
 ## [0.264.0] - Bank Block and Warehouse Yard; a merged building's stairs skinned again
 
 The walker: "my goal is to have like 8 of those templates with great diversity/dynamics", and "the stairs are only

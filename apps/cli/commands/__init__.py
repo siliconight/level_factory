@@ -1525,6 +1525,8 @@ def _write_dispatch_spec(ws: Workspace, model: MissionBrief,
         theme=model.theme or "",
         # which building is the score (0.158.0): the spec as Lot drew it
         lot_site=_latest_output(lot_out, "site.site.drawn.json"),
+        # the score's gameplay events, only when the brief turns them on (0.265.0)
+        events=bool(getattr(model, "gameplay_events", False)),
     )
     spec = {
         "schema": "dispatch.mission.v0.2",

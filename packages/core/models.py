@@ -143,6 +143,12 @@ class MissionBrief:
     #: functional signature: a roof prop is art and changes nothing a lock
     #: protects, like the weather.
     roof_props: bool = True
+    #: GAMEPLAY EVENTS (0.265.0, the factory's roadmap 323). The walker: "so we can flip the switch, turn gameplay
+    #: events on, and then the gameplay layer could ingest if warranted". On, the score's alarm hooks Deli Counter
+    #: records (`ALARM_FIXTURES`) reach Dispatch as `trigger` anchors carrying their event; off -- the default -- the
+    #: package is exactly what it was. Not in the functional signature: an event is data a game may ignore, and
+    #: changes nothing a lock protects.
+    gameplay_events: bool = False
     seed_policy: str = "derived"
     candidate_count: int = 3
     target_minutes: tuple[int, int] = (25, 35)

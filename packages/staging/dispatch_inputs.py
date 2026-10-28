@@ -35,7 +35,11 @@ _TYPE_MAP = {
     "player_start": "player_start", "spawn": "player_start",
     "ai_spawn": "ai_spawn", "cop_spawn": "ai_spawn", "patrol": "patrol_point",
     "extraction": "extraction", "exit": "extraction", "interactive": "interaction",
+    # a score's alarm hook (Deli Counter 0.289.0's `ALARM_FIXTURES`): a trigger carrying its event (0.265.0)
+    "alarm": "trigger",
 }
+#: The marker types that are GAMEPLAY EVENTS (0.265.0): staged only when the brief turns them on.
+EVENT_MARKERS = ("alarm",)
 
 
 def _num(v, default=0.0) -> float:
@@ -61,14 +65,18 @@ def _iter_records(gameplay: dict) -> Iterable[tuple]:
         yield rec, "loot"
 
 
-def markers_to_anchors(gameplay: dict, source: str, up: str = "z") -> list:
+def markers_to_anchors(gameplay: dict, source: str, up: str = "z", events: bool = False) -> list:
     """Map DC/Lot gameplay records to Dispatch anchors. Ids are prefixed with the
     source so they're unique across all inputs (Dispatch requires global id
-    uniqueness)."""
+    uniqueness). A gameplay event's marker (`EVENT_MARKERS`) is staged only with
+    ``events`` on, its `meta` the anchor's `event` (Dispatch 0.6.0's
+    `anchors.event_block`), with its room."""
     anchors: list = []
     seen: set = set()
     for i, (rec, ftype) in enumerate(_iter_records(gameplay)):
         raw_type = str(rec.get("type", ftype) or ftype)
+        if raw_type in EVENT_MARKERS and not events:
+            continue
         atype = _TYPE_MAP.get(raw_type, raw_type)  # pass unknown through
         rid = str(rec.get("id") or rec.get("name") or f"{ftype}_{i}")
         aid = f"{source}:{rid}"
@@ -89,6 +97,11 @@ def markers_to_anchors(gameplay: dict, source: str, up: str = "z") -> list:
         # every anchor of every package, because this never passed it.
         if rec.get("building"):
             anchor["building"] = str(rec["building"])
+        if raw_type in EVENT_MARKERS and isinstance(rec.get("meta"), dict):
+            ev = {k: v for k, v in rec["meta"].items() if k in ("event", "audible", "fixture", "fires", "repeat")}
+            if rec.get("room"):
+                ev["room"] = str(rec["room"])
+            anchor["event"] = ev
         anchors.append(anchor)
     return anchors
 
@@ -239,7 +252,7 @@ def _read_json(path: Path) -> dict:
 def stage_dispatch_inputs(dest_dir: Path, *, deli_gameplay: Path, shell_glb: Path,
                           lot_gameplay: Path, mission_id: str,
                           theme: str = "", up: str = "z",
-                          lot_site: Path | None = None) -> dict:
+                          lot_site: Path | None = None, events: bool = False) -> dict:
     """Write Dispatch-shaped deli_counter/ and lot/ input trees under dest_dir.
     Returns {"deli_counter": <manifest path>, "lot": <manifest path>}.
 
@@ -268,7 +281,7 @@ def stage_dispatch_inputs(dest_dir: Path, *, deli_gameplay: Path, shell_glb: Pat
     site_has_markers = bool(_read_json(Path(lot_gameplay)).get("markers"))
     dc_gp = {} if site_has_markers else _read_json(deli_gameplay)
     dc_up = str(dc_gp.get("up_axis", up))
-    dc_anchors = markers_to_anchors(dc_gp, "deli_counter", dc_up)
+    dc_anchors = markers_to_anchors(dc_gp, "deli_counter", dc_up, events=events)
     (deli_dir / "shell.gameplay.json").write_text(json.dumps({
         "schema": "dc.gameplay.v1", "license": {**lic, "source": "deli_counter"},
         "up_axis": dc_up, "anchors": dc_anchors,
@@ -306,7 +319,7 @@ def stage_dispatch_inputs(dest_dir: Path, *, deli_gameplay: Path, shell_glb: Pat
     # finds them tagged -- it neither synthesizes a start at the centroid
     # nor tags every building's extraction as the mission's.
     lot_anchors = ensure_mission_anchors(
-        site_markers_to_anchors(lot_gp, "lot") + markers_to_anchors(lot_gp, "lot", lot_up),
+        site_markers_to_anchors(lot_gp, "lot") + markers_to_anchors(lot_gp, "lot", lot_up, events=events),
         "lot", lot_up)
     # THE SCORE (0.158.0, roadmap 204): the objective anchors of the site's
     # objective building, tagged so the mission flow can bind a beat to
