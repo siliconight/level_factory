@@ -1,0 +1,36 @@
+{
+  "schema": "gabagool.template.v1",
+  "template_id": "warehouse_yard",
+  "label": "Warehouse Yard",
+  "description": "Open ground and high steel: two warehouses on a yard by the rail line, at midnight in the rain. Breach the yard, find the cargo, load it at the dock.",
+  "batch": {
+    "seed_base": 9003,
+    "theme_family": "delco"
+  },
+  "brief": {
+    "schema": "level_factory.mission_brief.v0.1",
+    "archetype": "industrial_warehouse",
+    "building_count": 2,
+    "site_shape": "yard",
+    "road_grammar": "T",
+    "surroundings": "yards",
+    "route_shape": "loop",
+    "objective_hypotheses": [
+      "breach_yard",
+      "locate_cargo",
+      "load_cargo",
+      "extract"
+    ],
+    "extraction_relationship": "vehicle_at_dock",
+    "verticality": "high",
+    "landmark": "gantry_crane",
+    "time_of_day": "midnight",
+    "weather": "rain",
+    "theme": "delco_1997",
+    "candidate_count": 3,
+    "target_minutes": [
+      25,
+      35
+    ]
+  }
+}

@@ -66,14 +66,16 @@ def _package(root: Path) -> dict:
 def test_a_merged_empty_s_unnamed_modules_go_with_their_sidecars(tmp_path):
     report = _package(tmp_path)
     got = M.drop_merged_modules(tmp_path, report)
-    assert sorted(got["dropped"]) == ["lot/gs_a/art/zoo/wall_x.glb", "lot/gs_a/art/zoo/window_y.glb",
+    # 0.264.0: gs_a's `wall_x` is its first `wall_` module, which the runtime skin reads (`SKIN_READS`), so it
+    # stays; in gs_b the first is `wall_named_elsewhere`, and `wall_x` goes
+    assert sorted(got["dropped"]) == ["lot/gs_a/art/zoo/window_y.glb",
                                       "lot/gs_b/art/zoo/wall_x.glb", "lot/gs_b/art/zoo/window_y.glb"]
     for rel in got["dropped"]:
         for suffix in ("", ".import", ".unwrap_cache"):
             assert not (tmp_path / (rel + suffix)).exists(), rel + suffix
-    assert got["bytes"] == 4 * (400 + 50) + sum(
+    assert got["bytes"] == 3 * (400 + 50) + sum(
         len(('[remap]\nimporter="scene"\n[deps]\nsource_file="res://%s"\n' % r).encode()) for r in got["dropped"])
-    assert got["kept"] == 3
+    assert got["kept"] == 4                        # the three a file names, and gs_a's first wall module
 
 
 def test_what_a_file_names_stays(tmp_path):

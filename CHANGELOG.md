@@ -1,3 +1,31 @@
+## [0.264.0] - Bank Block and Warehouse Yard; a merged building's stairs skinned again
+
+The walker: "my goal is to have like 8 of those templates with great diversity/dynamics", and "the stairs are only
+yellow as the default if they haven't been given a texture/skin, they should".
+
+### Added
+- **Two templates** (`packages/service/templates/`), toward eight: **Bank Block** -- the bank on a block with a
+  service lane behind (`road_grammar` `block`), afternoon; **Warehouse Yard** -- two warehouses on a yard by the
+  rail line (`surroundings` `yards`), midnight in the rain, high verticality. Each made and walked from the panel's
+  own brief (`design.brief_from_design`) with nobody touching anything: Bank Block seed 9003 PASS 90, three ladders
+  climbed; Warehouse Yard PASS 90, two ladders climbed; every shot station passed.
+- **Every template defaults to choices its own controls offer** (`tests/service/test_design.py`): the warehouse's
+  example brief says `night`, which no Time of day option is; its template says `midnight`.
+
+### Fixed
+- **A merged building's stairs are skinned, not Deli Counter's fallback yellow** (`merge_empties.SKIN_READS`,
+  `skin_keeps`). `drop_merged_modules` removed every kit module no file named, and a merged building (0.223.0) names
+  none, so `zoo_worldskin.gd`'s stair pass -- which reads the first `floor_` module off `art/zoo/` -- found nothing,
+  and every stair in every merged building shipped yellow: on the bank's package of 2026-10-28, 0 `floor_` modules in
+  every building. The first module of each family the skin reads (`floor_`, `roof_`, `wall_` and its drywall
+  variant, `prop_`) is kept: a few small files a building, never instanced, no draw. MEASURED on bank_block_001 seed
+  9082 rebuilt, at the stations whose frames had shown it, by a yellow-pixel count first held to those frames: vault
+  0.57% -> 0.07%, lobby 0.98% -> 0.01%; the stairs read in the floor's concrete.
+
+### Tests
+- `tests/unit/test_skin_keeps.py` (new; fails on 0.263.0): the first module of each family the skin reads stays,
+  and the families are the skin's own; `tests/unit/test_merged_modules_dropped.py` follows it.
+
 ## [0.263.0] - the Delco Ave template, and a road grammar of one street
 
 The walker, of the authoring panel's one template: "restaurant block doesnt feel right ... Try Delco Ave (for a simple

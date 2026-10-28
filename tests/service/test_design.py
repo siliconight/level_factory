@@ -151,7 +151,9 @@ def test_operations_refuse_with_reasons(factory):
         operations.open_design({"path": str(factory / "nowhere")}, _NOOP)
     assert e.value.code == "no_design"
     # Delco Ave (0.263.0): one street, the avenue grammar's template
-    assert [t["template_id"] for t in operations.list_templates({}, _NOOP)["templates"]] == ["delco_ave", T]
+    # Bank Block and Warehouse Yard (0.264.0): two more toward the walker's eight
+    assert [t["template_id"] for t in operations.list_templates({}, _NOOP)["templates"]] == [
+        "bank_block", "delco_ave", T, "warehouse_yard"]
     assert operations.describe_template({"template": T}, _NOOP)["controls"]
 
 
@@ -163,3 +165,14 @@ def test_delco_ave_is_one_street():
     assert design.template("delco_ave")["label"] == "Delco Ave"
     labels = {o["value"]: o["label"] for o in c["road_grammar"]["options"]}
     assert labels["avenue"].startswith("One street") and not labels["T"].startswith("One street")
+
+
+def test_every_template_defaults_to_choices_its_own_controls_offer():
+    """0.264.0: the warehouse's example brief says `night`, which no Time of day option is; a template whose default
+    is not one of its own options opens the panel on a value the panel cannot show."""
+    for tid in design.templates():
+        for c in design.capabilities(tid):
+            if c["type"] == "choice":
+                assert c["default"] in [o["value"] for o in c["options"]], (tid, c["key"], c["default"])
+            elif c["type"] == "integer":
+                assert c["min"] <= c["default"] <= c["max"], (tid, c["key"], c["default"])

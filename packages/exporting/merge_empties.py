@@ -171,6 +171,30 @@ NAMING_SUFFIXES = (".tscn", ".tres", ".gd", ".json", ".cfg", ".godot")
 FILE_LISTS = frozenset({"portable_resource_manifest.json", "light_bake.json"})
 
 
+#: THE MODULES THE RUNTIME SKIN READS BY FAMILY (0.264.0): `assets/godot/zoo_worldskin.gd` dresses a building's
+#: own geometry -- its stairs (`STAIR_FLIGHT_FAMILY`), slab reveals, vault ledges and ramps -- with the material of
+#: the FIRST module, in sort order, whose file name begins with a family prefix, read off `art/zoo/` at runtime. A
+#: merged building names no module, so this pass removed every one, and every stair in a merged building shipped in
+#: Deli Counter's fallback `gb_stair` yellow: measured on the bank's package of 2026-10-28, 0 `floor_` modules in
+#: every building and 100 stair meshes in bank_branch_a02's base, all yellow; the walker: "the stairs are only
+#: yellow as the default if they haven't been given a texture/skin". The first module of each family is kept --
+#: a few small files a building, never instanced, so no draw. (prefix, substring) as the skin's own rows; "" any.
+SKIN_READS = (("floor_", ""), ("roof_", ""), ("wall_", "_mdrywall"), ("wall_", ""), ("prop_", ""))
+
+
+def skin_keeps(glbs) -> set:
+    """The file names `SKIN_READS` keeps from one building's sorted module list: for each row, the first name that
+    begins with its prefix and holds its substring."""
+    keep = set()
+    names = sorted(glbs)
+    for prefix, sub in SKIN_READS:
+        for name in names:
+            if name.startswith(prefix) and (not sub or sub in name):
+                keep.add(name)
+                break
+    return keep
+
+
 def drop_merged_modules(export_dir: Path, report: dict) -> dict:
     """The kit modules only merged slots instanced, out of the package (0.210.0, factory roadmap 249).
 
@@ -203,8 +227,10 @@ def drop_merged_modules(export_dir: Path, report: dict) -> dict:
             texts.append(p.read_text(encoding="utf-8", errors="replace"))
     named = "\n".join(texts)
     for lot in sorted(lots):
-        for glb in sorted((export_dir / lot / "art" / "zoo").glob("*.glb")):
-            if glb.name in named:
+        glbs = sorted((export_dir / lot / "art" / "zoo").glob("*.glb"))
+        skin = skin_keeps(g.name for g in glbs)
+        for glb in glbs:
+            if glb.name in named or glb.name in skin:
                 out["kept"] += 1
                 continue
             for f in (glb, glb.with_name(glb.name + ".import"), glb.with_name(glb.name + ".unwrap_cache")):
