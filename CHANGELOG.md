@@ -1,3 +1,15 @@
+## [0.266.0] - the getaway is an end zone a game may be sent
+
+The factory's roadmap 323; the walker, of the zones a crew stands in after a score: "we don't do that, we just have
+the event that we send (without spamming/rate limiting)". With a level's gameplay events on, the getaway's extraction
+anchor carries `zone.extraction`: sent once as a body enters it (`fires: on_enter`, `repeat: edge`), its `radius` the
+extent Lot 0.136.0 states (`zone_radius`, 1.75 m: the crew's spawn to the van body plus a body). Dispatch 0.7.0
+requires that radius on every zone. An extraction with no stated extent -- a designer's own, or a site with no van --
+gets no zone: a size invented here would be a claim about geometry staging never saw. Off, nothing changes; on, no id
+moves (the event rides an anchor that already existed, still tagged the mission's extraction).
+`dispatch_inputs.ZONE_EVENTS`, `site_markers_to_anchors(events=)`. Tests: tests/unit/test_gameplay_events.py, the
+getaway is an end zone a body enters (fails on 0.265.1).
+
 ## [0.265.1] - an event never moves another anchor's id
 
 0.265.0 said a package with gameplay events off is what it was. Held to that on the Bank Block template -- its

@@ -165,10 +165,29 @@ def site_marker_anchor_pairs(gameplay: dict, source: str) -> list:
     return pairs
 
 
-def site_markers_to_anchors(gameplay: dict, source: str) -> list:
+#: Lot's site-level markers that state a zone a crew enters -> the event a
+#: game may be sent when one does (0.266.0, the factory's roadmap 323).
+ZONE_EVENTS = {"extraction": "zone.extraction"}
+
+
+def site_markers_to_anchors(gameplay: dict, source: str, events: bool = False) -> list:
     """Lot's site-level markers as Dispatch anchors: the anchors of
-    `site_marker_anchor_pairs`."""
-    return [anchor for _m, anchor in site_marker_anchor_pairs(gameplay, source)]
+    `site_marker_anchor_pairs`.
+
+    With ``events`` on, a marker in `ZONE_EVENTS` that states its extent
+    (Lot 0.136.0's ``zone_radius``, metres) carries its zone event: sent once
+    as a body enters it (`on_enter`, `edge`), Dispatch 0.7.0's ``radius``
+    the extent. A marker with no stated extent gets none: a size invented here
+    would be a claim about geometry this file never saw. The ids are
+    `site_marker_anchor_pairs`' either way -- an event never moves one."""
+    out = []
+    for m, anchor in site_marker_anchor_pairs(gameplay, source):
+        name = ZONE_EVENTS.get(str(m.get("type") or ""))
+        radius = _num(m.get("zone_radius")) if events and name else 0.0
+        if 0.0 < radius < float("inf"):
+            anchor["event"] = {"event": name, "fires": "on_enter", "repeat": "edge", "radius": radius}
+        out.append(anchor)
+    return out
 
 
 #: anchor type -> the `mission_flow` location_tag that binds to it.
@@ -325,7 +344,8 @@ def stage_dispatch_inputs(dest_dir: Path, *, deli_gameplay: Path, shell_glb: Pat
     # finds them tagged -- it neither synthesizes a start at the centroid
     # nor tags every building's extraction as the mission's.
     lot_anchors = ensure_mission_anchors(
-        site_markers_to_anchors(lot_gp, "lot") + markers_to_anchors(lot_gp, "lot", lot_up, events=events),
+        site_markers_to_anchors(lot_gp, "lot", events=events)
+        + markers_to_anchors(lot_gp, "lot", lot_up, events=events),
         "lot", lot_up)
     # THE SCORE (0.158.0, roadmap 204): the objective anchors of the site's
     # objective building, tagged so the mission flow can bind a beat to

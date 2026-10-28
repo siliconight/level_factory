@@ -12,7 +12,8 @@ sys.path.insert(0, str(ROOT))
 
 from packages.core.models import MissionBrief  # noqa: E402
 from packages.service import design  # noqa: E402
-from packages.staging.dispatch_inputs import markers_to_anchors  # noqa: E402
+from packages.staging.dispatch_inputs import (ensure_mission_anchors, markers_to_anchors,  # noqa: E402
+                                              site_markers_to_anchors)
 
 GAMEPLAY = {"markers": [
     {"name": "b0/ALARM_INT_-1_6_OPEN0", "type": "alarm", "id": "int_-1_6_open0", "x": -8.0, "y": -3.0, "z": -1.95,
@@ -65,3 +66,32 @@ def test_an_event_never_moves_another_anchors_id():
     off = [a["id"] for a in markers_to_anchors(site(True), "lot")]
     on = [a["id"] for a in markers_to_anchors(site(True), "lot", events=True) if a["type"] != "trigger"]
     assert before == off == on, (before, off, on)
+
+
+SITE = {"site_markers": [
+    {"type": "crew_spawn", "at": [10.0, -4.0], "source": "getaway_van"},
+    {"type": "extraction", "at": [10.0, -4.0], "source": "getaway_van", "getaway": "step_van", "zone_radius": 1.75},
+    {"type": "responder_spawn", "at": [40.0, -4.0]},
+]}
+
+
+def test_on_the_getaway_is_an_end_zone_a_body_enters():
+    """0.266.0: Lot 0.136.0's extraction states its extent, and with the switch on the extraction anchor carries
+    `zone.extraction`, sent once as a body enters it, with Dispatch 0.7.0's radius. FAILS ON 0.265.1, which sends no
+    zone."""
+    on = site_markers_to_anchors(SITE, "lot", events=True)
+    zone, = [a for a in on if "event" in a]
+    assert zone["type"] == "extraction" and zone["pos"] == [10.0, -4.0, 0.0]
+    assert zone["event"] == {"event": "zone.extraction", "fires": "on_enter", "repeat": "edge", "radius": 1.75}
+    # the mission still binds to it: the end zone IS the mission's extraction
+    assert "extraction" in ensure_mission_anchors(on, "lot")[1]["tags"]
+
+
+def test_off_or_without_a_stated_extent_there_is_no_zone_and_no_id_moves():
+    off = site_markers_to_anchors(SITE, "lot")
+    on = site_markers_to_anchors(SITE, "lot", events=True)
+    assert not any("event" in a for a in off)
+    assert [a["id"] for a in off] == [a["id"] for a in on]
+    assert [{k: v for k, v in a.items() if k != "event"} for a in on] == off
+    bare = {"site_markers": [dict(SITE["site_markers"][1], zone_radius=None)]}
+    assert not any("event" in a for a in site_markers_to_anchors(bare, "lot", events=True))
