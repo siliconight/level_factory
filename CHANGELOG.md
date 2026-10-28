@@ -1,3 +1,20 @@
+## [0.265.1] - an event never moves another anchor's id
+
+0.265.0 said a package with gameplay events off is what it was. Held to that on the Bank Block template -- its
+registry with events on against the same mission built on 0.264.0 -- the shared anchors' contents matched and six
+anchors' IDS did not: `lot:01_17` became `lot:01_21`, and the same for an objective and both ladders. An id a record
+shares with another is made unique by the record's index in the marker list, and 0.265.0 counted Deli Counter
+0.289.0's alarm markers in that index whether or not it staged them -- with events OFF too. A shell id is the identity
+a game maps to its own entity across rebuilds.
+
+### Fixed
+- **`markers_to_anchors` indexes in two passes**: every other record first, among themselves -- exactly the index it
+  had before alarms existed -- and the events after, with their own. Every existing anchor keeps its id whether the
+  alarms are absent, staged off or staged on.
+
+### Tests
+- `tests/unit/test_gameplay_events.py`: an event never moves another anchor's id (fails on 0.265.0).
+
 ## [0.265.0] - the gameplay-events switch
 
 The walker: "so we can flip the switch, turn gameplay events on, and then the gameplay layer could ingest if

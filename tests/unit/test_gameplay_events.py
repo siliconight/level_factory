@@ -48,3 +48,20 @@ def test_the_panel_offers_it_on_every_template():
     for tid in design.templates():
         c = {x["key"]: x for x in design.capabilities(tid)}["gameplay_events"]
         assert c["type"] == "boolean" and c["default"] is False and c["support"] == "supported"
+
+
+def test_an_event_never_moves_another_anchors_id():
+    """0.265.1: ids an existing anchor shares are suffixed by its index, and 0.265.0 counted the alarms in it -- six of
+    the Bank Block template's anchors changed id with events OFF. Two buildings' markers sharing ids, an alarm between:
+    every other anchor's id is the same with the alarm absent, events off, and events on."""
+    def site(with_alarm):
+        ms = [{"type": "objective", "id": "A", "x": 0, "y": 0, "z": 0, "building": "b0"}]
+        if with_alarm:
+            ms.append({"type": "alarm", "id": "teller", "x": 1, "y": 0, "z": 0, "building": "b0",
+                       "meta": {"event": "alarm.panic_button", "audible": False}})
+        ms.append({"type": "objective", "id": "A", "x": 5, "y": 0, "z": 0, "building": "b1"})
+        return {"markers": ms}
+    before = [a["id"] for a in markers_to_anchors(site(False), "lot")]
+    off = [a["id"] for a in markers_to_anchors(site(True), "lot")]
+    on = [a["id"] for a in markers_to_anchors(site(True), "lot", events=True) if a["type"] != "trigger"]
+    assert before == off == on, (before, off, on)

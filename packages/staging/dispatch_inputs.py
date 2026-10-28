@@ -73,10 +73,16 @@ def markers_to_anchors(gameplay: dict, source: str, up: str = "z", events: bool 
     `anchors.event_block`), with its room."""
     anchors: list = []
     seen: set = set()
-    for i, (rec, ftype) in enumerate(_iter_records(gameplay)):
+    # TWO PASSES, so an event never moves another anchor's id (0.265.1). An id a record shares is made unique by the
+    # record's index, and 0.265.0 counted the event markers in that index whether they were staged or not: on the
+    # Bank Block template, six existing anchors' ids moved (`lot:01_17` -> `lot:01_21`) with events OFF. A shell id is
+    # the identity a game maps to its own entity across rebuilds. Every other record is indexed as it always was, among
+    # themselves, first; the events follow with their own index.
+    records = list(_iter_records(gameplay))
+    plain = [r for r in records if str(r[0].get("type", r[1]) or r[1]) not in EVENT_MARKERS]
+    evented = [r for r in records if str(r[0].get("type", r[1]) or r[1]) in EVENT_MARKERS] if events else []
+    for i, (rec, ftype) in list(enumerate(plain)) + [(len(plain) + j, r) for j, r in enumerate(evented)]:
         raw_type = str(rec.get("type", ftype) or ftype)
-        if raw_type in EVENT_MARKERS and not events:
-            continue
         atype = _TYPE_MAP.get(raw_type, raw_type)  # pass unknown through
         rid = str(rec.get("id") or rec.get("name") or f"{ftype}_{i}")
         aid = f"{source}:{rid}"
