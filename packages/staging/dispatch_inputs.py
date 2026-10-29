@@ -37,9 +37,14 @@ _TYPE_MAP = {
     "extraction": "extraction", "exit": "extraction", "interactive": "interaction",
     # a score's alarm hook (Deli Counter 0.289.0's `ALARM_FIXTURES`): a trigger carrying its event (0.265.0)
     "alarm": "trigger",
+    # where a crew stands to drill a vault door or a deposit wall (Deli Counter 0.291.0): a zone naming its target
+    "drill": "trigger",
 }
 #: The marker types that are GAMEPLAY EVENTS (0.265.0): staged only when the brief turns them on.
-EVENT_MARKERS = ("alarm",)
+EVENT_MARKERS = ("alarm", "drill")
+#: What an event marker's `meta` may carry into its anchor's event (Dispatch 0.8.0's `event_block`): the event, its
+#: firing edges and repeat, a zone's `radius` and the interactive it acts on (`target`, 0.267.0), and plain facts.
+EVENT_KEYS = ("event", "audible", "fixture", "fires", "repeat", "radius", "target")
 
 
 def _num(v, default=0.0) -> float:
@@ -104,7 +109,7 @@ def markers_to_anchors(gameplay: dict, source: str, up: str = "z", events: bool 
         if rec.get("building"):
             anchor["building"] = str(rec["building"])
         if raw_type in EVENT_MARKERS and isinstance(rec.get("meta"), dict):
-            ev = {k: v for k, v in rec["meta"].items() if k in ("event", "audible", "fixture", "fires", "repeat")}
+            ev = {k: v for k, v in rec["meta"].items() if k in EVENT_KEYS}
             if rec.get("room"):
                 ev["room"] = str(rec["room"])
             anchor["event"] = ev

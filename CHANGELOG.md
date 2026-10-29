@@ -1,3 +1,14 @@
+## [0.267.0] - a drill zone names the door it opens
+
+The factory's roadmap 323; the walker: "opening the safe should be a gameplay event where you have to stand in an area
+for a certain amount of time close to the 'drill' and then the door opens", then "no drill time from the factory ...
+These will be networked events programmed somwhere else...we just want the seams/hooks in place". With a level's
+gameplay events on, Deli Counter 0.291.0's `drill` markers -- where a crew stands to drill a vault door or a deposit
+wall -- are staged as `trigger` anchors whose event carries `zone.drill`, both edges (`fires: ["on_enter",
+"on_exit"]`, Dispatch 0.8.0), the zone's `radius` and the `target` interactive it opens. `EVENT_MARKERS` gains
+`drill`; `EVENT_KEYS` names what a marker's meta may carry. No drill time, here or anywhere in the factory. Off,
+nothing changes. Tests: tests/unit/test_gameplay_events.py, a drill zone names the door it opens (fails on 0.266.0).
+
 ## [0.266.0] - the getaway is an end zone a game may be sent
 
 The factory's roadmap 323; the walker, of the zones a crew stands in after a score: "we don't do that, we just have

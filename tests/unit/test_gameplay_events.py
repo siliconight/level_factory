@@ -95,3 +95,26 @@ def test_off_or_without_a_stated_extent_there_is_no_zone_and_no_id_moves():
     assert [{k: v for k, v in a.items() if k != "event"} for a in on] == off
     bare = {"site_markers": [dict(SITE["site_markers"][1], zone_radius=None)]}
     assert not any("event" in a for a in site_markers_to_anchors(bare, "lot", events=True))
+
+
+DRILL = {"markers": [
+    {"name": "b0/DRILL_INT_-1_6_OPEN1", "type": "drill", "id": "int_-1_6_open1", "x": -4.0, "y": -2.5, "z": -1.95,
+     "room": "b0/vault_west", "building": "b0",
+     "meta": {"event": "zone.drill", "fires": ["on_enter", "on_exit"], "repeat": "edge", "radius": 1.0,
+              "target": "bank_branch_a02:if:00d81faa", "fixture": "vault_door"}},
+    {"name": "b0/OBJECTIVE_A", "type": "objective", "id": "A", "x": -8.0, "y": 5.0, "z": -3.3, "building": "b0"},
+]}
+
+
+def test_on_a_drill_zone_is_a_trigger_naming_the_door_it_opens():
+    """0.267.0: Deli Counter 0.291.0's drill marker -- where a crew stands to drill, sent on entry and exit -- carries
+    its radius and its target interactive into the anchor's event. No drill time: the game's. FAILS ON 0.266.0, which
+    drops the marker and would drop the radius and target."""
+    on = markers_to_anchors(DRILL, "lot", events=True)
+    trig, = [a for a in on if a["type"] == "trigger"]
+    assert trig["event"] == {"event": "zone.drill", "fires": ["on_enter", "on_exit"], "repeat": "edge",
+                             "radius": 1.0, "target": "bank_branch_a02:if:00d81faa", "fixture": "vault_door",
+                             "room": "b0/vault_west"}
+    off = markers_to_anchors(DRILL, "lot")
+    assert [a["type"] for a in off] == ["objective"]
+    assert [a for a in on if a["type"] != "trigger"] == off
