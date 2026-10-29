@@ -48,6 +48,13 @@ TEMPLATES = {
     "C17_administrative_lunch_district": ("courthouse", ("office", "bank", "diner", "print_shop"),
                                           ("shop_house", "apartment")),
     "C18_large_cultural_campus_edge": ("museum", ("park", "restaurant", "college"), ("office",)),
+    # THE FACTORY'S OWN, NOT THE GUIDE'S (0.268.0): `D` ids. The walker, 2026-10-29, of the game's
+    # vertical slice: "Delco Ave. Gas Station + Bank + some random buildings". No guide recipe puts
+    # a filling station and a bank on one street -- the roadside row (C08) lodges beside the fuel,
+    # the civic centre (C02) banks beside the hall -- so the slice asks for its own: the gas station
+    # as the anchor (the brief's archetype), ONE branch bank beside it, and no fabric, so the rest
+    # of the lot is the library's seeded draw.
+    "D01_delco_avenue": ("fuel_station", ("branch_bank",), ()),
 }
 
 #: The guide's building ids onto the library's families (`building_library.family`), the ones
@@ -65,6 +72,9 @@ CATALOG_FAMILIES = {
     "strip_center": ("strip_retail",),
     "video_store": ("video_store",),
     "bank": ("bank_branch", "credit_union", "bank"),
+    # one bank, not three: a use's families are drawn in turn, so `bank` puts every bank family
+    # it can find on the lot (0.268.0, D01)
+    "branch_bank": ("bank_branch",),
     "office": ("office", "office_stepped", "bank_tower"),
     "clinic": ("clinic",),
     "courthouse": ("courthouse",),

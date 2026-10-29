@@ -9,11 +9,31 @@ ENTRIES = [{"id": f"{fam}_a01", "family": fam} for fam in
 
 
 def test_the_guides_eighteen_templates_each_name_an_anchor_and_its_uses():
-    assert len(cluster.TEMPLATES) == 18
-    for tid, (anchor, supporting, fabric) in cluster.TEMPLATES.items():
+    guide = {t: v for t, v in cluster.TEMPLATES.items() if t.startswith("C")}
+    assert len(guide) == 18
+    for tid, (anchor, supporting, fabric) in guide.items():
         assert tid[:3] in ("C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08", "C09", "C10",
                            "C11", "C12", "C13", "C14", "C15", "C16", "C17", "C18")
         assert anchor and supporting and fabric
+    # the factory's own (0.268.0) are `D`, and nothing else
+    assert all(t.startswith(("C", "D")) for t in cluster.TEMPLATES)
+
+
+def test_the_delco_avenue_puts_one_bank_beside_the_gas_station():
+    """FAILS ON 0.267.0: no such template. The walker's vertical slice, 2026-10-29: "Delco Ave. Gas
+    Station + Bank + some random buildings" -- the anchor, one branch bank, then the seeded draw."""
+    assert cluster.preferred_families("D01_delco_avenue") == ["bank_branch"]
+    entries = ENTRIES + [{"id": f"bank_branch_a0{i}", "family": "bank_branch"} for i in (2, 3)] + [
+        {"id": "credit_union_a01", "family": "credit_union"}]
+    pref = cluster.preferred_families("D01_delco_avenue")
+    rest = set()
+    for seed in (1, 5421, 9082, 9104, 9205):
+        lot = bl.pick_lot(entries, seed, 4, anchor="gas_station", preferred=pref)
+        fams = [e["family"] for e in lot]
+        assert fams[0] == "gas_station" and fams[1] == "bank_branch", (seed, fams)
+        assert "credit_union" not in fams[:2] and len(set(fams)) == 4
+        rest.add(tuple(fams[2:]))
+    assert len(rest) > 1                    # the rest is the seed's, not the template's
 
 
 def test_the_catalog_maps_uses_onto_family_names():

@@ -1,3 +1,15 @@
+## [0.268.0] - a gas station and a bank on one avenue
+
+The walker, 2026-10-29, of the game's vertical slice: "Delco Ave. Gas Station + Bank + some random buildings". No
+cluster put a filling station and a bank on one street: the guide's roadside row (C08) lodges beside the fuel and its
+civic centre (C02) banks beside a hall. `cluster.TEMPLATES` gains the factory's own recipe, `D01_delco_avenue` --
+the gas station as the anchor, ONE branch bank beside it, no fabric, so the rest of the lot is the library's seeded
+draw -- and `CATALOG_FAMILIES` a `branch_bank` use mapping to `bank_branch` alone, because `bank`'s three families
+are drawn in turn and would stand three banks on the lot. The guide's eighteen keep their `C` ids; the factory's are
+`D`. Proven on the slice (the factory's `docs/vertical_slice/`, `docs/findings/slice_look/`): seed 9003's lot drew
+gas_station_a02, bank_branch_a02, card_shop_a01 and train_yard_a01, made and walked. Tests:
+tests/unit/test_cluster.py, the Delco avenue puts one bank beside the gas station (fails on 0.267.0).
+
 ## [0.267.0] - a drill zone names the door it opens
 
 The factory's roadmap 323; the walker: "opening the safe should be a gameplay event where you have to stand in an area
