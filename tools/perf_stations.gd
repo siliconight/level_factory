@@ -333,20 +333,32 @@ func _sample(cam: Camera3D, eye: Vector3, yaw: float) -> Dictionary:
 	var ms: Array = []
 	var gpu_tot := 0.0
 	var rcpu_tot := 0.0
-	var draws := 0
-	var prims := 0
-	var objs := 0
+	# THE COUNTS ARE EACH WINDOW'S p95, NOT ITS MAXIMUM (0.269.0). Two runs over
+	# one package read 616 and 703 draws at one heading; recorded frame by
+	# frame (the factory's docs/findings/price_draw_flicker/), the scene there
+	# alternates 540 and 616 every frame and now and then submits ONE frame
+	# higher -- 703 at frame 51 of a window, 987 and 1008 at frames 4 and 3 of
+	# another heading's -- and the maximum took whichever stray frame a window
+	# happened to hold. The 34 headings whose passes disagreed on draws across
+	# the slice's prices were all at the two stations those spikes were
+	# recorded at; why the scene spikes there is not established. The p95 is the count
+	# the scene holds, as `ms_p95` is the frame time it holds; one stray frame
+	# in WINDOW cannot move it, and the maximum is kept beside it as
+	# `draws_max` so a spike still shows.
+	var draw_frames: Array = []
+	var prim_frames: Array = []
+	var obj_frames: Array = []
 	var last: int = Time.get_ticks_usec()
 	for i in range(WINDOW):
 		await process_frame
 		var now: int = Time.get_ticks_usec()
 		ms.append(float(now - last) / 1000.0)
 		last = now
-		draws = maxi(draws, int(Performance.get_monitor(
+		draw_frames.append(int(Performance.get_monitor(
 			Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)))
-		prims = maxi(prims, int(Performance.get_monitor(
+		prim_frames.append(int(Performance.get_monitor(
 			Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)))
-		objs = maxi(objs, int(Performance.get_monitor(
+		obj_frames.append(int(Performance.get_monitor(
 			Performance.RENDER_TOTAL_OBJECTS_IN_FRAME)))
 	# PASS B -- TIMERS ON, short. The GPU/CPU split is worth having and is
 	# only available through the perturbing path, so it is taken
@@ -360,6 +372,12 @@ func _sample(cam: Camera3D, eye: Vector3, yaw: float) -> Dictionary:
 		rcpu_tot += RenderingServer.viewport_get_measured_render_time_cpu(_vp_rid)
 	RenderingServer.viewport_set_measure_render_time(_vp_rid, false)
 	ms.sort()
+	draw_frames.sort()
+	prim_frames.sort()
+	obj_frames.sort()
+	var draws: int = int(_pct(draw_frames, 0.95))
+	var prims: int = int(_pct(prim_frames, 0.95))
+	var objs: int = int(_pct(obj_frames, 0.95))
 	return {
 		"yaw": yaw,
 		"ms_median": _pct(ms, 0.5), "ms_p95": _pct(ms, 0.95),
@@ -368,6 +386,7 @@ func _sample(cam: Camera3D, eye: Vector3, yaw: float) -> Dictionary:
 		"render_cpu_ms": rcpu_tot / float(SPLIT_WINDOW),
 		"split_perturbed": true,
 		"draws": draws, "primitives": prims, "objects": objs,
+		"draws_max": int(draw_frames[draw_frames.size() - 1]),
 	}
 
 
@@ -714,7 +733,7 @@ func _run() -> void:
 			for p in passes:
 				var pd: Dictionary = p
 				kept.append({"ms_median": pd["ms_median"], "ms_p95": pd["ms_p95"],
-					"draws": pd["draws"]})
+					"draws": pd["draws"], "draws_max": pd["draws_max"]})
 			best["passes"] = kept
 			var slowest: Dictionary = passes[passes.size() - 1]
 			best["pass_spread_ms"] = float(slowest["ms_p95"]) - float(best["ms_p95"])

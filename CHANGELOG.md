@@ -1,3 +1,20 @@
+## [0.269.0] - a heading's draws are what the scene holds, not its stray frame
+
+Two harness runs over one package disagreed on draws: slice 9's controls read 616 and 703 at one heading, a floor
+of 87 where every earlier slice price had read about 0 (the factory's `docs/findings/price_draw_flicker/`). Recorded
+frame by frame inside `perf_stations.gd`, the scene at that heading alternates 540 and 616 every frame and now and
+then submits ONE frame higher -- 703 at frame 51 of a 60-frame window, 987 and 1008 at frames 4 and 3 of another
+heading's -- and the window's maximum, which was the heading's count, took whichever stray frame it held. All 34
+headings whose two passes disagreed on draws across the slice's prices were at the two stations those spikes were
+recorded at. `_sample` now reports each window's p95 of draws, primitives and objects -- the count the scene holds,
+as `ms_p95` is the frame time it holds -- and keeps the maximum as `draws_max`, in each pass's record too, so a
+spike still shows. Over the traced run's 53 headings the p95 agreed between the two passes at every heading and
+equalled the earlier report at every heading. Three hypotheses on the way are retracted and kept in the finding: a
+turn read before it reached the renderer (a diff that paired headings by list position; the report sorts them by
+p95), Lux's failing streetlights cutting out (refuted with every rig rested), and the scene's first 1.5 s drawing
+158 more (real, but the harness already measures 7.5 s and more after the scene is added, and a 3.5 s settle
+changed nothing). Why the scene spikes is not established. Tests: tests/unit/test_perf_draw_p95.py.
+
 ## [0.268.0] - a gas station and a bank on one avenue
 
 The walker, 2026-10-29, of the game's vertical slice: "Delco Ave. Gas Station + Bank + some random buildings". No
