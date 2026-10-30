@@ -1,3 +1,16 @@
+## [0.270.0] - a civic building's pilasters merge with their side
+
+The factory's roadmap 324. Deli Counter 0.294.0 stands a civic building's pilasters as `pilaster_<side>_<n>` slots
+outside its walls; `merge_buildings.gd`'s `_unit` knew `ext_`, `int_`, `parapet_` and `roof` and put anything else in
+the room it stands in -- and a pier on the outside of a wall stands in none, so each fell to a cell of its own: one
+mesh and one draw a pier. Priced on the vertical slice (the factory's `docs/findings/slice_look/`, slice 11): draws
+median +2, largest +34, the bank's eight piers drawn one by one. `pilaster_<side>_*` now joins the ground storey's
+side, `ext 0 <side>`, before the room fallback -- the unit that enters view and leaves it with the pier -- and merges
+there by material, so a side's piers are one mesh. On the slice (slice 14): the bank's scene 238 -> 233 merged
+meshes and no pier left on its own; draws median +0, largest +2, as much as -6 (highest_vantage yaw 90). It does
+NOT give back what the pilasters cost at extraction_12 yaw 90 (1,457 -> 1,491 with them, 1,489 merged): that view's
++34 is not per-pier submission, and what it is was not attributed. Tests: tests/unit/test_merge_buildings.py.
+
 ## [0.269.0] - a heading's draws are what the scene holds, not its stray frame
 
 Two harness runs over one package disagreed on draws: slice 9's controls read 616 and 703 at one heading, a floor

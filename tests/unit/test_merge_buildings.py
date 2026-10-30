@@ -296,3 +296,14 @@ def test_a_room_unit_is_cut_into_cells():
     assert 'return "room %s %s" % [best, _cell(px, py)]' in room
     unit = _func(text, "_unit")
     assert 'return "room %s %s" % [rid, _cell(origin.x, -origin.z)]' in unit
+
+
+def test_a_civic_buildings_pilasters_merge_with_their_side():
+    """FAILS ON 0.269.0: a pilaster (Deli Counter >= 0.294.0, `pilaster_<side>_<n>`) stands outside the wall and in no
+    room, so it fell to a cell of its own -- a mesh and a draw a pier; the vertical slice's bank priced +34 draws at
+    one heading. It joins the ground storey's side, before the room fallback."""
+    text = M.MERGE_SCRIPT.read_text(encoding="utf-8")
+    unit = _func(text, "_unit")
+    rule = 'if name.begins_with("pilaster_") and parts.size() > 1:\n\t\treturn "ext 0 %s" % parts[1]'
+    assert rule in unit
+    assert unit.index(rule) < unit.index("return _room_unit(origin, rooms)")

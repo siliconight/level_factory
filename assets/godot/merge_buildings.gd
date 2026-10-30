@@ -25,6 +25,7 @@ extends SceneTree
 ## surface of its other MeshInstance3D nodes appended to the group keyed by (unit, material name, uv1 scale and
 ## triplanar flags, surface format), the key `merge_empties.gd` uses. The UNIT:
 ##   * `ext_<storey>_<side>_*` -- one side of one storey; `parapet_<side>_*` -- one side of the parapet; `roof*`;
+##   * `pilaster_<side>_*` -- a civic building's pier, full height: the ground storey's side (0.270.0);
 ##   * `int_<storey>_<k>_*` -- one partition run;
 ##   * a room's own floor and ceiling, `floor_<room>` and `ceiling_<room>` -- that room, by its name;
 ##   * anything else: the room it stands in -- Deli Counter's rooms, `rooms.json` beside the scene, in its plan frame
@@ -165,6 +166,11 @@ func _unit(name: String, origin: Vector3, rooms: Array) -> String:
 		return "int %s %s" % [parts[1], parts[2]]
 	if name.begins_with("parapet_") and parts.size() > 1:
 		return "roof %s" % parts[1]
+	# A CIVIC BUILDING'S PILASTERS (0.270.0, Deli Counter >= 0.294.0): `pilaster_<side>_<n>` stands outside the
+	# wall, in no room, so it fell to a cell of its own -- one mesh and one draw a pier; the slice's bank has eight.
+	# Its side of the building is the unit that enters view and leaves it with it.
+	if name.begins_with("pilaster_") and parts.size() > 1:
+		return "ext 0 %s" % parts[1]
 	if name.begins_with("roof"):
 		return "roof"
 	return _room_unit(origin, rooms)
