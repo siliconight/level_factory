@@ -1,3 +1,31 @@
+## [0.271.0] - a stain drawn over its wall, not lit beside it
+
+The factory's roadmap 324. Zoo (>= 1.153.0) lays a `stain_streak` 2 mm off a wall in a material named
+`<skin>_stain`, its darkening in its vertex colour, 1.0 at its foot and both sides.
+
+### Added
+- **`zoo_worldskin.gd` `_stains`**: on every GLB, before the kit branch, a GLB's stain-only meshes become ONE mesh
+  (`Stains`), drawn black and alpha-blended at `1 - shade` (`STAIN_SHADER`: unshaded, no depth write, no fog), so the
+  blend leaves the wall times the shade at whatever light the wall has; out of the bake (`GI_MODE_DISABLED`) and
+  casting no shadow, or the wall behind it would bake into its shadow. A post-import scene is in no tree, so each
+  mesh's transform is walked to the root (`_stain_to_root`).
+
+### Retracted, kept (the factory's `docs/findings/slice_look/`, `crops_s16_s17b_s17c_stain.png`)
+- **Opaque, in the wall's texture** (slice 17b): an outline. The dressing bakes at its import's 20 cm texel and the
+  wall at its merge's; at the streak's foot, where the shade is 1.0, it read 8.5 % darker than the wall under the
+  inspection light and 15-20 % at evening, with a one-pixel step.
+- **A multiply overlay** (slice 17c): right under the inspection light, near black at evening -- Compatibility
+  tonemaps each material's output as it writes it (the evening's ACES, white 6.0), so what multiplied the wall was
+  the curve, not the shade. Black is the one colour no curve moves.
+
+### Cost
+Slice 17d against slice 16 (`perf_s17d_*`): draws median +5, largest +35 (longest_sightline yaw 90, 2,408 -> 2,443,
+a view already over the 2,000 budget); one draw a stained building in view. One stain mesh a side (slice 17c) was
++6 and +50. Frame time weak: the controls 1.25 ms apart. Stains batched by block rather than by building would be
+fewer draws again, and cross the rule that a merge never spans modules. Tests:
+tests/unit/test_worldskin_stains.py (the black overlay, the merge and its transform walk; fail on both retracted
+versions).
+
 ## [0.270.0] - a civic building's pilasters merge with their side
 
 The factory's roadmap 324. Deli Counter 0.294.0 stands a civic building's pilasters as `pilaster_<side>_<n>` slots

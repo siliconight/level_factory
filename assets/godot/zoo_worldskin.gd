@@ -1011,6 +1011,10 @@ func _post_import(scene: Node) -> Object:
 	var churned: int = _churn_passes(scene, {})
 	if churned > 0:
 		print("[worldskin] %s  %d churn surface(s) given their bands" % [base, churned])
+	# EVERY GLB, before the kit branch: a stain arrives in a building's dressing.
+	var stained: int = _stains(scene)
+	if stained > 0:
+		print("[worldskin] %s  %d stain surface(s) drawn as black at 1 - shade over their wall" % [base, stained])
 	# EVERY GLB, before the kit branch: a crown arrives in a prop GLB.
 	var swayed: Array = _sway_crowns(scene)
 	if int(swayed[0]) + int(swayed[1]) > 0:
@@ -1676,6 +1680,100 @@ func _apply(n: Node, seen: Dictionary) -> Array:
 		lit_faces += int(sub[2])
 		hardware += int(sub[3])
 	return [changed, no_density, lit_faces, hardware]
+
+
+## A STAIN WHERE WATER RUNS (0.271.0, Zoo >= 1.153.0): a material named `<skin>_stain` is a grid laid 2 mm off a
+## wall below a sill, a coping or a scupper, its darkening in its vertex colour -- 1.0 at its foot and both sides.
+## It draws BLACK, alpha-blended at `1 - shade`: the blend leaves `wall * shade`, the wall at whatever light the wall
+## has, untouched where the shade is 1.0. Black because it is the one colour no environment moves -- Compatibility
+## tonemaps and exposes each material's output as it writes it, and every curve takes 0 to 0. The shade is read as
+## sRGB (`STAIN_SHADER`), the space the overlay blends in. A GLB's stains are ONE MESH, one surface, one draw:
+## Zoo merges covers per side per material, so a building arrived with up to four, and slice 17c priced that at
+## draws median +6, largest +50 -- on views already over the draw budget. The building is the unit that enters view
+## and leaves it with them. That mesh is out of the bake (`GI_MODE_DISABLED`) and casts no shadow: an occluder 2 mm
+## off the wall would bake the wall behind it into shadow, and that wall is what shows.
+##
+## RETRACTED, KEPT (slice 17b, the factory's `docs/findings/slice_look/`): the first version drew the stain OPAQUE,
+## in the wall's own texture at the wall's world projection with its vertex colour as albedo. It drew an outline.
+## The dressing is its own GLB, baked at its import's 20 cm texel, the wall at its merge's; two lightmaps of one
+## surface do not agree at a chart border. Measured on the bank: the streak's foot, where its shade is 1.0, read
+## 8.5 % darker than the wall under the inspection light and 15-20 % darker at evening, with a step of one pixel
+## at its foot and sides.
+##
+## RETRACTED, KEPT (slice 17c): a MULTIPLY overlay -- unshaded, `BLEND_MODE_MUL`, white times the vertex colour. Under
+## the inspection light it was right: the streak faded to exactly 0 at its foot and sides. At evening the whole
+## streak drew near black, a flat -32 on a wall of about 35: its "white" is tonemapped (ACES, white 6.0) and exposed
+## before it multiplies, so what multiplied the wall was the evening's curve, not the shade. Returns the surfaces
+## changed.
+const STAIN_SUFFIX: String = "_stain"
+const STAIN_SHADER: String = """shader_type spatial;
+render_mode unshaded, blend_mix, depth_draw_never, cull_back, shadows_disabled, fog_disabled;
+
+void fragment() {
+	ALBEDO = vec3(0.0);
+	ALPHA = 1.0 - pow(clamp(COLOR.r, 0.0, 1.0), 1.0 / 2.2);
+}
+"""
+
+
+func _stains(scene: Node) -> int:
+	var found: Array = []
+	_find_stains(scene, found)
+	if found.is_empty():
+		return 0
+	var sh := Shader.new()
+	sh.code = STAIN_SHADER
+	var sm := ShaderMaterial.new()
+	sm.shader = sh
+	sm.resource_name = "M_Stain_overlay"
+	var st := SurfaceTool.new()
+	var merged: int = 0
+	for f in found:
+		var mi: MeshInstance3D = f as MeshInstance3D
+		var xf: Transform3D = _stain_to_root(mi, scene)
+		for i in range(mi.mesh.get_surface_count()):
+			st.append_from(mi.mesh, i, xf)
+			merged += 1
+		mi.get_parent().remove_child(mi)
+		mi.queue_free()
+	var am: ArrayMesh = st.commit()
+	am.surface_set_material(0, sm)
+	var out := MeshInstance3D.new()
+	out.name = "Stains"
+	out.mesh = am
+	out.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
+	out.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	scene.add_child(out)
+	out.owner = scene
+	return merged
+
+
+## Every mesh under `n` that draws nothing but stain. A mesh with a stain beside anything else would keep its
+## stain where it is, drawn as the wall's skin; Zoo merges covers per side per material, so none does.
+func _find_stains(n: Node, found: Array) -> void:
+	var mi: MeshInstance3D = n as MeshInstance3D
+	if mi != null and mi.mesh != null and mi.mesh.get_surface_count() > 0:
+		var all_stain: bool = true
+		for i in range(mi.mesh.get_surface_count()):
+			var bm: Material = mi.mesh.surface_get_material(i)
+			if bm == null or not String(bm.resource_name).ends_with(STAIN_SUFFIX):
+				all_stain = false
+		if all_stain:
+			found.append(mi)
+	for c in n.get_children():
+		_find_stains(c, found)
+
+
+## `n`'s transform in `root`'s space. An import's scene is in no tree, so there is no `global_transform` to read.
+func _stain_to_root(n: Node3D, root: Node) -> Transform3D:
+	var xf: Transform3D = n.transform
+	var p: Node = n.get_parent()
+	while p != null and p != root:
+		var p3: Node3D = p as Node3D
+		if p3 != null:
+			xf = p3.transform * xf
+		p = p.get_parent()
+	return xf
 
 
 ## Texels per metre, read off the surface's own vertices and UVs.

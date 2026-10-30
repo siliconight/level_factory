@@ -239,9 +239,13 @@ def test_the_snow_grain_is_read_off_the_picture_not_assumed():
 #: export refused in a themed package, so their `gb_floor` / `gb_ramp` is
 #: swapped for the building's darkest metal and its floor, world-triplanar
 #: (`test_worldskin_fire_escapes_ramps.py`).
+#: 0.271.0: `_stains`, which merges a GLB's `<skin>_stain` meshes (Zoo >= 1.153.0)
+#: into one new mesh and puts the stain shader on it -- black at `1 - shade`,
+#: blended over the wall; only a mesh that draws nothing but stain is taken
+#: (`test_worldskin_stains.py`).
 MATERIAL_REPLACERS = {"_assign_stairs", "_assign_slabs", "_shutters", "_turning_parts", "_sway_crowns",
                       "_assign_ladders", "_signal_lenses", "_assign_vault_ledges", "_assign_fire_escapes",
-                      "_assign_ramps"}
+                      "_assign_ramps", "_stains"}
 
 
 def test_nothing_elses_material_class_changes():
