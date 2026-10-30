@@ -1031,6 +1031,12 @@ func _post_import(scene: Node) -> Object:
 		if int(vc[0]) + int(vc[1]) + int(vc[2]) > 0:
 			print("[worldskin] %s  %d material(s) draw vertex colour, %d all-white left off, %d with a surface lacking colours left off"
 				% [base, int(vc[0]), int(vc[1]), int(vc[2])])
+		# and a draw distance from each part's own size (0.272.0), never on a building's base
+		if not base.begins_with(BASE_PREFIX):
+			var dd: Array = _draw_distance(scene)
+			if int(dd[0]) + int(dd[1]) > 0:
+				print("[worldskin] %s  %d part(s) given a draw distance, %d lit part(s) kept to any distance"
+					% [base, int(dd[0]), int(dd[1])])
 	if not is_kit:
 		if base.begins_with(BASE_PREFIX):
 			var n: Dictionary = _skin_stairs(scene, get_source_file().get_base_dir())
@@ -1774,6 +1780,67 @@ func _stain_to_root(n: Node3D, root: Node) -> Transform3D:
 			xf = p3.transform * xf
 		p = p.get_parent()
 	return xf
+
+
+## A DRAW DISTANCE FROM A PART'S OWN SIZE (0.272.0). Nothing in a package had one: every mesh reported
+## `visibility_range_end = 0`, so a parking meter's window 200 m down the avenue cost a draw as one at your feet.
+## The walker, 2026-10-30: 60 FPS is the floor, and the level is not the whole frame -- guns, AI, sound and networking
+## need theirs -- "so smart LOD, culling techniques now will go a long way". An object's part is dropped where its
+## bounding sphere spans fewer than `DRAW_PX` pixels of a `DRAW_SCREEN_H` screen through the game's camera
+## (`DRAW_FOV_DEG`: the walk player's Camera3D sets none, so Godot's default; the price harness uses the same):
+##
+##     end = radius * (DRAW_SCREEN_H / 2) / tan(DRAW_FOV_DEG / 2) / DRAW_PX      -- about 235 x the radius
+##
+## Each PART by its own size, so a meter's window goes at about 35 m and its body at about 140 m: the small details
+## of a thing go first, which is the LOD a hand-made chain would give, from the model it already has. Measured
+## before it was written (the factory's `docs/findings/size_cull/`): at the slice's worst views 479-563 surfaces in
+## the frustum spanned under 3 px, most of them parts of props. A part that lights -- an emissive surface or any
+## shader material, which may be a lit screen or a swaying crown -- keeps every distance: a lamp's lens at night is
+## seen far past 3 px. A range something set already is kept. `DRAW_HYSTERESIS` of the range, as the end margin, so
+## a part at its threshold does not flicker. Only an object's GLB: a kit tile, a dressing and a building's base are
+## never given one. Returns [parts given a range, lit parts kept].
+const DRAW_PX: float = 3.0
+const DRAW_SCREEN_H: float = 1080.0
+const DRAW_FOV_DEG: float = 75.0
+const DRAW_HYSTERESIS: float = 0.1
+
+
+func _draw_distance(scene: Node) -> Array:
+	var k: float = (DRAW_SCREEN_H / 2.0) / tan(deg_to_rad(DRAW_FOV_DEG) / 2.0)
+	var found: Array = []
+	_find_meshes(scene, found)
+	var set_n: int = 0
+	var lit_n: int = 0
+	for f in found:
+		var mi: MeshInstance3D = f as MeshInstance3D
+		if mi.visibility_range_end > 0.0:
+			continue
+		var lit: bool = false
+		for i in range(mi.mesh.get_surface_count()):
+			var m: Material = mi.get_active_material(i)
+			var bm: BaseMaterial3D = m as BaseMaterial3D
+			if m is ShaderMaterial or (bm != null and bm.emission_enabled):
+				lit = true
+		if lit:
+			lit_n += 1
+			continue
+		var box: AABB = _stain_to_root(mi, scene) * mi.mesh.get_aabb()
+		var radius: float = box.size.length() / 2.0
+		if radius <= 0.0:
+			continue
+		var end: float = radius * k / DRAW_PX
+		mi.visibility_range_end = end
+		mi.visibility_range_end_margin = end * DRAW_HYSTERESIS
+		set_n += 1
+	return [set_n, lit_n]
+
+
+func _find_meshes(n: Node, found: Array) -> void:
+	var mi: MeshInstance3D = n as MeshInstance3D
+	if mi != null and mi.mesh != null and mi.mesh.get_surface_count() > 0:
+		found.append(mi)
+	for c in n.get_children():
+		_find_meshes(c, found)
 
 
 ## Texels per metre, read off the surface's own vertices and UVs.

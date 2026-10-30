@@ -1,3 +1,28 @@
+## [0.272.0] - a draw distance from each part's own size
+
+The walker, 2026-10-30: 60 FPS is the floor, and the level is not the whole frame -- guns, AI, sound and networking
+need theirs -- "so smart LOD, culling techniques now will go a long way". No mesh in a package had a draw distance
+(every one `visibility_range_end = 0`). Measured first (the factory's `docs/findings/size_cull/`, a headless probe at
+the price harness's own views): at the slice's worst views 479-563 surfaces in the frustum spanned under 3 px at
+1080p, most of them small parts of props kept as their own meshes -- a parking meter's window and body, cars'
+stickers, newspaper boxes' windows.
+
+### Added
+- **`zoo_worldskin.gd` `_draw_distance`**: each part of an object's GLB is dropped where its own bounding sphere spans
+  `DRAW_PX` (3) pixels of a `DRAW_SCREEN_H` (1080) screen through a `DRAW_FOV_DEG` (75) camera -- Godot's default,
+  which the walk player's camera keeps -- about 235 x its radius, with `DRAW_HYSTERESIS` (10 %) of it as the end
+  margin so a part at its threshold does not flicker. Each part by its own size, so a meter's window goes at about
+  35 m and its body at about 140 m: the small details of a thing go first. A part that lights (an emissive surface or
+  any shader material) keeps every distance; a range already set is kept; a kit tile, a dressing and a building's
+  base are never given one.
+
+On the slice (slice 19 against slice 18b, nothing else different; a quiet price, the controls 0.93 ms apart): no
+heading gains a draw, the long views lose 36-100 and the close ones nothing; the worst view, longest_sightline yaw 90,
+2,443 -> 2,343 draws and p95 11.31 -> 10.92 ms. 1,386 parts of 302 object GLBs given a range, 191 lit parts kept.
+No visible change in the frames but the trees' leaves. The probe predicted up to 502 at that view: occlusion was
+already removing some of it, and the meshes the export merges (`merge_buildings.gd`, `merge_empties.gd`) are not
+covered -- the next step. Tests: tests/unit/test_worldskin_draw_distance.py.
+
 ## [0.271.0] - a stain drawn over its wall, not lit beside it
 
 The factory's roadmap 324. Zoo (>= 1.153.0) lays a `stain_streak` 2 mm off a wall in a material named
