@@ -71,6 +71,7 @@ def _row(scene, **kw):
     r = {"scene": scene, "slots_merged": 519, "meshes_in": 838, "surfaces_in": 1047, "merged": 470,
          "unwrapped": 590, "colliders": 485, "units": {"ext": 24, "int": 7, "roof": 5, "room": 434},
          "lit_surfaces": 132, "lit_meshes": 90, "glass_surfaces": 41, "glass_meshes": 30,
+         "draw_ranged": 468, "draw_kept_lit": 2,
          "kept_carrying": ["Ladders: Ladder_ladder_0 (Area3D)", "Markers: LADDER_0 (group dc_marker)"], "error": None}
     r.update(kw)
     return r

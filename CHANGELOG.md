@@ -1,3 +1,31 @@
+## [0.273.0] - the draw distance on the merged meshes, and cover keeps its silhouette
+
+The second half of 0.272.0, and the walker's draw-distance handoff (the factory's
+`docs/reference/Godot_Draw_Distance_and_Multiplayer_Relevance_Handoff.md`).
+
+### Added
+- **`merge_buildings.gd` and `merge_empties.gd` `_draw_range`**: each merged mesh they make (`MergedR_*`,
+  `Merged<side>_*`) gets the distance at which its bounding box's sphere spans `DRAW_PX` pixels -- `zoo_worldskin.gd`'s
+  rule, its five constants held equal across the three scripts by a test. A mesh wearing an emissive or shader
+  material keeps every distance, and so do a building's lit faces (`LitR_*`) and panes (`GlassR_*`): a distant
+  storefront keeps its windows and its sign. Godot measures a range from the AABB centre, so a merge of spread pieces
+  is kept longer than its pieces' own sizes would keep them, never shorter. Each report counts `draw_ranged` and
+  `draw_kept_lit`, and the Python halves refuse a row that does not account for every merged mesh, or says nothing of
+  it.
+- **A solid object keeps its silhouette** (`_draw_distance`, `_has_body`, `_largest_part`): an object whose GLB carries a
+  collider keeps its largest part at every distance and drops only its smaller parts -- the handoff's REQ-001 and
+  VAL-004, cover visible wherever it can stop a shot.
+- **`DRAW_ZOOM`** (1.0): the largest magnification the game's camera supports. A range is a distance and knows nothing
+  of FOV; nothing zooms yet, and a game that adds a scope multiplies every range by setting it.
+
+On the slice (slice 21 against slice 20, nothing else different): 873 of 873 building meshes and 160 of 184 Empty
+meshes ranged (24 kept lit); 236 solid objects' silhouettes kept. **No heading gains a draw, the long views lose 31-53**
+(longest_sightline yaw 90 2,343 -> 2,312, camera_socket_0 yaw 270 1,797 -> 1,744), 37,041 -> 36,563 over the 53
+headings, the same in two prices. Frame time was not measured: both prices' controls disagreed (1.0 and 4.8 ms). The
+factory's size probe: surfaces still drawn under 3 px at the worst view 353 -> 184, the kept silhouettes 20 of them
+(parking meters' bodies). Frames unchanged. Tests: tests/unit/test_merged_draw_distance.py,
+tests/unit/test_merge_buildings_godot.py.
+
 ## [0.272.0] - a draw distance from each part's own size
 
 The walker, 2026-10-30: 60 FPS is the floor, and the level is not the whole frame -- guns, AI, sound and networking

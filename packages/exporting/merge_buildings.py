@@ -173,7 +173,7 @@ def check(report, asked) -> dict:
         if r.get("error") is not None:
             raise MergeError(f"{scene}: {r['error']}")
         for k in ("slots_merged", "meshes_in", "surfaces_in", "merged", "unwrapped", "colliders",
-                  "lit_surfaces", "lit_meshes", "glass_surfaces", "glass_meshes"):
+                  "lit_surfaces", "lit_meshes", "glass_surfaces", "glass_meshes", "draw_ranged", "draw_kept_lit"):
             if not isinstance(r.get(k), int):
                 raise MergeError(f"{scene}: row has no integer {k!r}")
         # what the merge cannot carry keeps its slot whole and is named (0.227.0); an older merge removed it
@@ -192,6 +192,10 @@ def check(report, asked) -> dict:
             raise MergeError(f"{scene}: {r['glass_surfaces']} glass surfaces in {r['glass_meshes']} meshes")
         if r["colliders"] < 1:
             raise MergeError(f"{scene}: no collider kept")
+        # every merged group is given a draw distance or kept for its light, none forgotten (0.273.0)
+        if r["draw_ranged"] + r["draw_kept_lit"] != r["merged"]:
+            raise MergeError(f"{scene}: {r['draw_ranged']} ranged and {r['draw_kept_lit']} kept lit of "
+                             f"{r['merged']} merged meshes")
         if not isinstance(r.get("units"), dict) or not r["units"]:
             raise MergeError(f"{scene}: row says nothing of its units")
     return report

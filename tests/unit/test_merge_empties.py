@@ -49,7 +49,7 @@ def _pkg(tmp_path, site=SITE):
 
 def _row(scene, **kw):
     r = {"scene": scene, "meshes_in": 95, "surfaces_in": 161, "merged": 13, "unwrapped": 13,
-         "colliders": 86, "doors_dropped": 2, "error": None}
+         "colliders": 86, "doors_dropped": 2, "draw_ranged": 13, "draw_kept_lit": 0, "error": None}
     r.update(kw)
     return r
 

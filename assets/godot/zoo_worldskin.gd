@@ -1034,9 +1034,9 @@ func _post_import(scene: Node) -> Object:
 		# and a draw distance from each part's own size (0.272.0), never on a building's base
 		if not base.begins_with(BASE_PREFIX):
 			var dd: Array = _draw_distance(scene)
-			if int(dd[0]) + int(dd[1]) > 0:
-				print("[worldskin] %s  %d part(s) given a draw distance, %d lit part(s) kept to any distance"
-					% [base, int(dd[0]), int(dd[1])])
+			if int(dd[0]) + int(dd[1]) + int(dd[2]) > 0:
+				print("[worldskin] %s  %d part(s) given a draw distance, %d lit part(s) and %d solid object's silhouette kept to any distance"
+					% [base, int(dd[0]), int(dd[1]), int(dd[2])])
 	if not is_kit:
 		if base.begins_with(BASE_PREFIX):
 			var n: Dictionary = _skin_stairs(scene, get_source_file().get_base_dir())
@@ -1798,22 +1798,41 @@ func _stain_to_root(n: Node3D, root: Node) -> Transform3D:
 ## shader material, which may be a lit screen or a swaying crown -- keeps every distance: a lamp's lens at night is
 ## seen far past 3 px. A range something set already is kept. `DRAW_HYSTERESIS` of the range, as the end margin, so
 ## a part at its threshold does not flicker. Only an object's GLB: a kit tile, a dressing and a building's base are
-## never given one. Returns [parts given a range, lit parts kept].
+## never given one.
+##
+## AN OBJECT THAT STOPS A BODY KEEPS ITS SILHOUETTE (0.273.0). The factory's draw-distance handoff
+## (`docs/reference/Godot_Draw_Distance_and_Multiplayer_Relevance_Handoff.md`, REQ-001 and VAL-004): cover must keep a
+## visible representation wherever it can block an interaction -- an invisible relevant object is not acceptable, a
+## cheaper one is. A shot is an interaction at any range, so an object whose GLB carries a collider (Zoo's `-colonly`
+## proxy, a PhysicsBody3D after import) keeps its LARGEST part at every distance -- a car's body, a meter's post --
+## and only its smaller parts go: the car's trim, the meter's window. An object with no collider can be walked and
+## shot through, and every part of it goes by its size.
+##
+## `DRAW_ZOOM`: the largest magnification the game's camera supports. A visibility range is a distance and knows
+## nothing of FOV, so a 4x scope would show every part four times as tall at the distance it was dropped at. Nothing
+## zooms yet -- the walk player sets no FOV and Laser Tag has no scope (searched 2026-10-30) -- so 1; a game that adds
+## one multiplies every range by setting it. Returns [parts given a range, lit parts kept, silhouettes kept].
 const DRAW_PX: float = 3.0
 const DRAW_SCREEN_H: float = 1080.0
 const DRAW_FOV_DEG: float = 75.0
+const DRAW_ZOOM: float = 1.0
 const DRAW_HYSTERESIS: float = 0.1
 
 
 func _draw_distance(scene: Node) -> Array:
-	var k: float = (DRAW_SCREEN_H / 2.0) / tan(deg_to_rad(DRAW_FOV_DEG) / 2.0)
+	var k: float = (DRAW_SCREEN_H / 2.0) / tan(deg_to_rad(DRAW_FOV_DEG) / 2.0) * DRAW_ZOOM
 	var found: Array = []
 	_find_meshes(scene, found)
+	var hull: MeshInstance3D = _largest_part(scene, found) if _has_body(scene) else null
 	var set_n: int = 0
 	var lit_n: int = 0
+	var hull_n: int = 0
 	for f in found:
 		var mi: MeshInstance3D = f as MeshInstance3D
 		if mi.visibility_range_end > 0.0:
+			continue
+		if mi == hull:
+			hull_n += 1
 			continue
 		var lit: bool = false
 		for i in range(mi.mesh.get_surface_count()):
@@ -1832,7 +1851,30 @@ func _draw_distance(scene: Node) -> Array:
 		mi.visibility_range_end = end
 		mi.visibility_range_end_margin = end * DRAW_HYSTERESIS
 		set_n += 1
-	return [set_n, lit_n]
+	return [set_n, lit_n, hull_n]
+
+
+## Whether an import's scene holds a body that stops another: a StaticBody3D from a `-colonly` proxy, or any other.
+func _has_body(n: Node) -> bool:
+	if n is PhysicsBody3D:
+		return true
+	for c in n.get_children():
+		if _has_body(c):
+			return true
+	return false
+
+
+## The part of `found` with the largest bounding sphere in `scene`'s space: what an object looks like from far off.
+func _largest_part(scene: Node, found: Array) -> MeshInstance3D:
+	var best: MeshInstance3D = null
+	var best_r: float = -1.0
+	for f in found:
+		var mi: MeshInstance3D = f as MeshInstance3D
+		var r: float = (_stain_to_root(mi, scene) * mi.mesh.get_aabb()).size.length() / 2.0
+		if r > best_r:
+			best_r = r
+			best = mi
+	return best
 
 
 func _find_meshes(n: Node, found: Array) -> void:

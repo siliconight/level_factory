@@ -259,10 +259,43 @@ func _fixture(mat: Material) -> bool:
 	return false
 
 
+## A DRAW DISTANCE FROM THE MERGED MESH'S OWN SIZE (0.273.0). `zoo_worldskin.gd`'s `_draw_distance` (0.272.0) gives
+## each part of an object's GLB the distance at which its bounding sphere spans `DRAW_PX` pixels of a `DRAW_SCREEN_H`
+## screen through the game's `DRAW_FOV_DEG` camera, about 235 x its radius; the meshes this merge makes at export
+## were not imports and had none -- at the slice's worst views they were the second and third largest names among
+## the surfaces under 3 px (the factory's `docs/findings/size_cull/`). The same rule and the same constants, which
+## `tests/unit/test_merged_draw_distance.py` holds equal across the three scripts. A mesh wearing an emissive or a
+## shader material keeps every distance, as an import's lit part does. Godot measures a range from the instance's
+## AABB centre: a mesh that merges pieces spread across its unit has a box larger than any of them, so its range is
+## longer than its pieces' and it is never dropped early -- a merge can only keep a piece longer than its own size
+## would. Returns whether it was given one.
+const DRAW_PX: float = 3.0
+const DRAW_SCREEN_H: float = 1080.0
+const DRAW_FOV_DEG: float = 75.0
+const DRAW_ZOOM: float = 1.0
+const DRAW_HYSTERESIS: float = 0.1
+
+
+func _draw_range(mi: MeshInstance3D) -> bool:
+	for i in range(mi.mesh.get_surface_count()):
+		var m: Material = mi.get_active_material(i)
+		var bm: BaseMaterial3D = m as BaseMaterial3D
+		if m is ShaderMaterial or (bm != null and bm.emission_enabled):
+			return false
+	var radius: float = mi.mesh.get_aabb().size.length() / 2.0
+	if radius <= 0.0:
+		return false
+	var k: float = (DRAW_SCREEN_H / 2.0) / tan(deg_to_rad(DRAW_FOV_DEG) / 2.0) * DRAW_ZOOM
+	var end: float = radius * k / DRAW_PX
+	mi.visibility_range_end = end
+	mi.visibility_range_end_margin = end * DRAW_HYSTERESIS
+	return true
+
+
 func _merge_scene(path: String) -> Dictionary:
 	var row: Dictionary = {"scene": path, "slots_merged": 0, "meshes_in": 0, "surfaces_in": 0, "merged": 0,
 		"unwrapped": 0, "colliders": 0, "units": {}, "lit_surfaces": 0, "lit_meshes": 0, "glass_surfaces": 0,
-		"glass_meshes": 0, "kept_carrying": [], "error": null}
+		"glass_meshes": 0, "draw_ranged": 0, "draw_kept_lit": 0, "kept_carrying": [], "error": null}
 	var rooms_path: String = path.get_base_dir() + "/rooms.json"
 	if not FileAccess.file_exists(rooms_path):
 		row["error"] = "no rooms.json beside the scene"
@@ -402,6 +435,10 @@ func _merge_scene(path: String) -> Dictionary:
 		out.name = "MergedR_%d" % k
 		out.mesh = load(mesh_path) as ArrayMesh
 		out.gi_mode = GeometryInstance3D.GI_MODE_STATIC
+		# its draw distance from its own size (0.273.0); a lit face's mesh and a pane's below keep every distance --
+		# a lamp is seen far past 3 px, and a distant storefront keeps its windows (the factory's draw-distance handoff)
+		var ranged: String = "draw_ranged" if _draw_range(out) else "draw_kept_lit"
+		row[ranged] = int(row[ranged]) + 1
 		scene.add_child(out)
 		out.owner = scene
 		k += 1

@@ -111,7 +111,7 @@ def check(report, asked) -> dict:
             raise MergeError(f"{scene}: not in the report")
         if r.get("error") is not None:
             raise MergeError(f"{scene}: {r['error']}")
-        for k in ("meshes_in", "surfaces_in", "merged", "unwrapped", "colliders"):
+        for k in ("meshes_in", "surfaces_in", "merged", "unwrapped", "colliders", "draw_ranged", "draw_kept_lit"):
             if not isinstance(r.get(k), int):
                 raise MergeError(f"{scene}: row has no integer {k!r}")
         if not 0 < r["merged"] < r["surfaces_in"]:
@@ -121,6 +121,10 @@ def check(report, asked) -> dict:
                              "for the lightmap")
         if r["colliders"] < 1:
             raise MergeError(f"{scene}: no collider kept")
+        # every merged mesh is given a draw distance or kept for its light, none forgotten (0.273.0)
+        if r["draw_ranged"] + r["draw_kept_lit"] != r["merged"]:
+            raise MergeError(f"{scene}: {r['draw_ranged']} ranged and {r['draw_kept_lit']} kept lit of "
+                             f"{r['merged']} merged meshes")
     return report
 
 

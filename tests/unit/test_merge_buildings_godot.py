@@ -210,6 +210,21 @@ def test_an_openings_surround_merges_and_its_pane_stands_alone(merged):
     assert nodes.get((".", "GlassR_0"), (None,))[0] == "MeshInstance3D"
 
 
+@godot_required
+def test_the_merged_mesh_is_given_its_draw_distance_and_the_pane_keeps_every_distance(merged):
+    """0.273.0: `MergedR_0` saved with a range from its own size, `GlassR_0` with none. FAILS ON 0.272.0, which gave
+    a merged mesh none."""
+    rep, scene, _log = merged
+    body = scene.split('[node name="MergedR_0"', 1)[1].split("[node ", 1)[0]
+    end = re.search(r"^visibility_range_end = ([0-9.e+-]+)$", body, re.M)
+    margin = re.search(r"^visibility_range_end_margin = ([0-9.e+-]+)$", body, re.M)
+    assert end and margin, body
+    assert abs(float(margin.group(1)) - 0.1 * float(end.group(1))) < 1e-3 * float(end.group(1))
+    pane = scene.split('[node name="GlassR_0"', 1)[1].split("[node ", 1)[0]
+    assert "visibility_range_end" not in pane
+    assert (rep["scenes"][0]["draw_ranged"], rep["scenes"][0]["draw_kept_lit"]) == (1, 0)
+
+
 def test_a_bare_socket_does_not_keep_its_module_whole(merged):
     """Zoo's `ATT_*` sockets are bare Node3Ds -- a transform, which the merged mesh already holds."""
     _rep, scene, _log = merged

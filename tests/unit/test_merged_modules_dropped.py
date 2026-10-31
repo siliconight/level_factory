@@ -57,9 +57,9 @@ def _package(root: Path) -> dict:
     _write(root, ".godot/imported/scan.tscn", 'path="res://lot/gs_a/art/zoo/window_y.glb"')
     return {"schema": M.SCHEMA, "ok": True, "error": None, "scenes": [
         {"scene": "res://lot/gs_a/site.tscn", "meshes_in": 9, "surfaces_in": 9, "merged": 2, "unwrapped": 2,
-         "colliders": 3, "error": None},
+         "colliders": 3, "draw_ranged": 2, "draw_kept_lit": 0, "error": None},
         {"scene": "res://lot/gs_b/site.tscn", "meshes_in": 9, "surfaces_in": 9, "merged": 2, "unwrapped": 2,
-         "colliders": 3, "error": None},
+         "colliders": 3, "draw_ranged": 2, "draw_kept_lit": 0, "error": None},
     ]}
 
 
