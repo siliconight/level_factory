@@ -83,7 +83,10 @@ LANE_SETBACK = REAR_YARD + ROAD_MARGIN
 #: front road with its doors' spurs and no cross street -- the main street this module's docstring names as a shape
 #: it could not build. `main_street`, `strip` and `street` still mean T: briefs and levels on disk wrote them, and
 #: re-pointing a spelling would move every one of them.
-GRAMMARS = ("T", "cross", "block", "avenue")
+#: `side_streets` (0.275.0, the walker of the vertical slice: "yes add side streets"): the avenue, crossed by a side
+#: street in every gap of the row that holds one -- the walker's main-drag comp (the factory's
+#: `docs/reference/MAIN_DRAG_COMP.md`): "Side streets cross the drag every block".
+GRAMMARS = ("T", "cross", "block", "avenue", "side_streets")
 
 #: What a brief may write for each. Case-insensitive; anything else is a `T`,
 #: for the reason `site_variation`'s table gives -- refusing a spelling would
@@ -97,7 +100,16 @@ _GRAMMAR_ALIASES = {
     "block": "block", "loop": "block", "service_lane": "block",
     "rear_lane": "block", "alley": "block", "back_lane": "block",
     "avenue": "avenue", "ave": "avenue", "one_road": "avenue", "single_road": "avenue",
+    "side_streets": "side_streets", "side_street": "side_streets", "avenue_side_streets": "side_streets",
+    "main_drag": "side_streets", "drag": "side_streets",
 }
+
+#: THE SHORTEST BLOCK `side_streets` lays (0.275.0): no two side streets nearer, centre to centre. Chosen, not
+#: derived -- a Delco grid's short blocks off an avenue, read off the main-drag comp's view at about 60 to 100 m --
+#: and the number to re-measure against a real map when one is read. Two neighbouring gaps in a row are often under
+#: it (the slice's gaps either side of its bank stand 46 m apart), and a street in each would read as two streets
+#: with a building between them, not as blocks.
+BLOCK_MIN = 60.0
 
 
 def _norm(grammar) -> str:
@@ -276,6 +288,31 @@ def _cross_line(edges, span_x):
     return x_cross, span_x, flank
 
 
+def _side_lines(edges, span_x):
+    """Where `side_streets` crosses the avenue: ``([x, ...], [flank, ...], span_x)``, west to east.
+
+    Every gap between two neighbouring buildings that holds a full band (`ROAD_BAND`, `_cross_line`'s own test),
+    taken widest first and kept when it stands `BLOCK_MIN` clear of every street already kept -- so a row's widest
+    gap always gets its street, as a T's does. Each street's flanking pair is its gap's two buildings, by
+    construction, for the reason `_cross_line` gives. A row with no such gap gets `_cross_line`'s one street past its
+    west end, and the plate widens for it as a T's does: an avenue with side streets has at least one."""
+    order = sorted(range(len(edges)), key=lambda i: edges[i])
+    gaps = []
+    for a, b in zip(order, order[1:]):
+        gap = edges[b][0] - edges[a][1]
+        if gap >= ROAD_BAND:
+            gaps.append((gap, (edges[a][1] + edges[b][0]) / 2.0, (a, b)))
+    kept = []
+    for _gap, x, flank in sorted(gaps, key=lambda g: (-g[0], g[1])):
+        if all(abs(x - k[0]) >= BLOCK_MIN for k in kept):
+            kept.append((x, flank))
+    if not kept:
+        x, span_x, flank = _cross_line(edges, span_x)
+        kept.append((x, flank))
+    kept.sort()
+    return [k[0] for k in kept], [k[1] for k in kept], span_x
+
+
 def _far_line(edges, x_cross, span_x):
     """Where the SECOND side street stands: past the row's end farther from the
     first one, half a band off the last building, so the loop the two streets
@@ -373,6 +410,23 @@ def roads_for(grammar, buildings, footprints, span_x, span_y):
         # ONE ROAD (0.263.0): the front road across the plate as it stands, every front door's spur to it, and no
         # cross line -- `_cross_line` would widen the plate for a street that is not there
         return [road], _spurs(faces, y_road), span_x, span_y
+    if shape == "side_streets":
+        # THE AVENUE AND ITS SIDE STREETS (0.275.0): each crosses THROUGH the avenue, as a crossroads' street does --
+        # the comp's streets run on into the rowhome grid on both sides -- so the plate deepens for their south arms
+        # by `cross`'s own rule, and each building flanking one gets its side door on it
+        xs, flanks, span_x = _side_lines(edges, span_x)
+        road["a"][0], road["b"][0] = -span_x / 2.0, span_x / 2.0
+        south_end = y_road - ROAD_WIDTH / 2.0 - SIDEWALK_WIDTH - ROAD_MARGIN
+        need_half = -(south_end - ROAD_BAND / 2.0)
+        if span_y / 2.0 < need_half:
+            span_y = int(math.ceil(2.0 * need_half))
+        ids = [b.get("id") for b in buildings]
+        sides = [{"a": [x, -span_y / 2.0 + ROAD_MARGIN], "b": [x, span_y / 2.0 - ROAD_MARGIN],
+                  "width": ROAD_WIDTH, "sidewalk": SIDEWALK_WIDTH} for x in xs]
+        doors = _spurs(faces, y_road)
+        for x, flank in zip(xs, flanks):
+            doors += _lateral_spurs(spans, ids, x, y_road, span_y, flank)
+        return [road] + sides, doors, span_x, span_y
     x_cross, span_x, flank = _cross_line(edges, span_x)
     # the through road spans the plate, which `_cross_line` may have widened
     road["a"][0], road["b"][0] = -span_x / 2.0, span_x / 2.0

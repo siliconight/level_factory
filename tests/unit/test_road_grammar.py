@@ -364,3 +364,66 @@ def test_an_avenue_is_the_front_road_alone():
         assert rg.grammar_of(spelling) == "avenue"
     for spelling in ("main_street", "strip", "street"):        # what briefs on disk wrote stays a T
         assert rg.grammar_of(spelling) == "T"
+
+
+# ------------------------------------------------------------- side_streets (0.275.0)
+
+def _slice_row():
+    """The vertical slice's row (seed 9104 of slice 24, `site.site.drawn.json`): its four buildings and the
+    footprints `site_variation.shell_footprint` measures off their Deli Counter shells. Gaps between them, edge to
+    edge: 32.8, 14.6 and 30.7 m."""
+    b = [{"id": "b0", "at": [-86, 11.44], "rot": 0, "street_reach": 32.0},
+         {"id": "b1", "at": [-15, -9.41], "rot": 0, "street_reach": 11.15},
+         {"id": "b2", "at": [25, -11.44], "rot": 0, "street_reach": 9.125},
+         {"id": "b3", "at": [92, -7.41], "rot": 0, "street_reach": 13.15}]
+    fp = [(46.0, 64.0), (30.46, 22.46), (20.25, 18.25), (52.3, 26.9)]
+    return b, fp
+
+
+def test_side_streets_cross_the_avenue_in_every_gap_a_block_apart():
+    """The slice's row has two gaps that hold a street, 97 m apart, and one that does not: two side streets, each
+    in its gap, each running the plate's full depth across the avenue."""
+    b, fp = _slice_row()
+    roads, doors, sx, sy = rg.roads_for("side_streets", b, fp, 256, 114)
+    av = rg.roads_for("avenue", b, fp, 256, 114)[0][0]
+    assert roads[0]["a"][1] == av["a"][1] and len(roads) == 3
+    xs = [r["a"][0] for r in roads[1:]]
+    assert xs == sorted(xs) and xs[1] - xs[0] >= rg.BLOCK_MIN
+    assert xs[0] == pytest.approx((-63.0 + -30.23) / 2.0, abs=0.01)     # between the gas station and the bank
+    assert xs[1] == pytest.approx((35.125 + 65.85) / 2.0, abs=0.01)     # between the card shop and the train yard
+    for r in roads[1:]:
+        assert r["a"][1] < roads[0]["a"][1] < r["b"][1], "a side street crosses the avenue, it does not end on it"
+        assert r["a"][1] == -sy / 2.0 + rg.ROAD_MARGIN and r["b"][1] == sy / 2.0 - rg.ROAD_MARGIN
+    # each building flanking a street gets a door on it, as a T's corner buildings do
+    lateral = [d for d in doors if d["a"][1] == d["b"][1]]
+    assert sorted(d["building"] for d in lateral) == ["b0", "b1", "b2", "b3"]
+    for spelling in ("side_streets", "side_street", "main_drag"):
+        assert rg.grammar_of(spelling) == "side_streets"
+
+
+def test_side_streets_keep_a_block_between_them():
+    """Two gaps nearer than `BLOCK_MIN` get one street, in the wider; a row with no gap that holds a band gets one
+    street past its west end, as a T does."""
+    b = [{"id": "b%d" % i, "at": [x, 0], "rot": 0} for i, x in enumerate((-60, 0, 50))]
+    fp = [(30.0, 20.0)] * 3                     # gaps 30 m and 20 m, centres 55 m apart
+    roads, _d, _sx, _sy = rg.roads_for("side_streets", b, fp, 200, 120)
+    assert [r["a"][0] for r in roads[1:]] == [-30.0]
+    tight, tfp = _buildings(n=3, pitch=40, footprint=(30.0, 20.0))   # 10 m gaps
+    roads, _d, sx, _sy = rg.roads_for("side_streets", tight, tfp, 140, 120)
+    t_roads = rg.roads_for("T", tight, tfp, 140, 120)[0]
+    assert len(roads) == 2 and roads[1]["a"][0] == t_roads[1]["a"][0] < -55.0
+
+
+@pytest.mark.skipif(not os.path.isdir(LOT), reason="lot repo not beside this one")
+def test_lot_reads_each_side_street_as_an_X():
+    """Lot draws the junctions: each side street passes THROUGH the avenue -- its slab whole, a gap mid-span where
+    the avenue owns the surface -- and the avenue records each crossing as not terminal."""
+    b, fp = _slice_row()
+    roads, _d, sx, sy = rg.roads_for("side_streets", b, fp, 256, 114)
+    resolved = _lot_roads(roads, sx, sy)
+    hits = [c for c in resolved[0].crossings if c.kind == "road"]
+    assert sorted(c.crosser for c in hits) == [1, 2] and not any(c.terminal for c in hits)
+    for side in resolved[1:]:
+        assert side.slab[0] == pytest.approx(0.0)
+        (g0, g1), = side.gaps
+        assert 0.0 < g0 < g1 < side.length

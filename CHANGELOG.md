@@ -1,3 +1,24 @@
+## [0.275.0] - the avenue and its side streets
+
+The walker, of the vertical slice: "yes add side streets". The slice stood on the `avenue` grammar -- one 256 m street
+with no junction, so no corner, crosswalk or stop sign anywhere on it -- while the walker's main-drag comp
+(the factory's `docs/reference/MAIN_DRAG_COMP.md`) says "Side streets cross the drag every block".
+
+### Added
+- **`road_grammar` `side_streets`** (spellings `side_street`, `avenue_side_streets`, `main_drag`, `drag`): the
+  avenue, crossed by a side street in every gap of the row that holds a full band (`_side_lines`, `_cross_line`'s
+  own test), widest first, none nearer another than `BLOCK_MIN` (60 m, chosen, not derived: a Delco grid's short
+  blocks off an avenue, read off the comp's view; recorded as the number to re-measure against a real map). Each
+  street crosses THROUGH the avenue the plate's full depth, as `cross`'s does, the plate deepening for its south arm
+  by `cross`'s rule; each building flanking one gets its side door on it (`_lateral_spurs`). A row with no gap that
+  holds a band gets `_cross_line`'s one street past its west end, the plate widening as a T's does. The panel offers
+  it as "An avenue crossed by side streets, a block apart". `avenue`, `T`, `cross` and `block` are byte for byte what
+  they were.
+- On the slice's row (seed 9104: gaps 32.8, 14.6 and 30.7 m): two side streets 96.8 m apart, between the gas
+  station and the bank and between the card shop and the train yard; Lot resolves each as an X.
+
+Tests: tests/unit/test_road_grammar.py, three tests (fails on 0.274.0: no such grammar).
+
 ## [0.274.0] - a window with a painted pane occludes
 
 ### Fixed

@@ -74,7 +74,8 @@ _TIMES = (("morning", "Morning"), ("noon", "High noon"), ("afternoon", "Afternoo
           ("midnight", "Midnight"))
 _GRAMMAR_LABELS = {"T": "A T junction", "cross": "Crossroads",
                    "block": "A block with a service lane behind (a loop)",
-                   "avenue": "One street, no junction (an avenue)"}
+                   "avenue": "One street, no junction (an avenue)",
+                   "side_streets": "An avenue crossed by side streets, a block apart"}
 _SURROUNDING_LABELS = {"": "Chosen by the level", "borough": "More of the borough", "none": "Nothing (the plate's edge)",
                        "yards": "Rail and freight yards", "parkland": "Parkland", "roadside": "Roadside lots"}
 #: The Level Standard's designer brief (docs/LEVEL_STANDARD.md, the walker's section 16) that no tool reads yet:
