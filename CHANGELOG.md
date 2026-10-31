@@ -1,3 +1,17 @@
+## [0.274.0] - a window with a painted pane occludes
+
+### Fixed
+- **`bake_occluders.gd`**: every `window_` module was porous -- "the opening IS the module" -- and a PAINTED pane is
+  not an opening: Zoo (>= 1.64.0) paints it over the sealed, full-thickness collider Deli Counter cuts every window
+  with, and names it `_p<state>`. So a window carrying one (`PAINTED_PANE_TOKENS`: `_plit`, `_pdark`, `_pboarded`,
+  `_pshop_`) is now solid; a clear window, a glazed one and every doorway stay as they were, and the existing hole
+  check still refuses a module whose mesh leaves its aperture open. Every Empty's painted windows had been porous
+  since their panes were painted; what found it was Deli Counter 0.295.0 painting the slice's bank's 32 new upper
+  windows -- from the camera socket on that storey 259 -> 1,224 draws, the culler open behind every one. On the
+  slice: occluders 1,918 -> 2,177, porous modules 388 -> 129; that view 1,224 -> 624.
+
+On the slice (slice 22 against slice 21, Level Factory 0.274.0, Deli Counter 0.295.0 and Lux 0.82.0 together; the factory's docs/findings/slice_look/, perf_s22c_*): the median heading +0 draws and -0.08 ms p95, the worst street view (longest_sightline yaw 90) 2,312 -> 2,320; the two camera sockets set on building faces at upper-storey height +134 to +365, with the same objects in their frustum (+-16), so what moved there is culling, not submissions added -- not attributed further. Tests: tests/unit/test_occluders_painted_panes.py (a real Godot classify; fails on 0.273.0).
+
 ## [0.273.0] - the draw distance on the merged meshes, and cover keeps its silhouette
 
 The second half of 0.272.0, and the walker's draw-distance handoff (the factory's

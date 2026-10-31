@@ -37,6 +37,14 @@ extends SceneTree
 ##                                         is visibly through it
 ##   never   prop_ and everything else
 ##
+##   solid   a window_ with a PAINTED pane (0.274.0): Zoo names one `_p<state>`
+##           (`zoo_keeper.core.kit`, 1.64.0) -- an Empty's windows and a storey
+##           nobody reaches (Deli Counter 0.295.0) -- and the pane is painted
+##           over a sealed, full-thickness collider: nothing is seen through
+##           it. Left porous, the slice's bank's 32 painted upper windows
+##           opened the culler: from its camera socket on that storey 259 ->
+##           1,224 draws, everything behind its walls submitted.
+##
 ## `wallEnd_` is solid brick and is skipped: it is a corner filler, and the
 ## count of them is in the report so the skip is priced rather than assumed.
 ##
@@ -59,6 +67,9 @@ const SOLID_PREFIXES := ["wall_", "roof_", "floor_", "ceiling_"]
 const POROUS_PREFIXES := ["window_", "doorway_", "breach_"]
 const FILLER_PREFIXES := ["wallend_"]
 const GLASS_TOKEN := "mglass"
+#: A painted pane's state as Zoo names it (`_p<state>`): every state Deli
+#: Counter's `empty_panes` draws begins with one of these.
+const PAINTED_PANE_TOKENS := ["_plit", "_pdark", "_pboarded", "_pshop_"]
 
 #: Metres trimmed from each side of every box (see the header).
 const SHRINK_M := 0.02
@@ -141,6 +152,10 @@ func classify(stem: String) -> String:
 			return "filler"
 	for p in POROUS_PREFIXES:
 		if s.begins_with(p):
+			if p == "window_":
+				for tok in PAINTED_PANE_TOKENS:
+					if s.contains(tok):
+						return "solid"
 			return "porous"
 	for p in SOLID_PREFIXES:
 		if s.begins_with(p):
